@@ -18,6 +18,8 @@ export const env = {
   // título que abre toda mensagem enviada (negrito no WhatsApp com asteriscos). Vazio = sem título.
   agentTitle: process.env.AGENT_TITLE ?? '*AMANDA IA - Teste*',
   timezone: process.env.CLINIC_TZ ?? 'America/Sao_Paulo',
+  // 'scripted' = roteiro fixo, sem IA (padrão) | 'claude' = modelo de linguagem (precisa de ANTHROPIC_API_KEY)
+  mode: (process.env.AGENT_MODE ?? 'scripted') as 'scripted' | 'claude',
   clinicName: process.env.CLINIC_NAME ?? 'Clínica',
   // base de conhecimento em texto (serviços, convênios, endereço, horários...). Sem banco: vem do env/arquivo.
   knowledge: process.env.CLINIC_KNOWLEDGE ?? '',

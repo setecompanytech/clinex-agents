@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
+    "simular": "tsx src/simular.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
