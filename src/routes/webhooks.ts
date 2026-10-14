@@ -14,6 +14,10 @@ router.post('/inovstar', (req: Request & { rawBody?: Buffer }, res) => {
   const sig = req.header('x-inovstar-signature');
   const ok = hasValidKey(req.query.key) || (sig ? verifySignature(req.rawBody, sig) : false);
   if (!ok) {
+    // Reenvios da fila antiga (URL sem ?key=): dá baixa com 200 SEM processar, para destravar a fila sequencial.
+    if (req.query.key === undefined && Number(req.header('x-inovstar-attempt') ?? 1) > 1) {
+      return res.json({ drained: true });
+    }
     console.log(`401: key=${req.query.key === undefined ? 'ausente' : 'errada'} assinatura=${sig ? 'sim' : 'não'} tentativa=${req.header('x-inovstar-attempt') ?? '?'} manual=${req.header('x-inovstar-manual-redelivery') ?? 'não'} evento=${req.header('x-inovstar-event') ?? '?'}`);
     return res.status(401).json({ error: 'não autorizado' });
   }
