@@ -50,7 +50,7 @@ export async function handleIncoming(ev: MessageReceivedEvent) {
   const skip = (why: string) => console.log(`[${ev.attendanceId}] ignorado: ${why}`);
   if (!isAllowed(ev.to)) return skip(`número ${ev.to} fora da whitelist`);
   if (ev.isGroup) return skip('grupo');
-  if (ev.isAssigned) return skip('atendimento já tem atendente humano');
+  if (ev.isAssigned) return skip(`atendimento já tem atendente humano ${ev.attendanceInfo}`);
   if (env.agentSectorId && ev.sectorId !== env.agentSectorId) return skip(`setor ${ev.sectorId} != setor da IA`);
 
   // Debounce: espera o paciente terminar de digitar e só a última mensagem dispara a resposta.

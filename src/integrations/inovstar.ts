@@ -27,6 +27,7 @@ export type MessageReceivedEvent = {
   sectorId?: string;
   isAssigned: boolean;
   isGroup: boolean;
+  attendanceInfo: string;
   contactName?: string;
 };
 
@@ -54,7 +55,10 @@ export function parseMessageReceived(body: any): MessageReceivedEvent | null {
     type: String(d.type),
     text: d.text ?? null,
     sectorId: d.attendance.sector?.id,
-    isAssigned: Boolean(d.attendance.isAssigned || d.attendance.user),
+    // Na fila (status 'pending', ex.: transferido para um setor) não há dono, mesmo que o webhook
+    // ainda traga o usuário que iniciou/transferiu o atendimento.
+    isAssigned: Boolean(d.attendance.isAssigned || d.attendance.user) && d.attendance.status !== 'pending',
+    attendanceInfo: JSON.stringify({ status: d.attendance.status, isAssigned: d.attendance.isAssigned, user: d.attendance.user?.name, sector: d.attendance.sector?.name }),
     isGroup: Boolean(d.author),
     contactName: d.contact?.name,
   };
