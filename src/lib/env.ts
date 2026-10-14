@@ -14,6 +14,7 @@ export const env = {
   autoReply: (process.env.AUTO_REPLY ?? 'true') !== 'false',
   // espera antes de responder, para agrupar mensagens picadas do paciente
   debounceMs: Number(process.env.DEBOUNCE_MS ?? 4000),
+  testReply: process.env.TEST_REPLY ?? 'Olá! Aqui é o assistente virtual da Clinex. Recebi sua mensagem e a equipe já vai te responder. (teste)',
   clinicName: process.env.CLINIC_NAME ?? 'Clínica',
   // base de conhecimento em texto (serviços, convênios, endereço, horários...). Sem banco: vem do env/arquivo.
   knowledge: process.env.CLINIC_KNOWLEDGE ?? '',

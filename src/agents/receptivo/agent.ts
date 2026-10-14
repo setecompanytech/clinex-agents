@@ -3,7 +3,7 @@ import { env } from '../../lib/env.js';
 import { describe, getHistory, sendText, transferToSector, type MessageReceivedEvent } from '../../integrations/inovstar.js';
 import { buildSystemPrompt } from './prompt.js';
 
-const anthropic = new Anthropic({ apiKey: env.anthropicKey });
+const anthropic = env.anthropicKey ? new Anthropic({ apiKey: env.anthropicKey }) : null;
 
 const tools: Anthropic.Tool[] = [
   {
@@ -65,6 +65,17 @@ export async function handleIncoming(ev: MessageReceivedEvent) {
   }
   while (turns[0]?.role === 'assistant') turns.shift();
   if (turns.length === 0 || turns[turns.length - 1].role !== 'user') return;
+
+  // Modo teste (sem ANTHROPIC_API_KEY): valida webhook, leitura do histórico e envio, com resposta fixa.
+  if (!anthropic) {
+    console.log(`[${ev.attendanceId}] MODO TESTE: ${turns.length} turnos lidos; última do paciente: "${String(turns[turns.length - 1].content).slice(-120)}"`);
+    const fixed = env.testReply;
+    console.log(`[${ev.attendanceId}] resposta -> ${fixed}`);
+    if (env.autoReply) {
+      await sendText({ channelId: ev.channelId, to: ev.to, attendanceId: ev.attendanceId, text: fixed, clientMessageId: `agente-receptivo-${ev.messageId}` });
+    }
+    return;
+  }
 
   const resp = await anthropic.messages.create({
     model: env.model,
