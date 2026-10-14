@@ -57,11 +57,11 @@ export async function handleIncoming(ev: MessageReceivedEvent) {
   await sleep(env.debounceMs);
   const { messages: history } = await getHistory(ev.attendanceId);
   const lastIn = [...history].reverse().find((m) => m.direction === 'in');
-  if (lastIn && lastIn._id !== ev.messageId) return; // chegou mensagem mais nova; o webhook dela responde
+  if (lastIn && lastIn._id !== ev.messageId) return skip(`chegou mensagem mais nova (${lastIn._id} != ${ev.messageId}); o webhook dela responde`);
 
   // Se um humano/bot já respondeu depois da última mensagem do paciente, não duplica.
   const last = history[history.length - 1];
-  if (last && last.direction === 'out' && last.status !== 'whisper') return;
+  if (last && last.direction === 'out' && last.status !== 'whisper') return skip(`última mensagem já é de saída (${last.type}); não duplica`);
 
   // Turnos user/assistant, fundindo consecutivos do mesmo papel
   const turns: Turn[] = [];
@@ -74,7 +74,7 @@ export async function handleIncoming(ev: MessageReceivedEvent) {
     else turns.push({ role, content });
   }
   while (turns[0]?.role === 'assistant') turns.shift();
-  if (turns.length === 0 || turns[turns.length - 1].role !== 'user') return;
+  if (turns.length === 0 || turns[turns.length - 1].role !== 'user') return skip('sem turno do paciente para responder');
 
   // Modo teste (sem ANTHROPIC_API_KEY): valida webhook, leitura do histórico e envio, com resposta fixa.
   if (!env.anthropicKey) {
@@ -103,7 +103,7 @@ export async function handleIncoming(ev: MessageReceivedEvent) {
     return;
   }
 
-  if (!text) return;
+  if (!text) return skip('modelo não devolveu texto');
   console.log(`[${ev.attendanceId}] resposta -> ${text}`);
   if (env.autoReply) {
     await sendText({

@@ -74,12 +74,19 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return res.json() as Promise<T>;
 }
 
-/** Últimas mensagens do atendimento, em ordem cronológica. */
+/** Últimas mensagens do atendimento, em ordem cronológica.
+ * A resposta real difere da doc: `id` (não `_id`), `timestamp` (não `createdAt`) e `text` pode vir como `{ text }`. */
 export async function getHistory(attendanceId: string, limit = 30) {
   const q = new URLSearchParams({ limit: String(limit), lightweight: 'true' });
-  const r = await request<{ data: { attendance?: { contact?: { name?: string } }; messages: InovstarMessage[] } }>(
-    'GET', `/attendance/${attendanceId}/history?${q}`);
-  const messages = [...r.data.messages].sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt));
+  const r = await request<{ data: { messages: any[] } }>('GET', `/attendance/${attendanceId}/history?${q}`);
+  const messages: InovstarMessage[] = r.data.messages.map((m) => ({
+    ...m,
+    _id: String(m.id ?? m._id),
+    text: typeof m.text === 'object' && m.text ? (m.text.text ?? null) : (m.text ?? null),
+    createdAt: m.timestamp ?? m.createdAt ?? m.waTimestamp,
+    isWhisper: m.isWhisper ?? m.isPrivate,
+  }));
+  messages.sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt));
   return { messages };
 }
 
