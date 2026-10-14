@@ -1,16 +1,19 @@
 # clinex-agents
 
-Backend dos agentes de IA da Clinex. Primeiro agente: **receptivo** (WhatsApp da clínica via Inovstar).
+Backend dos agentes de IA da Clinex. Primeiro agente: **receptivo** (WhatsApp da clínica via Inovstar). Sem banco de dados.
 
-Fluxo: Inovstar → `POST /webhooks/inovstar/:clinicSlug` → agente (Claude) → resposta via Inovstar,
-ou `transferir_para_humano`. Quando um humano responde na conversa, o agente se cala nela.
+## Fluxo
+1. A Inovstar chama `POST /webhooks/inovstar` a cada `MESSAGE_RECEIVED` (assinatura HMAC validada).
+2. O agente só atua se o atendimento está no setor `AGENT_SECTOR_ID` e sem atendente atribuído.
+3. Espera `DEBOUNCE_MS`, lê o histórico (`GET /attendance/{id}/history`) e gera a resposta com Claude.
+4. Responde por `POST /whatsapp/send/text`, ou transfere (`PUT /attendance/{id}/transfer`) para `HUMAN_SECTOR_ID`
+   avisando o paciente na mesma chamada.
+
+O estado (quem está com a conversa) é o próprio setor/atendente na Inovstar: ao transferir para o setor humano,
+o agente sai de cena naquela conversa.
 
 ## Setup
-1. Rodar `supabase/migrations/001_init.sql` e inserir uma linha em `clinics` (knowledge = base da clínica).
-2. Copiar `.env.example` para `.env`.
+1. Na Inovstar: criar setor da IA e setor humano; gerar a chave de API; criar webhook para
+   `https://<host>/webhooks/inovstar` com evento `MESSAGE_RECEIVED` e um signing token.
+2. Preencher o `.env` (ver `.env.example`). Comece com `AUTO_REPLY=false` (modo sombra) e veja os logs.
 3. `npm i && npm run dev`.
-4. Configurar na Inovstar o webhook: `https://<host>/webhooks/inovstar/<slug>?secret=<INOVSTAR_WEBHOOK_SECRET>`.
-
-## Pendente
-- Confirmar com a doc da Inovstar: payload do webhook, endpoint de envio de texto e de transferência (`src/integrations/inovstar.ts`).
-- `auto_reply=false` na clínica liga o modo sombra (grava sem enviar).

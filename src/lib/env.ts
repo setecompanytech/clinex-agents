@@ -1,9 +1,19 @@
 export const env = {
   anthropicKey: process.env.ANTHROPIC_API_KEY ?? '',
   model: process.env.AGENT_MODEL ?? 'claude-sonnet-5-5',
-  supabaseUrl: process.env.SUPABASE_URL ?? '',
-  supabaseKey: process.env.SUPABASE_SERVICE_ROLE_KEY ?? '',
   inovstarBase: process.env.INOVSTAR_BASE_URL ?? 'https://gateway.inovstar.com',
-  inovstarToken: process.env.INOVSTAR_TOKEN ?? '',
-  webhookSecret: process.env.INOVSTAR_WEBHOOK_SECRET ?? '',
+  inovstarToken: process.env.INOVSTAR_TOKEN ?? '', // inovstar_<64 hex>, um por empresa
+  webhookSecret: process.env.INOVSTAR_WEBHOOK_SECRET ?? '', // "signing token" configurado no webhook
+  // Setor onde a IA atende. Conversas fora dele (ou já atribuídas a um usuário) são ignoradas.
+  agentSectorId: process.env.AGENT_SECTOR_ID ?? '',
+  // Setor para onde a IA devolve a conversa quando transfere para humano.
+  humanSectorId: process.env.HUMAN_SECTOR_ID ?? '',
+  // false = modo sombra: lê, decide e só loga a resposta, sem enviar nem transferir.
+  autoReply: (process.env.AUTO_REPLY ?? 'true') !== 'false',
+  // espera antes de responder, para agrupar mensagens picadas do paciente
+  debounceMs: Number(process.env.DEBOUNCE_MS ?? 4000),
+  clinicName: process.env.CLINIC_NAME ?? 'Clínica',
+  // base de conhecimento em texto (serviços, convênios, endereço, horários...). Sem banco: vem do env/arquivo.
+  knowledge: process.env.CLINIC_KNOWLEDGE ?? '',
+  persona: process.env.CLINIC_PERSONA ?? '',
 };

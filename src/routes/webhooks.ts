@@ -1,23 +1,19 @@
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import { waitUntil } from '@vercel/functions';
-import { env } from '../lib/env.js';
-import { parseWebhook } from '../integrations/inovstar.js';
+import { parseMessageReceived, verifySignature } from '../integrations/inovstar.js';
 import { handleIncoming } from '../agents/receptivo/agent.js';
 
 const router = Router();
 
-// POST /webhooks/inovstar/:clinicSlug
-router.post('/inovstar/:clinicSlug', (req, res) => {
-  const secret = req.header('x-webhook-secret') ?? req.query.secret;
-  if (env.webhookSecret && secret !== env.webhookSecret) return res.status(401).json({ error: 'unauthorized' });
+// POST /webhooks/inovstar — evento MESSAGE_RECEIVED. A Inovstar exige 2xx em até 5s.
+router.post('/inovstar', (req: Request & { rawBody?: Buffer }, res) => {
+  if (!verifySignature(req.rawBody, req.header('x-inovstar-signature'))) {
+    return res.status(401).json({ error: 'assinatura inválida' });
+  }
+  const ev = parseMessageReceived(req.body);
+  if (!ev) return res.json({ ignored: true });
 
-  console.log('webhook inovstar', JSON.stringify(req.body).slice(0, 2000)); // ajuda a calibrar o parser
-  const msg = parseWebhook(req.body);
-  if (!msg) return res.json({ ignored: true });
-
-  // Responde rápido; o processamento continua em background (waitUntil na Vercel)
-  const job = handleIncoming(String(req.params.clinicSlug), msg).catch((e) => console.error('agente falhou', e));
-  waitUntil(job);
+  waitUntil(handleIncoming(ev).catch((e) => console.error('agente falhou', e)));
   res.json({ ok: true });
 });
 

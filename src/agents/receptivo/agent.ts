@@ -1,7 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { env } from '../../lib/env.js';
-import { db } from '../../lib/supabase.js';
-import { sendText, transferToHuman, type IncomingMessage } from '../../integrations/inovstar.js';
+import { describe, getHistory, sendText, transferToSector, type MessageReceivedEvent } from '../../integrations/inovstar.js';
 import { buildSystemPrompt } from './prompt.js';
 
 const anthropic = new Anthropic({ apiKey: env.anthropicKey });
@@ -9,7 +8,7 @@ const anthropic = new Anthropic({ apiKey: env.anthropicKey });
 const tools: Anthropic.Tool[] = [
   {
     name: 'transferir_para_humano',
-    description: 'Encaminha a conversa para um atendente humano e encerra a atuação do agente nela.',
+    description: 'Encaminha a conversa para a fila de atendentes humanos e encerra a atuação do agente nela.',
     input_schema: {
       type: 'object',
       properties: {
@@ -21,73 +20,69 @@ const tools: Anthropic.Tool[] = [
   },
 ];
 
-const HISTORY_LIMIT = 30;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-export async function handleIncoming(clinicSlug: string, msg: IncomingMessage) {
-  const { data: clinic } = await db.from('clinics').select('*').eq('slug', clinicSlug).single();
-  if (!clinic) throw new Error(`Clínica desconhecida: ${clinicSlug}`);
+/**
+ * Sem banco: o estado vive na Inovstar.
+ *  - O agente só atua em atendimentos do setor AGENT_SECTOR_ID e sem atendente atribuído.
+ *  - Ao transferir, o atendimento vai para HUMAN_SECTOR_ID, saindo do escopo do agente.
+ *  - O histórico vem de GET /attendance/{id}/history.
+ */
+export async function handleIncoming(ev: MessageReceivedEvent) {
+  if (ev.isGroup || ev.isAssigned) return;
+  if (!env.agentSectorId || ev.sectorId !== env.agentSectorId) return;
 
-  // Idempotência: a Inovstar pode reenviar o mesmo evento
-  const role = msg.fromMe ? 'human' : 'patient';
-  const { error: dup } = await db
-    .from('agent_messages')
-    .insert({ clinic_id: clinic.id, chat_id: msg.chatId, external_id: msg.messageId, role, content: msg.text });
-  if (dup) return; // já processada
+  // Debounce: espera o paciente terminar de digitar e só a última mensagem dispara a resposta.
+  await sleep(env.debounceMs);
+  const { messages: history } = await getHistory(ev.attendanceId);
+  const lastIn = [...history].reverse().find((m) => m.direction === 'in');
+  if (lastIn && lastIn._id !== ev.messageId) return; // chegou mensagem mais nova; o webhook dela responde
 
-  const now = new Date().toISOString();
+  // Se um humano/bot já respondeu depois da última mensagem do paciente, não duplica.
+  const last = history[history.length - 1];
+  if (last && last.direction === 'out' && last.status !== 'whisper') return;
 
-  // Mensagem da clínica => só registra. Humano assumiu, agente se cala nessa conversa.
-  // TODO: se a Inovstar ecoar no webhook as mensagens enviadas pelo próprio agente, filtrar aqui
-  // (comparar com agent_messages role='agent' ou marcar via clientMessageId) para não ser tratado como humano.
-  if (msg.fromMe) {
-    await db.from('agent_chats').upsert({ clinic_id: clinic.id, chat_id: msg.chatId, handoff: true, handoff_reason: 'humano respondeu', updated_at: now });
-    return;
+  // Turnos user/assistant, fundindo consecutivos do mesmo papel
+  const turns: Anthropic.MessageParam[] = [];
+  for (const m of history) {
+    const content = describe(m);
+    if (!content) continue;
+    const role = m.direction === 'in' ? 'user' : 'assistant';
+    const prev = turns[turns.length - 1];
+    if (prev && prev.role === role) prev.content = `${prev.content}\n${content}`;
+    else turns.push({ role, content });
   }
-
-  const { data: chat } = await db.from('agent_chats').select('handoff').eq('clinic_id', clinic.id).eq('chat_id', msg.chatId).maybeSingle();
-  if (chat?.handoff) return;
-  await db.from('agent_chats').upsert({
-    clinic_id: clinic.id, chat_id: msg.chatId, patient_name: msg.patientName, patient_phone: msg.patientPhone, updated_at: now,
-  });
-
-  const { data: rows } = await db
-    .from('agent_messages').select('role, content').eq('clinic_id', clinic.id).eq('chat_id', msg.chatId)
-    .order('created_at', { ascending: false }).limit(HISTORY_LIMIT);
-  const history = (rows ?? []).reverse();
-
-  // Mapeia para turnos user/assistant, fundindo consecutivos do mesmo papel
-  const messages: Anthropic.MessageParam[] = [];
-  for (const r of history) {
-    const r2 = r.role === 'patient' ? 'user' : 'assistant';
-    const last = messages[messages.length - 1];
-    if (last && last.role === r2) last.content = `${last.content}\n${r.content}`;
-    else messages.push({ role: r2, content: r.content });
-  }
-  if (messages[0]?.role === 'assistant') messages.shift();
-  if (messages.length === 0) return;
+  while (turns[0]?.role === 'assistant') turns.shift();
+  if (turns.length === 0 || turns[turns.length - 1].role !== 'user') return;
 
   const resp = await anthropic.messages.create({
     model: env.model,
     max_tokens: 600,
-    system: buildSystemPrompt(clinic),
+    system: buildSystemPrompt({ name: env.clinicName, knowledge: env.knowledge, persona: env.persona }),
     tools,
-    messages,
+    messages: turns,
   });
 
-  let reply = resp.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('\n').trim();
-  const handoffCall = resp.content.find((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use' && b.name === 'transferir_para_humano');
+  const text = resp.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('\n').trim();
+  const handoff = resp.content.find((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use' && b.name === 'transferir_para_humano');
 
-  if (handoffCall) {
-    const input = handoffCall.input as { motivo: string; mensagem_ao_paciente: string };
-    reply = input.mensagem_ao_paciente || reply;
-    await db.from('agent_chats').upsert({ clinic_id: clinic.id, chat_id: msg.chatId, handoff: true, handoff_reason: input.motivo, updated_at: now });
+  if (handoff) {
+    const { motivo, mensagem_ao_paciente } = handoff.input as { motivo: string; mensagem_ao_paciente: string };
+    const msg = mensagem_ao_paciente || text;
+    console.log(`[${ev.attendanceId}] transferir -> ${motivo} | ${msg}`);
+    if (env.autoReply && env.humanSectorId) await transferToSector(ev.attendanceId, env.humanSectorId, motivo, msg);
+    return;
   }
 
-  if (reply) {
-    if (clinic.auto_reply) await sendText(msg.chatId, reply);
-    await db.from('agent_messages').insert({ clinic_id: clinic.id, chat_id: msg.chatId, role: 'agent', content: reply, sent: clinic.auto_reply });
-  }
-  if (handoffCall && clinic.auto_reply) {
-    await transferToHuman(msg.chatId, (handoffCall.input as { motivo: string }).motivo);
+  if (!text) return;
+  console.log(`[${ev.attendanceId}] resposta -> ${text}`);
+  if (env.autoReply) {
+    await sendText({
+      channelId: ev.channelId,
+      to: ev.to,
+      attendanceId: ev.attendanceId,
+      text,
+      clientMessageId: `agente-receptivo-${ev.messageId}`,
+    });
   }
 }
