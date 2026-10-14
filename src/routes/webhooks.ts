@@ -12,7 +12,7 @@ const hasValidKey = (key: unknown) => Boolean(env.webhookSecret) && key === env.
 router.post('/inovstar', (req: Request & { rawBody?: Buffer }, res) => {
   // Autenticação: assinatura HMAC (se a Inovstar enviar) OU ?key=<segredo> na URL do webhook.
   const sig = req.header('x-inovstar-signature');
-  const ok = sig ? verifySignature(req.rawBody, sig) : hasValidKey(req.query.key);
+  const ok = hasValidKey(req.query.key) || (sig ? verifySignature(req.rawBody, sig) : false);
   if (!ok) return res.status(401).json({ error: 'não autorizado' });
   const ev = parseMessageReceived(req.body);
   if (!ev) return res.json({ ignored: true });
