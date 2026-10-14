@@ -20,6 +20,14 @@ const tools: Anthropic.Tool[] = [
   },
 ];
 
+/** Chave DDD + 8 últimos dígitos: ignora +55 e a diferença do nono dígito. */
+const phoneKey = (v: string) => {
+  let n = v.replace(/\D/g, '');
+  if (n.length >= 12 && n.startsWith('55')) n = n.slice(2);
+  return n.slice(0, 2) + n.slice(-8);
+};
+const isAllowed = (phone: string) => env.allowedNumbers.some((a) => phoneKey(a) === phoneKey(phone));
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
@@ -29,8 +37,11 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  *  - O histórico vem de GET /attendance/{id}/history.
  */
 export async function handleIncoming(ev: MessageReceivedEvent) {
-  if (ev.isGroup || ev.isAssigned) return;
-  if (!env.agentSectorId || ev.sectorId !== env.agentSectorId) return;
+  const skip = (why: string) => console.log(`[${ev.attendanceId}] ignorado: ${why}`);
+  if (!isAllowed(ev.to)) return skip(`número ${ev.to} fora da whitelist`);
+  if (ev.isGroup) return skip('grupo');
+  if (ev.isAssigned) return skip('atendimento já tem atendente humano');
+  if (env.agentSectorId && ev.sectorId !== env.agentSectorId) return skip(`setor ${ev.sectorId} != setor da IA`);
 
   // Debounce: espera o paciente terminar de digitar e só a última mensagem dispara a resposta.
   await sleep(env.debounceMs);
@@ -70,7 +81,10 @@ export async function handleIncoming(ev: MessageReceivedEvent) {
     const { motivo, mensagem_ao_paciente } = handoff.input as { motivo: string; mensagem_ao_paciente: string };
     const msg = mensagem_ao_paciente || text;
     console.log(`[${ev.attendanceId}] transferir -> ${motivo} | ${msg}`);
-    if (env.autoReply && env.humanSectorId) await transferToSector(ev.attendanceId, env.humanSectorId, motivo, msg);
+    if (env.autoReply) {
+      if (env.humanSectorId) await transferToSector(ev.attendanceId, env.humanSectorId, motivo, msg);
+      else await sendText({ channelId: ev.channelId, to: ev.to, attendanceId: ev.attendanceId, text: msg, clientMessageId: `agente-receptivo-${ev.messageId}` });
+    }
     return;
   }
 

@@ -4,9 +4,11 @@ export const env = {
   inovstarBase: process.env.INOVSTAR_BASE_URL ?? 'https://gateway.inovstar.com',
   inovstarToken: process.env.INOVSTAR_TOKEN ?? '', // inovstar_<64 hex>, um por empresa
   webhookSecret: process.env.INOVSTAR_WEBHOOK_SECRET ?? '', // "signing token" configurado no webhook
-  // Setor onde a IA atende. Conversas fora dele (ou já atribuídas a um usuário) são ignoradas.
+  // Whitelist de telefones (separados por vírgula). VAZIO = o agente não atende ninguém.
+  allowedNumbers: (process.env.ALLOWED_NUMBERS ?? '').split(',').map((n) => n.trim()).filter(Boolean),
+  // Setor onde a IA atende (opcional). Se definido, conversas fora dele são ignoradas.
   agentSectorId: process.env.AGENT_SECTOR_ID ?? '',
-  // Setor para onde a IA devolve a conversa quando transfere para humano.
+  // Setor para onde a IA devolve a conversa ao transferir (opcional; sem ele só avisa o paciente).
   humanSectorId: process.env.HUMAN_SECTOR_ID ?? '',
   // false = modo sombra: lê, decide e só loga a resposta, sem enviar nem transferir.
   autoReply: (process.env.AUTO_REPLY ?? 'true') !== 'false',
