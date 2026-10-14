@@ -13,7 +13,10 @@ router.post('/inovstar', (req: Request & { rawBody?: Buffer }, res) => {
   // Autenticação: assinatura HMAC (se a Inovstar enviar) OU ?key=<segredo> na URL do webhook.
   const sig = req.header('x-inovstar-signature');
   const ok = hasValidKey(req.query.key) || (sig ? verifySignature(req.rawBody, sig) : false);
-  if (!ok) return res.status(401).json({ error: 'não autorizado' });
+  if (!ok) {
+    console.log(`401: key=${req.query.key === undefined ? 'ausente' : 'errada'} assinatura=${sig ? 'sim' : 'não'} tentativa=${req.header('x-inovstar-attempt') ?? '?'} manual=${req.header('x-inovstar-manual-redelivery') ?? 'não'} evento=${req.header('x-inovstar-event') ?? '?'}`);
+    return res.status(401).json({ error: 'não autorizado' });
+  }
   const ev = parseMessageReceived(req.body);
   if (!ev) return res.json({ ignored: true });
 
