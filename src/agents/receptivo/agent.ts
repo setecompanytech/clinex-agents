@@ -1,6 +1,7 @@
 import { env } from '../../lib/env.js';
 import { describe, getHistory, sendText, transferToSector, type MessageReceivedEvent } from '../../integrations/inovstar.js';
 import { buildSystemPrompt } from './prompt.js';
+import { firstName, followUpMessage, greeting, nowParts, welcomeMessage } from '../../lib/humanize.js';
 
 type Turn = { role: 'user' | 'assistant'; content: string };
 type Block = { type: 'text'; text: string } | { type: 'tool_use'; name: string; input: unknown };
@@ -79,10 +80,15 @@ export async function handleIncoming(ev: MessageReceivedEvent) {
   while (turns[0]?.role === 'assistant') turns.shift();
   if (turns.length === 0 || turns[turns.length - 1].role !== 'user') return skip('sem turno do paciente para responder');
 
+  // A Amanda já respondeu nesta conversa? (mensagem de saída que carrega o título da Amanda)
+  const marker = env.agentTitle.replace(/\*/g, '').trim();
+  const jaRespondeu = Boolean(marker) && history.some((m) => m.direction === 'out' && m.text?.includes(marker));
+  const nome = firstName(ev.contactName);
+
   // Modo teste (sem ANTHROPIC_API_KEY): valida webhook, leitura do histórico e envio, com resposta fixa.
   if (!env.anthropicKey) {
     console.log(`[${ev.attendanceId}] MODO TESTE: ${turns.length} turnos lidos; última do paciente: "${String(turns[turns.length - 1].content).slice(-120)}"`);
-    const fixed = env.testReply;
+    const fixed = jaRespondeu ? followUpMessage(nome, ev.messageId) : welcomeMessage(nome, ev.messageId);
     console.log(`[${ev.attendanceId}] resposta -> ${fixed}`);
     if (env.autoReply) {
       await sendText({ channelId: ev.channelId, to: ev.to, attendanceId: ev.attendanceId, text: withTitle(fixed), clientMessageId: `agente-receptivo-${ev.messageId}` });
@@ -90,7 +96,12 @@ export async function handleIncoming(ev: MessageReceivedEvent) {
     return;
   }
 
-  const content = await callClaude(buildSystemPrompt({ name: env.clinicName, knowledge: env.knowledge, persona: env.persona }), turns);
+  const t = nowParts();
+  const system = buildSystemPrompt(
+    { name: env.clinicName, knowledge: env.knowledge, persona: env.persona },
+    { saudacao: greeting(), agora: `${t.weekday}, ${t.day} de ${t.month}, ${t.hour}:${t.minute}`, nomePaciente: nome, primeiraResposta: !jaRespondeu },
+  );
+  const content = await callClaude(system, turns);
 
   const text = content.filter((b): b is Extract<Block, { type: 'text' }> => b.type === 'text').map((b) => b.text).join('\n').trim();
   const handoff = content.find((b): b is Extract<Block, { type: 'tool_use' }> => b.type === 'tool_use' && b.name === 'transferir_para_humano');
