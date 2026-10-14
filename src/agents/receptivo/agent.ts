@@ -38,6 +38,9 @@ const phoneKey = (v: string) => {
 };
 const isAllowed = (phone: string) => env.allowedNumbers.some((a) => phoneKey(a) === phoneKey(phone));
 
+const withTitle = (text: string) => (env.agentTitle ? `${env.agentTitle}
+${text}` : text);
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
@@ -82,7 +85,7 @@ export async function handleIncoming(ev: MessageReceivedEvent) {
     const fixed = env.testReply;
     console.log(`[${ev.attendanceId}] resposta -> ${fixed}`);
     if (env.autoReply) {
-      await sendText({ channelId: ev.channelId, to: ev.to, attendanceId: ev.attendanceId, text: fixed, clientMessageId: `agente-receptivo-${ev.messageId}` });
+      await sendText({ channelId: ev.channelId, to: ev.to, attendanceId: ev.attendanceId, text: withTitle(fixed), clientMessageId: `agente-receptivo-${ev.messageId}` });
     }
     return;
   }
@@ -94,7 +97,7 @@ export async function handleIncoming(ev: MessageReceivedEvent) {
 
   if (handoff) {
     const { motivo, mensagem_ao_paciente } = handoff.input as { motivo: string; mensagem_ao_paciente: string };
-    const msg = mensagem_ao_paciente || text;
+    const msg = withTitle(mensagem_ao_paciente || text);
     console.log(`[${ev.attendanceId}] transferir -> ${motivo} | ${msg}`);
     if (env.autoReply) {
       if (env.humanSectorId) await transferToSector(ev.attendanceId, env.humanSectorId, motivo, msg);
@@ -110,7 +113,7 @@ export async function handleIncoming(ev: MessageReceivedEvent) {
       channelId: ev.channelId,
       to: ev.to,
       attendanceId: ev.attendanceId,
-      text,
+      text: withTitle(text),
       clientMessageId: `agente-receptivo-${ev.messageId}`,
     });
   }
