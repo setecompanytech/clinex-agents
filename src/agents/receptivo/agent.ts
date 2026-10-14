@@ -1,11 +1,21 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { env } from '../../lib/env.js';
 import { describe, getHistory, sendText, transferToSector, type MessageReceivedEvent } from '../../integrations/inovstar.js';
 import { buildSystemPrompt } from './prompt.js';
 
-const anthropic = env.anthropicKey ? new Anthropic({ apiKey: env.anthropicKey }) : null;
+type Turn = { role: 'user' | 'assistant'; content: string };
+type Block = { type: 'text'; text: string } | { type: 'tool_use'; name: string; input: unknown };
 
-const tools: Anthropic.Tool[] = [
+async function callClaude(system: string, messages: Turn[]): Promise<Block[]> {
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'x-api-key': env.anthropicKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({ model: env.model, max_tokens: 600, system, tools, messages }),
+  });
+  if (!res.ok) throw new Error(`Anthropic ${res.status}: ${await res.text()}`);
+  return ((await res.json()) as { content: Block[] }).content;
+}
+
+const tools = [
   {
     name: 'transferir_para_humano',
     description: 'Encaminha a conversa para a fila de atendentes humanos e encerra a atuação do agente nela.',
@@ -54,7 +64,7 @@ export async function handleIncoming(ev: MessageReceivedEvent) {
   if (last && last.direction === 'out' && last.status !== 'whisper') return;
 
   // Turnos user/assistant, fundindo consecutivos do mesmo papel
-  const turns: Anthropic.MessageParam[] = [];
+  const turns: Turn[] = [];
   for (const m of history) {
     const content = describe(m);
     if (!content) continue;
@@ -67,7 +77,7 @@ export async function handleIncoming(ev: MessageReceivedEvent) {
   if (turns.length === 0 || turns[turns.length - 1].role !== 'user') return;
 
   // Modo teste (sem ANTHROPIC_API_KEY): valida webhook, leitura do histórico e envio, com resposta fixa.
-  if (!anthropic) {
+  if (!env.anthropicKey) {
     console.log(`[${ev.attendanceId}] MODO TESTE: ${turns.length} turnos lidos; última do paciente: "${String(turns[turns.length - 1].content).slice(-120)}"`);
     const fixed = env.testReply;
     console.log(`[${ev.attendanceId}] resposta -> ${fixed}`);
@@ -77,16 +87,10 @@ export async function handleIncoming(ev: MessageReceivedEvent) {
     return;
   }
 
-  const resp = await anthropic.messages.create({
-    model: env.model,
-    max_tokens: 600,
-    system: buildSystemPrompt({ name: env.clinicName, knowledge: env.knowledge, persona: env.persona }),
-    tools,
-    messages: turns,
-  });
+  const content = await callClaude(buildSystemPrompt({ name: env.clinicName, knowledge: env.knowledge, persona: env.persona }), turns);
 
-  const text = resp.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('\n').trim();
-  const handoff = resp.content.find((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use' && b.name === 'transferir_para_humano');
+  const text = content.filter((b): b is Extract<Block, { type: 'text' }> => b.type === 'text').map((b) => b.text).join('\n').trim();
+  const handoff = content.find((b): b is Extract<Block, { type: 'tool_use' }> => b.type === 'tool_use' && b.name === 'transferir_para_humano');
 
   if (handoff) {
     const { motivo, mensagem_ao_paciente } = handoff.input as { motivo: string; mensagem_ao_paciente: string };
