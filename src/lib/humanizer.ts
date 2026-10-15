@@ -26,7 +26,7 @@ const SEMANA = ['segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira',
 function fatos(texto: string): string[] {
   const t = texto.toLocaleLowerCase('pt-BR');
   const nums = texto.match(/\d+(?:[.,]\d+)?/g) ?? [];
-  const palavras = [...MESES, ...SEMANA, 'guamá', 'telégrafo', 'amanda', 'bom dia', 'boa tarde', 'boa noite', 'ordem de chegada', 'samu', 'cvv'].filter((p) => t.includes(p));
+  const palavras = [...MESES, ...SEMANA, 'guamá', 'telégrafo', 'amanda', 'bom dia', 'boa tarde', 'boa noite', 'ordem de chegada', 'samu', 'cvv', 'simulação', 'cpf', 'equipe'].filter((p) => t.includes(p));
   return [...nums, ...palavras];
 }
 
