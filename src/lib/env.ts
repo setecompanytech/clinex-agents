@@ -16,7 +16,7 @@ export const env = {
   debounceMs: Number(process.env.DEBOUNCE_MS ?? 4000),
   testReply: process.env.TEST_REPLY ?? 'Olá! Aqui é o assistente virtual da Clinex. Recebi sua mensagem e a equipe já vai te responder. (teste)',
   // título que abre toda mensagem enviada (negrito no WhatsApp com asteriscos). Vazio = sem título.
-  agentTitle: process.env.AGENT_TITLE ?? '*AMANDA IA - Teste*',
+  agentTitle: process.env.AGENT_TITLE ?? '*Amanda (IA) - Nova*',
   timezone: process.env.CLINIC_TZ ?? 'America/Sao_Paulo',
   // 'scripted' = roteiro fixo, sem IA (padrão) | 'claude' = modelo de linguagem (precisa de ANTHROPIC_API_KEY)
   mode: (process.env.AGENT_MODE ?? 'scripted') as 'scripted' | 'claude',

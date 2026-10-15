@@ -25,7 +25,7 @@ rl.on('line', (linha) => {
       try {
         const r = await responder(textos, ctx(), fonte);
         const texto = r && !r.handoff?.urgente ? await amigavel(r.reply, { tag: '[sim]' }) : r?.reply;
-        console.log(`\nAMANDA IA - Teste\n${texto}\n${r?.handoff ? `[transfere para a equipe: ${r.handoff.motivo}]\n` : ''}`);
+        console.log(`\n${env.agentTitle.split('*').join('')}\n${texto}\n${r?.handoff ? `[transfere para a equipe: ${r.handoff.motivo}]\n` : ''}`);
       } catch (e) { console.log('ERRO:', (e as Error).message); }
     }
     rl.prompt();
