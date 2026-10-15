@@ -1,4 +1,5 @@
 import { env } from './env.js';
+import { evt } from './log.js';
 
 /**
  * Camada de "mensagem amigável" (GPT). O roteiro decide O QUE dizer e fornece os fatos (preço, datas,
@@ -44,8 +45,11 @@ export function validar(original: string, novo: string): string | null {
   return null;
 }
 
-export async function amigavel(texto: string, opts: { tag?: string } = {}): Promise<string> {
-  if (!env.openaiKey) return texto;
+export type ResultadoGpt = { texto: string; status: 'usado' | 'rejeitado' | 'falhou' | 'desligado'; motivo?: string; ms?: number };
+
+export async function amigavelDetalhado(texto: string): Promise<ResultadoGpt> {
+  if (!env.openaiKey) return { texto, status: 'desligado' };
+  const t0 = Date.now();
   try {
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -60,10 +64,18 @@ export async function amigavel(texto: string, opts: { tag?: string } = {}): Prom
     const j: any = await res.json();
     const novo: string = (j.choices?.[0]?.message?.content ?? '').trim();
     const erro = validar(texto, novo);
-    if (erro) { console.log(`${opts.tag ?? ''} humanizador rejeitado (${erro}); usando texto do roteiro`); return texto; }
-    return novo;
+    const ms = Date.now() - t0;
+    if (erro) { const r: ResultadoGpt = { texto, status: 'rejeitado', motivo: erro, ms }; evt('gpt', { status: r.status, motivo: erro, ms, original: texto, reescrito: novo }); return r; }
+    evt('gpt', { status: 'usado', ms, original: texto, reescrito: novo, tokens: j.usage?.total_tokens });
+    return { texto: novo, status: 'usado', ms };
   } catch (e) {
-    console.log(`${opts.tag ?? ''} humanizador falhou (${(e as Error).message}); usando texto do roteiro`);
-    return texto;
+    const motivo = (e as Error).message;
+    evt('gpt', { status: 'falhou', motivo, ms: Date.now() - t0, original: texto });
+    return { texto, status: 'falhou', motivo, ms: Date.now() - t0 };
   }
+}
+
+/** Compatível com o uso anterior: devolve só o texto final. */
+export async function amigavel(texto: string, _opts: { tag?: string } = {}): Promise<string> {
+  return (await amigavelDetalhado(texto)).texto;
 }

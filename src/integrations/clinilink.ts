@@ -1,4 +1,5 @@
 import { env } from '../lib/env.js';
+import { evt } from '../lib/log.js';
 
 /**
  * Cliente SOMENTE LEITURA da API de agendamento do Clinilink (Clinex).
@@ -20,11 +21,22 @@ export class ClinilinkError extends Error {
 const cache = new Map<string, { exp: number; val: Promise<unknown> }>();
 function memo<T>(key: string, ttlMs: number, fn: () => Promise<T>): Promise<T> {
   const hit = cache.get(key);
-  if (hit && hit.exp > Date.now()) return hit.val as Promise<T>;
+  if (hit && hit.exp > Date.now()) { evt('clinilink', { cache: true, recurso: key.split(':')[0] }); return hit.val as Promise<T>; }
   const val = fn();
   cache.set(key, { exp: Date.now() + ttlMs, val });
   val.catch(() => cache.delete(key)); // não guarda falha
   return val;
+}
+
+/** Resumo do retorno para o log: contagem + amostra dos itens (sem dados pessoais; paciente só conta). */
+function resumo(caminho: string, body: any) {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(body ?? {})) {
+    if (!Array.isArray(v)) continue;
+    if (k === 'pacientes') { out.pacientes = { encontrados: v.length }; continue; }
+    out[k] = { total: v.length, amostra: v.slice(0, 5).map((x: any) => ({ unidade: k === 'clinicas' ? x.nome : x.unidade?.nome, procedimento: k === 'procedimentos' ? x.nome : undefined, medico: x.profissional?.nome, id: typeof x.id === 'string' ? x.id.slice(0, 8) : undefined, data: x.data, hora: x.hora, inicioAgenda: x.agendaHoraInicio, preco: x.preco, precoDinheiro: x.precoDinheiro })) };
+  }
+  return out;
 }
 
 async function get<T>(path: string, params: Record<string, string | undefined>): Promise<T> {
@@ -32,16 +44,20 @@ async function get<T>(path: string, params: Record<string, string | undefined>):
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) if (v) qs.set(k, v);
   const url = `${env.clinilinkBase}${path}${qs.size ? `?${qs}` : ''}`;
+  const paramsLog = Object.fromEntries(Object.entries(params).filter(([, v]) => v).map(([k, v]) => [k, /^(unidadeId|procedimentoId|profissionalId)$/.test(k) ? String(v).slice(0, 8) : v]));
   let ultimo: unknown;
   for (let tentativa = 0; tentativa < 2; tentativa++) {
+    const t0 = Date.now();
     try {
       const res = await fetch(url, { headers: { 'x-api-key': env.clinilinkKey }, signal: AbortSignal.timeout(25000) });
       const body: any = await res.json().catch(() => null);
+      evt('clinilink', { metodo: 'GET', caminho: path, params: paramsLog, status: res.status, ms: Date.now() - t0, tentativa: tentativa + 1, ok: Boolean(res.ok && body?.ok), erro: body?.erro, retorno: res.ok ? resumo(path, body) : undefined });
       if (res.ok && body?.ok) return body as T;
       if (res.status < 500) throw new ClinilinkError(body?.mensagem ?? `Clinilink ${path} -> ${res.status}`, res.status);
       ultimo = new ClinilinkError(`Clinilink ${path} -> ${res.status}`, res.status);
     } catch (e) {
       if (e instanceof ClinilinkError && (e.status ?? 500) < 500) throw e;
+      if (!(e instanceof ClinilinkError)) evt('clinilink', { metodo: 'GET', caminho: path, params: paramsLog, ms: Date.now() - t0, tentativa: tentativa + 1, ok: false, erro: (e as Error).message });
       ultimo = e;
     }
   }

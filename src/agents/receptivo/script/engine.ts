@@ -39,6 +39,21 @@ export type Ctx = { now: Date; nome: string; tz: string; telefone?: string };
 export type Handoff = { motivo: string; urgente?: boolean };
 export type Result = { state: State; reply: string; handoff?: Handoff };
 
+/** Etapa legível da conversa, para o painel de logs. */
+export function etapa(s: State, handoff?: Handoff): string {
+  if (handoff?.urgente) return 'segurança (emergência/crise)';
+  if (handoff) return 'transferida para a equipe';
+  if (s.fim) return 'concluída';
+  if (!s.servico) return s.opcoes ? 'escolhendo entre opções de serviço' : 'recepção / entendendo o serviço';
+  if (!s.servicoConfirmado) return 'confirmando o serviço';
+  if (!s.unidade) return 'escolhendo a unidade';
+  if (!s.slot) return 'escolhendo data e turno';
+  if (!s.cpf) return 'pedindo o CPF';
+  if (s.paciente === undefined) return 'consultando o paciente';
+  if (s.paciente === null) return 'cadastro do paciente novo';
+  return 'confirmando o paciente';
+}
+
 /** Marca na mensagem final da simulação; o agente abre uma jornada nova depois dela. */
 export const MARCA_FIM = 'Simulação: nada foi agendado';
 

@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { env } from '../lib/env.js';
+import { evt } from '../lib/log.js';
 
 // Doc: https://inovstar.readme.io — base {gateway}/api, auth "Authorization: Bearer inovstar_<token>"
 
@@ -65,11 +66,14 @@ export function parseMessageReceived(body: any): MessageReceivedEvent | null {
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const t0 = Date.now();
+  const rotulo = path.replace(/\/[0-9a-f]{24}/g, '/{id}').split('?')[0];
   const res = await fetch(`${env.inovstarBase}/api${path}`, {
     method,
     headers: { Authorization: `Bearer ${env.inovstarToken}`, 'Content-Type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,
   });
+  evt('inovstar', { metodo: method, caminho: rotulo, status: res.status, ms: Date.now() - t0, ok: res.ok });
   if (!res.ok) throw new Error(`Inovstar ${method} ${path} -> ${res.status}: ${await res.text()}`);
   return res.json() as Promise<T>;
 }

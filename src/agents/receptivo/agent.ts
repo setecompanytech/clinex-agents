@@ -1,10 +1,11 @@
 import { env } from '../../lib/env.js';
 import { describe, getHistory, sendText, transferToSector, type MessageReceivedEvent } from '../../integrations/inovstar.js';
 import { buildSystemPrompt } from './prompt.js';
-import { MARCA_FIM, responder } from './script/engine.js';
+import { MARCA_FIM, etapa, responder } from './script/engine.js';
 import { fonteSimulada } from './script/catalog.js';
 import { fonteClinilink } from './script/clinilinkFonte.js';
-import { amigavel } from '../../lib/humanizer.js';
+import { amigavelDetalhado } from '../../lib/humanizer.js';
+import { comAtendimento, evt } from '../../lib/log.js';
 import { firstName, followUpMessage, greeting, nowParts, welcomeMessage } from '../../lib/humanize.js';
 
 type Turn = { role: 'user' | 'assistant'; content: string };
@@ -54,8 +55,13 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  *  - Ao transferir, o atendimento vai para HUMAN_SECTOR_ID, saindo do escopo do agente.
  *  - O histórico vem de GET /attendance/{id}/history.
  */
-export async function handleIncoming(ev: MessageReceivedEvent) {
-  const skip = (why: string) => console.log(`[${ev.attendanceId}] ignorado: ${why}`);
+export const handleIncoming = (ev: MessageReceivedEvent) => comAtendimento(ev.attendanceId, () => processar(ev));
+
+async function processar(ev: MessageReceivedEvent) {
+  const skip = (why: string) => {
+    console.log(`[${ev.attendanceId}] ignorado: ${why}`);
+    if (!why.includes('fora da whitelist')) evt('ignorado', { motivo: why }); // número de outros pacientes não vira evento (só do piloto)
+  };
   if (!isAllowed(ev.to)) return skip(`número ${ev.to} fora da whitelist`);
   if (ev.isGroup) return skip('grupo');
   if (ev.isAssigned) return skip(`atendimento já tem atendente humano ${ev.attendanceInfo}`);
@@ -110,10 +116,23 @@ export async function handleIncoming(ev: MessageReceivedEvent) {
       r = { state: undefined as never, reply: 'Estou com dificuldade para consultar a agenda agora. Vou pedir para a equipe te ajudar, só um instante.', handoff: { motivo: `Falha ao consultar o Clinilink: ${(e as Error).message}` } };
     }
     if (!r) return skip('roteiro sem resposta');
-    const texto = r.handoff?.urgente ? r.reply : await amigavel(r.reply, { tag });
+    // o GPT só reescreve o tom; emergência/crise nunca passam por ele
+    const gpt = r.handoff?.urgente ? { texto: r.reply, status: 'desligado' as const, motivo: 'mensagem de segurança' } : await amigavelDetalhado(r.reply);
+    const texto = gpt.texto;
     const msg = withTitle(texto);
-    const mascara = (x: string) => x.replace(/\d{3}\.?\d{3}\.?\d{3}-?\d{2}/g, '***.***.***-**');
-    console.log(`${tag} ROTEIRO/${fonte.tipo} (${textos.length} msgs) resposta -> ${mascara(texto)}${r.handoff ? ` | TRANSFERE: ${mascara(r.handoff.motivo)}` : ''}`);
+    evt('resposta', {
+      fonte: fonte.tipo,
+      etapa: r.state ? etapa(r.state, r.handoff) : 'falha ao consultar a agenda',
+      mensagens_na_jornada: textos.length,
+      paciente_disse: textos[textos.length - 1],
+      roteiro: r.reply,
+      enviado: msg,
+      gpt: gpt.status,
+      gpt_motivo: gpt.motivo,
+      transferiu: Boolean(r.handoff),
+      motivo_transferencia: r.handoff?.motivo,
+      enviou_de_verdade: env.autoReply,
+    });
     if (!env.autoReply) return;
     if (r.handoff && env.humanSectorId) await transferToSector(ev.attendanceId, env.humanSectorId, r.handoff.motivo, msg);
     else await sendText({ channelId: ev.channelId, to: ev.to, attendanceId: ev.attendanceId, text: msg, clientMessageId: `agente-receptivo-${ev.messageId}` });
