@@ -221,8 +221,12 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
   // 6) informa as unidades com agenda (e o médico de cada uma) antes de perguntar qualquer coisa
   if (!s.unidadesInformadas) {
     s.unidadesInformadas = true;
-    const onde = sv.unidades.map((u) => `no ${u.nome}${u.profissionais?.length ? ` com ${u.profissionais.join(' e ')}` : ''}`);
-    partes.push(`${cap(sv.frase)} tem agenda ${onde.length > 1 ? `${onde.slice(0, -1).join(', ')} e ${onde[onde.length - 1]}` : onde[0]}.${sv.precoTexto ? ` ${sv.precoTexto}` : ''}`);
+    const medicos = (u: Unidade) => (u.profissionais?.length ? ` com ${u.profissionais.join(' e ')}` : '');
+    const preco = sv.precoTexto ? ` ${sv.precoTexto}` : '';
+    // uma unidade: frase corrida. Várias: uma por linha, para os médicos de cada unidade não se misturarem.
+    partes.push(sv.unidades.length === 1
+      ? `${cap(sv.frase)} tem agenda no ${sv.unidades[0].nome}${medicos(sv.unidades[0])}.${preco}`
+      : [`${cap(sv.frase)} tem agenda nestas unidades:`, ...sv.unidades.map((u) => `${u.nome}${medicos(u)}`), ...(preco ? [preco.trim()] : [])].join('\n'));
   }
   if (aviso) partes.push(aviso);
   if (!s.unidade) return dizer(base.unidadesInformadas ? `Para eu seguir, qual unidade você prefere: ${sv.unidades.map((u) => u.nome).join(' ou ')}?` : 'Para qual unidade você prefere?');
