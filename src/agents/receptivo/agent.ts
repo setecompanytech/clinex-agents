@@ -103,7 +103,7 @@ export async function handleIncoming(ev: MessageReceivedEvent) {
     const tag = `[${ev.attendanceId}]`;
     let r;
     try {
-      r = await responder(textos, { now: new Date(), nome, tz: env.timezone }, fonte);
+      r = await responder(textos, { now: new Date(), nome, tz: env.timezone, telefone: ev.to }, fonte);
     } catch (e) {
       // Clinilink fora do ar / lento: não inventa dado, devolve para a equipe
       console.error(`${tag} falha ao consultar a fonte (${fonte.tipo}):`, (e as Error).message);
@@ -112,7 +112,8 @@ export async function handleIncoming(ev: MessageReceivedEvent) {
     if (!r) return skip('roteiro sem resposta');
     const texto = r.handoff?.urgente ? r.reply : await amigavel(r.reply, { tag });
     const msg = withTitle(texto);
-    console.log(`${tag} ROTEIRO/${fonte.tipo} (${textos.length} msgs) resposta -> ${texto}${r.handoff ? ` | TRANSFERE: ${r.handoff.motivo}` : ''}`);
+    const mascara = (x: string) => x.replace(/\d{3}\.?\d{3}\.?\d{3}-?\d{2}/g, '***.***.***-**');
+    console.log(`${tag} ROTEIRO/${fonte.tipo} (${textos.length} msgs) resposta -> ${mascara(texto)}${r.handoff ? ` | TRANSFERE: ${mascara(r.handoff.motivo)}` : ''}`);
     if (!env.autoReply) return;
     if (r.handoff && env.humanSectorId) await transferToSector(ev.attendanceId, env.humanSectorId, r.handoff.motivo, msg);
     else await sendText({ channelId: ev.channelId, to: ev.to, attendanceId: ev.attendanceId, text: msg, clientMessageId: `agente-receptivo-${ev.messageId}` });

@@ -58,3 +58,10 @@ export const listProcedimentos = (unidadeId: string, busca: string) =>
 export const listAgenda = (p: { unidadeId: string; dataInicial: string; dataFinal: string; procedimentoId?: string }) =>
   memo(`agenda:${p.unidadeId}:${p.dataInicial}:${p.dataFinal}:${p.procedimentoId ?? ''}`, 2 * 60_000, async () =>
     (await get<{ horarios: Horario[] }>('/v1/agendamento/agenda', p)).horarios);
+
+export type Paciente = { id: string; nome: string; cpf?: string | null; dataNascimento?: string | null; telefone?: string | null };
+
+/** Consulta de paciente por CPF. Dado pessoal: nunca em cache e nunca logado. */
+export async function getPacientePorCpf(cpf: string): Promise<Paciente[]> {
+  return (await get<{ pacientes: Paciente[] }>('/v1/agendamento/pacientes', { cpf })).pacientes;
+}
