@@ -3,15 +3,18 @@
 export const clientJs = String.raw`
 (function () {
   'use strict';
-  var NODE_W = 260, NODE_H = 112;
+  var NODE_W = 250, NODE_H = 108;
   var KIND_LABEL = {};
   var flow = null;
   var nodesById = {};
+  var bandsById = {};
   var nodeEls = {};
   var edgeEls = [];
   var view = { x: 0, y: 0, k: 1 };
+  var lastFit = null;
   var selected = null;
   var spotlight = null;
+  var tab = 'mapa';
   var vp = document.getElementById('viewport');
   var world = document.getElementById('world');
   var panel = document.getElementById('panel');
@@ -29,22 +32,21 @@ export const clientJs = String.raw`
     return e;
   }
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+  function store(key, val) { try { if (val == null) return localStorage.getItem(key); localStorage.setItem(key, val); } catch (e) {} return null; }
 
   /* ------------------------------------------------------------------ tema */
-  function applyTheme(t) {
+  function applyTheme(t, persist) {
     document.documentElement.setAttribute('data-theme', t);
     var b = document.getElementById('btnTheme');
     if (b) b.textContent = t === 'dark' ? 'Tema claro' : 'Tema escuro';
+    if (persist) store('painel-theme', t);
   }
   (function initTheme() {
-    var t = null;
-    try { t = localStorage.getItem('painel-theme'); } catch (e) {}
+    var t = store('painel-theme');
     if (!t) t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-    applyTheme(t);
+    applyTheme(t, false);
     document.getElementById('btnTheme').addEventListener('click', function () {
-      var n = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
-      applyTheme(n);
-      try { localStorage.setItem('painel-theme', n); } catch (e) {}
+      applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark', true);
     });
   })();
 
@@ -65,19 +67,20 @@ export const clientJs = String.raw`
     if (panel.classList.contains('open') && window.innerWidth > 760) w -= panel.offsetWidth;
     return Math.max(200, w);
   }
-  function fitRect(r, pad, maxK) {
+  function fitRect(r, pad, maxK, left) {
+    lastFit = { r: r, pad: pad, maxK: maxK, left: left };
     var W = usableWidth(), H = vp.clientHeight;
     pad = pad == null ? 40 : pad;
     var k = Math.min((W - pad * 2) / r.w, (H - pad * 2) / r.h, maxK || 1.1);
-    k = clamp(k, 0.12, 2);
+    k = clamp(k, 0.1, 2);
     view.k = k;
-    view.x = (W - r.w * k) / 2 - r.x * k;
+    view.x = left ? (pad - r.x * k) : ((W - r.w * k) / 2 - r.x * k);
     view.y = (H - r.h * k) / 2 - r.y * k;
     animate(true);
     applyView();
   }
   function zoomAt(cx, cy, factor) {
-    var nk = clamp(view.k * factor, 0.12, 2.2);
+    var nk = clamp(view.k * factor, 0.1, 2.2);
     var f = nk / view.k;
     view.x = cx - (cx - view.x) * f;
     view.y = cy - (cy - view.y) * f;
@@ -87,13 +90,24 @@ export const clientJs = String.raw`
   function bboxOfBands(ids) {
     var x1 = 1e9, y1 = 1e9, x2 = -1e9, y2 = -1e9;
     flow.bands.forEach(function (b) {
-      if (ids.indexOf(b.id) < 0) return;
+      if (ids && ids.indexOf(b.id) < 0) return;
       x1 = Math.min(x1, b.x); y1 = Math.min(y1, b.y);
       x2 = Math.max(x2, b.x + b.w); y2 = Math.max(y2, b.y + b.h);
     });
     return { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
   }
-  function fitAll() { fitRect(bboxOfBands(flow.bands.map(function (b) { return b.id; })), 24, 1); }
+  function fitAll() { fitRect(bboxOfBands(null), 24, 1); }
+  function focusNode(id) {
+    var n = nodesById[id];
+    if (!n) return;
+    var b = box(n), W = usableWidth(), H = vp.clientHeight;
+    var k = Math.max(0.85, Math.min(view.k, 1.1));
+    view.k = k;
+    view.x = W / 2 - (b.x + b.w / 2) * k;
+    view.y = H / 2 - (b.y + b.h / 2) * k;
+    animate(true);
+    applyView();
+  }
 
   var pointers = {};
   var drag = null;
@@ -203,18 +217,34 @@ export const clientJs = String.raw`
     var last = pts[pts.length - 1];
     return d + ' L' + last.x + ',' + last.y;
   }
-  function wrapPath(a, b, t) {
-    var yLow = a.y + 44;
-    var xv = b.x - 36;
-    var pts = [a, { x: a.x, y: yLow }, { x: xv, y: yLow }, { x: xv, y: b.y }, b];
-    var span = xv - a.x;
-    return { d: roundedPath(pts, 16), mid: { x: a.x + span * t, y: yLow } };
+  /* linha em ângulos retos passando pelos pontos "via" */
+  function polyPath(a, via, b, t) {
+    var raw = [a];
+    (via || []).forEach(function (v) { raw.push({ x: v[0], y: v[1] }); });
+    raw.push(b);
+    var pts = [raw[0]];
+    for (var i = 1; i < raw.length; i++) {
+      var p = pts[pts.length - 1];
+      if (Math.hypot(raw[i].x - p.x, raw[i].y - p.y) > 0.5) pts.push(raw[i]);
+    }
+    var total = 0, segs = [];
+    for (var j = 1; j < pts.length; j++) { var l = Math.hypot(pts[j].x - pts[j - 1].x, pts[j].y - pts[j - 1].y); segs.push(l); total += l; }
+    var want = total * t, acc = 0, mid = pts[0];
+    for (var s = 0; s < segs.length; s++) {
+      if (acc + segs[s] >= want) {
+        var f = segs[s] ? (want - acc) / segs[s] : 0;
+        mid = { x: pts[s].x + (pts[s + 1].x - pts[s].x) * f, y: pts[s].y + (pts[s + 1].y - pts[s].y) * f };
+        break;
+      }
+      acc += segs[s];
+    }
+    return { d: roundedPath(pts, 14), mid: mid };
   }
 
   /* ------------------------------------------------------------------ desenho */
   function buildBands() {
     flow.bands.forEach(function (b) {
-      var d = el('div', 'band');
+      var d = el('div', 'band' + (b.faixa ? ' band-' + b.faixa : ''));
       d.style.left = b.x + 'px'; d.style.top = b.y + 'px';
       d.style.width = b.w + 'px'; d.style.height = b.h + 'px';
       d.appendChild(el('div', 'bandTitle', b.title));
@@ -225,7 +255,7 @@ export const clientJs = String.raw`
   function buildEdges() {
     var s = svg('svg', { 'class': 'edges', width: 1, height: 1 });
     var defs = svg('defs', {});
-    ['main', 'stop', 'hl'].forEach(function (name) {
+    ['main', 'stop', 'alert', 'gpt', 'hl'].forEach(function (name) {
       var m = svg('marker', { id: 'arrow-' + name, viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 8, markerHeight: 8, orient: 'auto-start-reverse' });
       m.appendChild(svg('path', { d: 'M0,0 L10,5 L0,10 z', 'class': 'arrow-' + name }));
       defs.appendChild(m);
@@ -236,18 +266,25 @@ export const clientJs = String.raw`
       var a = nodesById[e.from], b = nodesById[e.to];
       var pa = port(a, e.fromSide), pb = port(b, e.toSide);
       var t = e.labelAt == null ? 0.5 : e.labelAt;
-      var g = e.route === 'wrap' ? wrapPath(pa, pb, t) : bezierPath(pa, e.fromSide, pb, e.toSide, t);
+      var g = e.route === 'poly' ? polyPath(pa, e.via, pb, t) : bezierPath(pa, e.fromSide, pb, e.toSide, t);
       var style = e.style || 'main';
       var path = svg('path', { d: g.d, 'class': 'edge edge-' + style, 'marker-end': 'url(#arrow-' + style + ')' });
       s.appendChild(path);
       var lab = null;
       if (e.label) {
-        lab = el('div', 'edgeLabel' + (style === 'stop' ? ' stop' : ''), e.label);
-        lab.style.left = g.mid.x + 'px'; lab.style.top = g.mid.y + 'px';
+        lab = el('div', 'edgeLabel' + (style !== 'main' ? ' ' + style : ''), e.label);
+        var lx = e.labelXY ? e.labelXY[0] : g.mid.x, ly = e.labelXY ? e.labelXY[1] : g.mid.y;
+        lab.style.left = lx + 'px'; lab.style.top = ly + 'px';
         world.appendChild(lab);
       }
       edgeEls.push({ e: e, path: path, label: lab, style: style });
     });
+  }
+  function stepText(n) {
+    if (typeof n.step === 'number') return 'Passo ' + n.step;
+    if (!n.step) return '';
+    var c = String(n.step).charAt(0);
+    return (c === 'A' ? 'Alerta ' : c === 'G' ? 'GPT ' : c === 'R' ? 'Regra ' : '') + n.step;
   }
   function buildNodes() {
     flow.nodes.forEach(function (n) {
@@ -256,7 +293,7 @@ export const clientJs = String.raw`
       d.setAttribute('data-id', n.id);
       d.setAttribute('role', 'button');
       d.setAttribute('tabindex', '0');
-      d.setAttribute('aria-label', (n.step ? 'Passo ' + n.step + ': ' : '') + n.title);
+      d.setAttribute('aria-label', (n.step ? stepText(n) + ': ' : '') + n.title);
       d.style.left = n.x + 'px'; d.style.top = n.y + 'px';
       d.style.width = w + 'px'; d.style.height = h + 'px';
       var head = el('div', 'nodeHead');
@@ -309,16 +346,16 @@ export const clientJs = String.raw`
     var ex = sx + b.w * view.k, ey = sy + b.h * view.k;
     var dx = 0, dy = 0, m = 30;
     if (sx < m) dx = m - sx; else if (ex > W - m) dx = W - m - ex;
-    if (sy < m + 50) dy = m + 50 - sy; else if (ey > H - m) dy = H - m - ey;
+    if (sy < m + 10) dy = m + 10 - sy; else if (ey > H - m) dy = H - m - ey;
     if (dx || dy) { view.x += dx; view.y += dy; animate(true); applyView(); }
   }
-  function selectNode(id) {
+  function selectNode(id, focus) {
     var n = nodesById[id];
     if (!n) return;
     setSelected(id);
     renderPanel(n);
     openPanel();
-    ensureVisible(n);
+    if (focus) focusNode(id); else ensureVisible(n);
   }
   function renderPanel(n) {
     var body = document.getElementById('panelBody');
@@ -326,7 +363,9 @@ export const clientJs = String.raw`
     var chip = el('div', 'chipRow');
     var kc = el('span', 'chip k-' + n.kind, KIND_LABEL[n.kind] || n.kind);
     chip.appendChild(kc);
-    if (n.step) chip.appendChild(el('span', 'stepTag', 'Passo ' + n.step));
+    if (n.step) chip.appendChild(el('span', 'stepTag', stepText(n)));
+    var bd = bandsById[n.band];
+    if (bd) chip.appendChild(el('span', 'phaseTag', bd.title));
     body.appendChild(chip);
     body.appendChild(el('h2', 'panelTitle', n.title));
     body.appendChild(el('p', 'panelLead', n.subtitle));
@@ -360,6 +399,7 @@ export const clientJs = String.raw`
 
     if (d.tecnico) {
       var det = el('details', 'tech');
+      if (d.tecnicoAberto) det.open = true;
       det.appendChild(el('summary', null, 'Detalhe técnico (para o time de TI)'));
       det.appendChild(el('p', null, d.tecnico));
       body.appendChild(det);
@@ -372,7 +412,7 @@ export const clientJs = String.raw`
     body.textContent = '';
     body.appendChild(el('div', 'chipRow')).appendChild(el('span', 'chip', 'Configurações'));
     body.appendChild(el('h2', 'panelTitle', 'O que dá para ajustar'));
-    body.appendChild(el('p', 'panelLead', 'Estas são as opções que mudam o comportamento do agente. Quem altera é o time de TI (variáveis de ambiente). O painel mostra só o nome e o efeito, nunca os valores.'));
+    body.appendChild(el('p', 'panelLead', 'Estas são as opções técnicas que mudam o comportamento do agente sem alterar o código. Quem altera é o time de TI (variáveis de ambiente). O painel mostra só o nome e o efeito, nunca os valores. O texto das mensagens e as etapas da conversa só mudam alterando o código.'));
     var list = el('div', 'cfgList');
     flow.configuracoes.forEach(function (c) {
       var row = el('div', 'cfg');
@@ -419,38 +459,234 @@ export const clientJs = String.raw`
 
     var nav = document.getElementById('phases');
     flow.bands.forEach(function (b) {
-      var btn = el('button', 'phaseBtn', b.title);
+      var btn = el('button', 'phaseBtn' + (b.faixa === 'alerta' ? ' alerta' : b.faixa === 'gpt' ? ' gpt' : ''), b.title.length > 30 ? b.title.split(' (')[0] : b.title);
       btn.type = 'button';
-      btn.addEventListener('click', function () { fitRect({ x: b.x, y: b.y, w: b.w, h: b.h }, 30, 1); });
+      btn.title = b.subtitle;
+      btn.addEventListener('click', function () { setTab('mapa'); fitRect({ x: b.x, y: b.y, w: b.w, h: b.h }, 30, 1); });
       nav.appendChild(btn);
     });
   }
+
+  /* ------------------------------------------------------------------ resumo */
+  function buildResumo() {
+    var r = flow.resumo, box1 = document.getElementById('resumo');
+    box1.textContent = '';
+    function bloco(cls, titulo) { var d = el('div', cls); d.appendChild(el('h2', null, titulo)); box1.appendChild(d); return d; }
+    var o = bloco('obj', 'Objetivo do agente'); o.appendChild(el('p', null, r.objetivo));
+    var f = bloco('faz', 'O que faz hoje'); var ul = el('ul'); r.faz.forEach(function (t) { ul.appendChild(el('li', null, t)); }); f.appendChild(ul);
+    var nf = bloco('naofaz', 'O que ainda não faz'); var ul2 = el('ul'); r.naoFaz.forEach(function (t) { ul2.appendChild(el('li', null, t)); }); nf.appendChild(ul2);
+    var m = bloco('modo', 'Modo atual'); m.appendChild(el('p', null, r.modo));
+  }
+  function setResumo(show) {
+    document.getElementById('resumo').classList.toggle('hide', !show);
+    document.getElementById('btnResumo').textContent = show ? 'Ocultar resumo' : 'Mostrar resumo';
+    store('painel-resumo', show ? '1' : '0');
+    if (lastFit && tab === 'mapa') fitRect(lastFit.r, lastFit.pad, lastFit.maxK, lastFit.left);
+  }
+
+  /* ------------------------------------------------------------------ exemplo de conversa */
+  function buildChat(conv, forPrint) {
+    var chat = el('div', forPrint ? 'chat pgChat' : 'chat');
+    conv.mensagens.forEach(function (m) {
+      if (m.de === 'nota') { chat.appendChild(el('div', 'note', m.texto)); return; }
+      var wrap = el('div', 'msg ' + m.de);
+      wrap.appendChild(el('div', 'who', m.de === 'amanda' ? 'Amanda' : 'Paciente'));
+      wrap.appendChild(el('div', 'bubble', m.texto));
+      var n = m.etapa && nodesById[m.etapa];
+      if (n && !forPrint) {
+        var b = el('button', 'etapaLink', 'Etapa: ' + (n.step ? stepText(n) + ' · ' : '') + n.title);
+        b.type = 'button';
+        b.addEventListener('click', function () { setTab('mapa'); selectNode(n.id, true); });
+        wrap.appendChild(b);
+      }
+      chat.appendChild(wrap);
+    });
+    return chat;
+  }
+  function showConversa(id) {
+    var side = document.getElementById('convSide'), main = document.getElementById('convMain');
+    var picks = side.querySelectorAll('.convPick');
+    for (var i = 0; i < picks.length; i++) picks[i].classList.toggle('on', picks[i].getAttribute('data-id') === id);
+    var conv = flow.conversas.filter(function (c) { return c.id === id; })[0];
+    main.textContent = '';
+    var head = el('div', 'convHead');
+    head.appendChild(el('h2', null, conv.titulo));
+    head.appendChild(el('p', null, conv.descricao));
+    main.appendChild(head);
+    main.appendChild(buildChat(conv, false));
+    main.appendChild(el('div', 'convFoot', 'As mensagens da Amanda são o texto do roteiro. Na prática, o GPT pode ajustar o tom (sem mudar valores, datas, horários, unidades nem a pergunta), exceto nas mensagens de emergência e crise. Nomes, CPF e telefone são inventados. Clique em "Etapa" para ver essa etapa no mapa.'));
+    main.scrollTop = 0;
+  }
+  function buildConversas() {
+    var side = document.getElementById('convSide');
+    side.textContent = '';
+    side.appendChild(el('h2', null, 'Conversas de exemplo'));
+    flow.conversas.forEach(function (c) {
+      var b = el('button', 'convPick', c.titulo);
+      b.type = 'button';
+      b.setAttribute('data-id', c.id);
+      b.addEventListener('click', function () { showConversa(c.id); });
+      side.appendChild(b);
+    });
+    showConversa(flow.conversas[0].id);
+  }
+
+  /* ------------------------------------------------------------------ abas */
+  function setTab(t) {
+    tab = t;
+    var conv = t === 'conversa';
+    document.getElementById('convView').classList.toggle('on', conv);
+    document.getElementById('tabMapa').classList.toggle('on', !conv);
+    document.getElementById('tabConversa').classList.toggle('on', conv);
+    document.getElementById('legend').parentNode.style.display = conv ? 'none' : '';
+    document.getElementById('phases').style.display = conv ? 'none' : '';
+    document.getElementById('btnFit').style.display = conv ? 'none' : '';
+    vp.style.visibility = conv ? 'hidden' : '';
+    if (conv) closePanel();
+    else if (lastFit && !panel.classList.contains('open')) applyView();
+  }
+
+  /* ------------------------------------------------------------------ impressão / PDF */
+  var printReady = false, themeBefore = null;
+  function orderedNodes() { return flow.nodes.slice(); }
+  var mapSeq = 0;
+  function mapPage(root, titulo, ids) {
+    var pre = 'pm' + (mapSeq++) + '-';
+    var r = bboxOfBands(ids);
+    var k = Math.min(1040 / r.w, 610 / r.h);
+    var page = el('section', 'pgPage');
+    page.appendChild(el('h2', 'pgH2', titulo));
+    var clip = el('div', 'mapClip');
+    clip.style.width = Math.round(r.w * k) + 'px';
+    clip.style.height = Math.round(r.h * k) + 'px';
+    var clone = world.cloneNode(true);
+    clone.removeAttribute('id');
+    clone.className = 'worldClone';
+    clone.style.transition = 'none';
+    clone.style.transform = 'translate(' + (-r.x * k) + 'px,' + (-r.y * k) + 'px) scale(' + k + ')';
+    var junk = clone.querySelectorAll('.sel,.dim,.hl');
+    for (var i = 0; i < junk.length; i++) { junk[i].classList.remove('sel'); junk[i].classList.remove('dim'); junk[i].classList.remove('hl'); }
+    // marcadores com ids próprios (o original fica escondido na impressão e não desenharia as pontas das setas)
+    var mk = clone.querySelectorAll('marker');
+    for (var m = 0; m < mk.length; m++) mk[m].id = pre + mk[m].id;
+    var ed = clone.querySelectorAll('path.edge');
+    for (var q = 0; q < ed.length; q++) {
+      var me = ed[q].getAttribute('marker-end') || '';
+      ed[q].setAttribute('marker-end', me.replace('url(#', 'url(#' + pre));
+    }
+    clip.appendChild(clone);
+    page.appendChild(clip);
+    root.appendChild(page);
+  }
+  function preparePrint() {
+    if (printReady || !flow) return;
+    printReady = true;
+    themeBefore = document.documentElement.getAttribute('data-theme');
+    document.documentElement.setAttribute('data-theme', 'light');
+    var root = document.getElementById('printRoot');
+    root.textContent = '';
+    // capa + resumo
+    var cover = el('section', 'pgPage');
+    cover.appendChild(el('h1', 'pgTitle', flow.titulo));
+    cover.appendChild(el('p', 'pgMeta', flow.versao + ' · ' + flow.data));
+    var g = el('div', 'pgSummary');
+    var c1 = el('div'); c1.appendChild(el('h3', null, 'Objetivo do agente')); c1.appendChild(el('p', null, flow.resumo.objetivo));
+    var c1b = el('div'); c1b.appendChild(el('h3', null, 'Modo atual')); c1b.appendChild(el('p', null, flow.resumo.modo)); c1.appendChild(c1b);
+    var c2 = el('div'); c2.appendChild(el('h3', null, 'O que faz hoje')); var u2 = el('ul'); flow.resumo.faz.forEach(function (t) { u2.appendChild(el('li', null, t)); }); c2.appendChild(u2);
+    var c3 = el('div'); c3.appendChild(el('h3', null, 'O que ainda não faz')); var u3 = el('ul'); flow.resumo.naoFaz.forEach(function (t) { u3.appendChild(el('li', null, t)); }); c3.appendChild(u3);
+    g.appendChild(c1); g.appendChild(c2); g.appendChild(c3);
+    cover.appendChild(g);
+    var cl = el('p', 'pgMeta', 'Legenda de cores: ' + flow.kinds.map(function (k) { return k.nome; }).join(' · ') + '.');
+    cl.style.marginTop = '12px';
+    cover.appendChild(cl);
+    root.appendChild(cover);
+    // mapa: visão geral e por partes
+    mapPage(root, 'Mapa: visão geral', null);
+    [['p1', 'p2'], ['p3', 'p4'], ['p5', 'p6'], ['p7', 'p8'], ['alertas'], ['gpt'], ['regras']].forEach(function (ids) {
+      mapPage(root, 'Mapa: ' + ids.map(function (i) { return bandsById[i].title; }).join('  |  '), ids);
+    });
+    // detalhamento de cada passo
+    var det = el('section', 'pgPage');
+    det.appendChild(el('h2', 'pgH2', 'Detalhe de cada passo'));
+    var grid = el('div', 'detGrid');
+    orderedNodes().forEach(function (n) {
+      var d = el('div', 'det k-' + n.kind);
+      d.appendChild(el('h4', null, (n.step ? stepText(n) + ' · ' : '') + n.title));
+      var bd = bandsById[n.band];
+      d.appendChild(el('div', 'ph', (bd ? bd.title + ' · ' : '') + (KIND_LABEL[n.kind] || n.kind)));
+      [['O que faz', n.detail.oQueFaz], ['A regra exata', n.detail.regra], ['Exemplo', n.detail.exemplo], ['Se falhar', n.detail.seFalhar], ['Detalhe técnico', n.detail.tecnico]].forEach(function (p) {
+        if (!p[1]) return;
+        d.appendChild(el('b', null, p[0]));
+        d.appendChild(el('span', null, p[1]));
+      });
+      grid.appendChild(d);
+    });
+    det.appendChild(grid);
+    root.appendChild(det);
+    // conversas de exemplo
+    var cv = el('section', 'pgPage');
+    cv.appendChild(el('h2', 'pgH2', 'Exemplos de conversa'));
+    var cg = el('div', 'detGrid');
+    flow.conversas.forEach(function (c) {
+      var w = el('div', 'detCv');
+      w.appendChild(el('h4', null, c.titulo));
+      w.appendChild(el('p', 'pgMeta', c.descricao));
+      w.appendChild(buildChat(c, true));
+      cg.appendChild(w);
+    });
+    cv.appendChild(cg);
+    root.appendChild(cv);
+  }
+  function cleanupPrint() {
+    if (!printReady) return;
+    printReady = false;
+    document.getElementById('printRoot').textContent = '';
+    if (themeBefore) document.documentElement.setAttribute('data-theme', themeBefore);
+  }
+  window.addEventListener('beforeprint', preparePrint);
+  window.addEventListener('afterprint', cleanupPrint);
+  window.__painelPrepararImpressao = preparePrint;
 
   /* ------------------------------------------------------------------ início */
   function start() {
     flow.kinds.forEach(function (k) { KIND_LABEL[k.id] = k.nome; });
     flow.nodes.forEach(function (n) { nodesById[n.id] = n; });
+    flow.bands.forEach(function (b) { bandsById[b.id] = b; });
     document.getElementById('title').textContent = flow.titulo;
-    document.getElementById('subtitle').textContent = flow.subtitulo;
+    document.querySelector('h1').title = flow.subtitulo;
+    document.getElementById('verTag').textContent = flow.versao;
+    document.getElementById('verDate').textContent = 'atualizado em ' + flow.data;
     buildChrome();
     buildBands();
     buildEdges();
     buildNodes();
+    buildResumo();
+    buildConversas();
+    var saved = store('painel-resumo');
+    var show = saved === '1' || (saved !== '0' && window.innerWidth > 760);
+    document.getElementById('resumo').classList.toggle('hide', !show);
+    document.getElementById('btnResumo').textContent = show ? 'Ocultar resumo' : 'Mostrar resumo';
+    document.getElementById('btnResumo').addEventListener('click', function () { setResumo(document.getElementById('resumo').classList.contains('hide')); });
     document.getElementById('btnFit').addEventListener('click', fitAll);
-    document.getElementById('btnConfig').addEventListener('click', renderConfig);
+    document.getElementById('btnConfig').addEventListener('click', function () { setTab('mapa'); renderConfig(); });
     document.getElementById('btnClose').addEventListener('click', closePanel);
+    document.getElementById('btnPrint').addEventListener('click', function () { preparePrint(); setTimeout(function () { window.print(); }, 60); });
+    document.getElementById('tabMapa').addEventListener('click', function () { setTab('mapa'); });
+    document.getElementById('tabConversa').addEventListener('click', function () { setTab('conversa'); });
     function centerZoom(f) { zoomAt(usableWidth() / 2, vp.clientHeight / 2, f); }
     document.getElementById('zoomIn').addEventListener('click', function () { animate(true); centerZoom(1.25); });
     document.getElementById('zoomOut').addEventListener('click', function () { animate(true); centerZoom(0.8); });
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape') closePanel();
+      else if (tab !== 'mapa') return;
       else if (e.key === '+' || e.key === '=') { animate(true); centerZoom(1.25); }
       else if (e.key === '-') { animate(true); centerZoom(0.8); }
       else if (e.key === '0') fitAll();
     });
     window.addEventListener('resize', applyView);
-    fitRect(bboxOfBands(['p1', 'p2']), 24, 1);
+    fitRect(bboxOfBands(window.innerWidth > 760 ? ['p1', 'p2', 'p3'] : ['p1']), 24, 1, true);
     document.getElementById('loading').style.display = 'none';
+    window.__painel = { fit: function (ids) { fitRect(bboxOfBands(ids), 24, 1); }, select: function (id) { selectNode(id, true); }, tab: setTab, fitAll: fitAll };
   }
 
   fetch('/painel/flow.json', { credentials: 'same-origin', cache: 'no-store' })
