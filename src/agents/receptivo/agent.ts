@@ -2,6 +2,9 @@ import { env } from '../../lib/env.js';
 import { describe, getHistory, sendText, transferToSector, type MessageReceivedEvent } from '../../integrations/inovstar.js';
 import { buildSystemPrompt } from './prompt.js';
 import { MARCA_FIM, responder } from './script/engine.js';
+import { fonteSimulada } from './script/catalog.js';
+import { fonteClinilink } from './script/clinilinkFonte.js';
+import { amigavel } from '../../lib/humanizer.js';
 import { firstName, followUpMessage, greeting, nowParts, welcomeMessage } from '../../lib/humanize.js';
 
 type Turn = { role: 'user' | 'assistant'; content: string };
@@ -96,10 +99,20 @@ export async function handleIncoming(ev: MessageReceivedEvent) {
       .map((m) => describe(m))
       .filter((x): x is string => Boolean(x));
     if (textos.length === 0) return skip('sem mensagens do paciente na jornada atual');
-    const r = responder(textos, { now: new Date(), nome, tz: env.timezone });
+    const fonte = env.clinilinkKey ? fonteClinilink : fonteSimulada;
+    const tag = `[${ev.attendanceId}]`;
+    let r;
+    try {
+      r = await responder(textos, { now: new Date(), nome, tz: env.timezone }, fonte);
+    } catch (e) {
+      // Clinilink fora do ar / lento: não inventa dado, devolve para a equipe
+      console.error(`${tag} falha ao consultar a fonte (${fonte.tipo}):`, (e as Error).message);
+      r = { state: undefined as never, reply: 'Estou com dificuldade para consultar a agenda agora. Vou pedir para a equipe te ajudar, só um instante.', handoff: { motivo: `Falha ao consultar o Clinilink: ${(e as Error).message}` } };
+    }
     if (!r) return skip('roteiro sem resposta');
-    const msg = withTitle(r.reply);
-    console.log(`[${ev.attendanceId}] ROTEIRO (${textos.length} msgs) resposta -> ${r.reply}${r.handoff ? ` | TRANSFERE: ${r.handoff.motivo}` : ''}`);
+    const texto = r.handoff?.urgente ? r.reply : await amigavel(r.reply, { tag });
+    const msg = withTitle(texto);
+    console.log(`${tag} ROTEIRO/${fonte.tipo} (${textos.length} msgs) resposta -> ${texto}${r.handoff ? ` | TRANSFERE: ${r.handoff.motivo}` : ''}`);
     if (!env.autoReply) return;
     if (r.handoff && env.humanSectorId) await transferToSector(ev.attendanceId, env.humanSectorId, r.handoff.motivo, msg);
     else await sendText({ channelId: ev.channelId, to: ev.to, attendanceId: ev.attendanceId, text: msg, clientMessageId: `agente-receptivo-${ev.messageId}` });

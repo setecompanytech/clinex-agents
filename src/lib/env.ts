@@ -20,6 +20,12 @@ export const env = {
   timezone: process.env.CLINIC_TZ ?? 'America/Sao_Paulo',
   // 'scripted' = roteiro fixo, sem IA (padrão) | 'claude' = modelo de linguagem (precisa de ANTHROPIC_API_KEY)
   mode: (process.env.AGENT_MODE ?? 'scripted') as 'scripted' | 'claude',
+  // Consulta de agenda no Clinilink (somente leitura). Sem chave => catálogo simulado.
+  clinilinkBase: process.env.CLINILINK_BASE_URL ?? 'https://lista-unilab-clinex.onrender.com',
+  clinilinkKey: process.env.CLINILINK_API_KEY ?? '',
+  // Humanizador de mensagens (GPT). Sem chave => textos do roteiro como estão.
+  openaiKey: process.env.OPENAI_API_KEY ?? '',
+  openaiModel: process.env.OPENAI_MODEL ?? 'gpt-4o-mini',
   clinicName: process.env.CLINIC_NAME ?? 'Clínica',
   // base de conhecimento em texto (serviços, convênios, endereço, horários...). Sem banco: vem do env/arquivo.
   knowledge: process.env.CLINIC_KNOWLEDGE ?? '',
