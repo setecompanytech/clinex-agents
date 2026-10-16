@@ -14,6 +14,9 @@ export const env = {
   autoReply: (process.env.AUTO_REPLY ?? 'true') !== 'false',
   // espera antes de responder, para agrupar mensagens picadas do paciente
   debounceMs: Number(process.env.DEBOUNCE_MS ?? 4000),
+  // a resposta sai entre MIN e MAX ms depois da mensagem do paciente (parece digitação). 0/0 desliga.
+  replyDelayMinMs: Number(process.env.REPLY_DELAY_MIN_MS ?? 5000),
+  replyDelayMaxMs: Number(process.env.REPLY_DELAY_MAX_MS ?? 10000),
   testReply: process.env.TEST_REPLY ?? 'Olá! Aqui é o assistente virtual da Clinex. Recebi sua mensagem e a equipe já vai te responder. (teste)',
   // título que abre toda mensagem enviada (negrito no WhatsApp com asteriscos). Vazio = sem título.
   agentTitle: process.env.AGENT_TITLE ?? '*Amanda (IA) - Nova*',

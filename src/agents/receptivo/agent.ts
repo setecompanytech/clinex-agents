@@ -61,6 +61,19 @@ ${text}` : text);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
+ * Faz a resposta parecer digitada: ela só sai entre replyDelayMinMs e replyDelayMaxMs depois que a mensagem
+ * do paciente chegou. O tempo já gasto (espera de 4 s, GPT, Clinilink) conta; se já passou do alvo, não espera mais.
+ * Mensagem de segurança (emergência/crise) nunca espera.
+ */
+export async function pareceDigitando(inicio: number, urgente: boolean) {
+  const { replyDelayMinMs: min, replyDelayMaxMs: max } = env;
+  if (urgente || !(max > 0)) return;
+  const alvo = min + Math.random() * Math.max(0, max - min);
+  const falta = Math.min(alvo - (Date.now() - inicio), 30000);
+  if (falta > 0) await sleep(falta);
+}
+
+/**
  * Sem banco: o estado vive na Inovstar.
  *  - O agente só atua em atendimentos do setor AGENT_SECTOR_ID e sem atendente atribuído.
  *  - Ao transferir, o atendimento vai para HUMAN_SECTOR_ID, saindo do escopo do agente.
@@ -69,6 +82,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export const handleIncoming = (ev: MessageReceivedEvent) => comAtendimento(ev.attendanceId, () => processar(ev));
 
 async function processar(ev: MessageReceivedEvent) {
+  const inicio = Date.now();
   const skip = (why: string) => {
     console.log(`[${ev.attendanceId}] ignorado: ${why}`);
     if (!why.includes('fora da whitelist')) evt('ignorado', { motivo: why }); // número de outros pacientes não vira evento (só do piloto)
@@ -145,6 +159,7 @@ async function processar(ev: MessageReceivedEvent) {
       enviou_de_verdade: env.autoReply,
     });
     if (!env.autoReply) return;
+    await pareceDigitando(inicio, Boolean(r.handoff?.urgente));
     if (r.handoff && env.humanSectorId) await transferToSector(ev.attendanceId, env.humanSectorId, r.handoff.motivo, msg);
     else await sendText({ channelId: ev.channelId, to: ev.to, attendanceId: ev.attendanceId, text: msg, clientMessageId: `agente-receptivo-${ev.messageId}` });
     return;

@@ -809,6 +809,7 @@ export const flow = {
     { nome: 'AGENT_SECTOR_ID', efeito: 'Setor onde o agente atende. Conversas de outros setores são ignoradas. Vazio = trava desligada.' },
     { nome: 'HUMAN_SECTOR_ID', efeito: 'Setor humano (Principal) para onde o agente transfere. Vazio = só avisa o paciente, sem mover a conversa.' },
     { nome: 'AUTO_REPLY', efeito: 'false = modo sombra (só registra no log, não envia nem transfere). Padrão: ligado.' },
+    { nome: 'REPLY_DELAY_MIN_MS / REPLY_DELAY_MAX_MS', efeito: 'A resposta só sai entre 5 e 10 segundos depois da mensagem do paciente, para parecer digitada (o tempo já gasto conta). Mensagens de emergência e crise não esperam. Padrão: 5000 e 10000; 0 desliga.' },
     { nome: 'DEBOUNCE_MS', efeito: 'Quanto o agente espera antes de responder. Padrão: 4000 (4 segundos).' },
     { nome: 'AGENT_TITLE', efeito: 'Título em negrito que abre toda mensagem enviada pelo agente. Vazio = sem título.' },
     { nome: 'CLINIC_TZ', efeito: 'Fuso usado na saudação e nas datas. Padrão: America/Sao_Paulo (mesma hora de Belém).' },
