@@ -293,7 +293,7 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
     const cpf = slotAntes ? cpfDoTexto(t) : undefined;
     if (cpf) s.cpf = cpf;
     else if (slotAntes && /\d{2,}/.test(t)) return dizer('Não consegui ler o CPF. Pode me enviar os 11 números?');
-    else return dizer(`${pick(['Fechado', 'Combinado'], n)}: ${resumoVaga}. Para reservar, qual o CPF do paciente?`);
+    else return dizer(`${pick(['Fechado', 'Combinado'], n)}, é ${resumoVaga}. Para eu reservar, preciso do CPF do paciente. Qual é?`);
   }
 
   // 9) consulta o paciente por CPF

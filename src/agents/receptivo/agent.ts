@@ -42,6 +42,17 @@ const phoneKey = (v: string) => {
   if (n.length >= 12 && n.startsWith('55')) n = n.slice(2);
   return n.slice(0, 2) + n.slice(-8);
 };
+/** Nomes de médicos, paciente e cadastro que aparecem no texto: o GPT não pode alterá-los. */
+function nomesProtegidos(r: { state?: any; reply: string }): string[] {
+  const st = r.state;
+  if (!st) return [];
+  const nomes: string[] = [
+    ...(st.servico?.unidades ?? []).flatMap((u: any) => u.profissionais ?? []),
+    st.slot?.profissional, st.paciente?.nome, st.cad?.nome,
+  ].filter(Boolean);
+  return [...new Set(nomes)].filter((n) => r.reply.toLocaleLowerCase('pt-BR').includes(String(n).toLocaleLowerCase('pt-BR')));
+}
+
 const isAllowed = (phone: string) => env.allowedNumbers.some((a) => phoneKey(a) === phoneKey(phone));
 
 const withTitle = (text: string) => (env.agentTitle ? `${env.agentTitle}
@@ -117,7 +128,7 @@ async function processar(ev: MessageReceivedEvent) {
     }
     if (!r) return skip('roteiro sem resposta');
     // o GPT só reescreve o tom; emergência/crise nunca passam por ele
-    const gpt = r.handoff?.urgente ? { texto: r.reply, status: 'desligado' as const, motivo: 'mensagem de segurança' } : await amigavelDetalhado(r.reply);
+    const gpt = r.handoff?.urgente ? { texto: r.reply, status: 'desligado' as const, motivo: 'mensagem de segurança' } : await amigavelDetalhado(r.reply, nomesProtegidos(r));
     const texto = gpt.texto;
     const msg = withTitle(texto);
     evt('resposta', {
