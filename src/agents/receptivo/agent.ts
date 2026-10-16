@@ -120,7 +120,7 @@ async function processar(ev: MessageReceivedEvent) {
     const tag = `[${ev.attendanceId}]`;
     let r;
     try {
-      r = await responder(textos, { now: new Date(), nome, tz: env.timezone, telefone: ev.to, reservar: env.agendarDeVerdade }, fonte);
+      r = await responder(textos, { now: new Date(), nome, tz: env.timezone, telefone: ev.to }, fonte);
     } catch (e) {
       // Clinilink fora do ar / lento: não inventa dado, devolve para a equipe
       console.error(`${tag} falha ao consultar a fonte (${fonte.tipo}):`, (e as Error).message);

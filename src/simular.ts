@@ -6,9 +6,9 @@ import { amigavel } from './lib/humanizer.js';
 import { env } from './lib/env.js';
 
 // Simulador local: npm run simular   (digite como o paciente; "sair" encerra, "novo" recomeça)
-// Usa Clinilink real se CLINILINK_API_KEY existir (somente leitura); GPT se OPENAI_API_KEY existir.
+// Usa Clinilink real se CLINILINK_API_KEY existir (ATENÇÃO: com chave rw, a conversa completa RESERVA DE VERDADE); GPT se OPENAI_API_KEY existir.
 const fonte = env.clinilinkKey ? fonteClinilink : fonteSimulada;
-const ctx = () => ({ now: new Date(), nome: process.env.SIM_NOME ?? '', tz: env.timezone, telefone: process.env.SIM_TEL ?? '5591981628017', reservar: env.agendarDeVerdade });
+const ctx = () => ({ now: new Date(), nome: process.env.SIM_NOME ?? '', tz: env.timezone, telefone: process.env.SIM_TEL ?? '5591981628017' });
 let textos: string[] = [];
 let fila: Promise<void> = Promise.resolve();
 

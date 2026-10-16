@@ -99,7 +99,7 @@ const RUL_W = P8 + P8W - RUL_X;
 export const flow = {
   titulo: 'Fluxo da Amanda (agente receptivo)',
   subtitulo: 'Como a Amanda conduz a conversa com o paciente no WhatsApp, etapa por etapa. Somente visualização.',
-  versao: 'Fluxo v2 · roteiro + Clinilink + GPT · reserva automática pronta',
+  versao: 'Fluxo v2 · roteiro + Clinilink + GPT · reserva real no Clinilink',
   data: '2026-10-16',
 
   resumo: {
@@ -111,25 +111,25 @@ export const flow = {
       'Consulta no Clinilink as unidades com agenda, o médico de cada uma, o preço e as datas com vaga',
       'Identifica o paciente pelo CPF e mostra só o nome para ele confirmar',
       'Coleta o cadastro de quem é novo: nome, nascimento, sexo e telefone',
-      'Reserva o horário livre no Clinilink e cadastra o paciente novo, quando a reserva automática está ligada (AGENDAMENTO_REAL)',
-      'Passa a conversa para a equipe (setor Principal) com tudo anotado quando a reserva automática está desligada ou falha',
+      'Reserva o horário livre no Clinilink e cadastra o paciente novo, de verdade',
+      'Passa a conversa para a equipe (setor Principal) com tudo anotado quando a reserva falha',
       'Reconhece emergência, crise emocional e pedido de atendente, e transfere na hora',
     ],
     naoFaz: [
-      'Com a reserva automática desligada (hoje, porque a chave do Clinilink é somente leitura), não reserva nem cadastra: passa para a equipe',
+      'Se a chave do Clinilink não tiver permissão de escrita, o Clinilink recusa e ela passa para a equipe, sem dizer que agendou',
       'Não dá diagnóstico, não interpreta exame e não orienta medicamento',
       'Não inventa dados: se o Clinilink não responde, passa para a equipe',
       'Só atende telefones autorizados e conversas do setor Agente IA',
       'Remarcação, cancelamento e resultado de exame ainda não têm etapa própria',
     ],
-    modo: 'HOJE: SOMENTE LEITURA (a chave do Clinilink não grava; a Amanda consulta e passa para a equipe). Com uma chave de escrita e AGENDAMENTO_REAL=true, ela reserva e cadastra de verdade. Fase de testes: as mensagens saem com um título de identificação.',
+    modo: 'RESERVA REAL: a Amanda cadastra o paciente novo e reserva o horário no Clinilink. Fase de testes: só atende os números autorizados, e as mensagens saem com um título de identificação.',
   },
 
   kinds: [
     { id: 'gatilho', nome: 'Entrada', descricao: 'O que dá a partida: um aviso chega.' },
     { id: 'trava', nome: 'Trava', descricao: 'Uma conferência. Se não passar, o agente fica quieto ou desvia.' },
     { id: 'etapa', nome: 'Etapa da conversa', descricao: 'Um passo do roteiro: a Amanda fala ou espera o paciente.' },
-    { id: 'clinilink', nome: 'Consulta ao Clinilink', descricao: 'Busca de dados reais no sistema da clínica. Gravar (cadastrar e reservar) só com a reserva automática ligada.' },
+    { id: 'clinilink', nome: 'Consulta ao Clinilink', descricao: 'Busca e grava dados reais no sistema da clínica (reserva e cadastro de paciente novo).' },
     { id: 'gpt', nome: 'GPT (tom)', descricao: 'A camada que só reescreve o tom da mensagem.' },
     { id: 'alerta', nome: 'Alerta / transfere', descricao: 'Ramo de exceção: a Amanda sai do roteiro e passa para a equipe.' },
     { id: 'acao', nome: 'Ação', descricao: 'O agente faz algo de verdade (envia, transfere).' },
@@ -534,11 +534,11 @@ export const flow = {
     {
       id: 'conclui', kind: 'etapa', step: 26, band: 'p8', x: nx(P8), y: row(0),
       title: 'Todas as informações coletadas',
-      subtitle: 'Reserva de verdade, ou passa para a equipe',
+      subtitle: 'Reserva de verdade; se falhar, passa para a equipe',
       detail: {
         oQueFaz: 'A Amanda já tem a vaga escolhida e o paciente (existente ou novo). Falta só concluir.',
-        regra: 'Reserva automática LIGADA (AGENDAMENTO_REAL=true e chave de escrita): a Amanda consulta a agenda de novo, sem memória guardada, e pega o PRIMEIRO horário livre do período escolhido, com o mesmo médico que informou ao paciente. Se o paciente é novo, cadastra antes. Só diz "Agendamento confirmado" depois que o Clinilink responde que gravou. Se alguém ocupou o horário no meio do caminho, tenta o próximo livre (até 3). A gravação só acontece na ÚLTIMA mensagem da conversa e nunca é repetida sozinha, para não duplicar. Reserva automática DESLIGADA (hoje): passa para a equipe com tudo anotado. Na simulação (sem chave do Clinilink), mostra uma confirmação de teste.',
-        exemplo: 'Ligada: "Agendamento confirmado! Consulta de Ginecologia no Guamá, sexta-feira, 16 de outubro, de manhã, com [médico]. O atendimento é por ordem de chegada, a partir das 8h. Recomendamos chegar cedo."\nDesligada (hoje): "Fechado. Vou passar para a equipe concluir a sua reserva, já com tudo anotado. Só um instante."',
+        regra: 'A Amanda consulta a agenda de novo, sem memória guardada, e pega o PRIMEIRO horário livre do período escolhido, com o mesmo médico que informou ao paciente. Se o paciente é novo, cadastra antes. Só diz "Agendamento confirmado" depois que o Clinilink responde que gravou. Se alguém ocupou o horário no meio do caminho, tenta o próximo livre (até 3). A gravação só acontece na ÚLTIMA mensagem da conversa e nunca é repetida sozinha, para não duplicar. Se a chave do Clinilink só tiver permissão de leitura, o Clinilink recusa e a Amanda passa para a equipe. Na simulação (sem chave do Clinilink), mostra uma confirmação de teste.',
+        exemplo: 'Reservado: "Agendamento confirmado! Consulta de Ginecologia no Guamá, sexta-feira, 16 de outubro, de manhã, com [médico]. O atendimento é por ordem de chegada, a partir das 8h. Recomendamos chegar cedo."\nSe falhar: "Não consegui concluir a reserva. Vou passar para a equipe concluir, já com tudo anotado. Só um instante."',
         seFalhar: 'Vaga ocupada, serviço já marcado para o mesmo dia, cadastro recusado, erro do Clinilink ou resposta que não chegou: a Amanda NÃO diz que agendou, avisa o paciente e passa para a equipe com o motivo. Quando não dá para saber se gravou (erro 500 ou sem resposta), o resumo manda CONFERIR no Clinilink antes de refazer.',
         tecnico: 'Bloco "conclui" de step() em engine.ts e reservar() em clinilinkFonte.ts. Gravação: criarPaciente() e criarAgendamento() em src/integrations/clinilink.ts (POST sem repetição). Teste: npx tsx scripts/teste-reserva.ts.',
       },
@@ -546,7 +546,7 @@ export const flow = {
     {
       id: 'equipe', kind: 'acao', step: 27, band: 'p8', x: nx(P8), y: row(1),
       title: 'Passa para a equipe (setor Principal)',
-      subtitle: 'Reserva desligada ou que falhou: tudo anotado',
+      subtitle: 'Reserva que falhou: tudo anotado',
       detail: {
         oQueFaz: 'A Amanda avisa o paciente e transfere a conversa para a equipe humana, com um resumo para o atendente.',
         regra: 'Mensagem ao paciente: "Fechado. Vou passar para a equipe concluir a sua reserva, já com tudo anotado. Só um instante." A conversa é transferida para o setor Principal com um resumo para o atendente: a vaga escolhida (serviço, unidade, dia, turno e médico), se o paciente já existe (nome) ou os dados a cadastrar (nome, nascimento, sexo, telefone, CPF), e o aviso de que a reserva e o cadastro ainda NÃO foram feitos. Se o setor Principal não estiver configurado, o agente só avisa o paciente.',
@@ -812,8 +812,7 @@ export const flow = {
     { nome: 'DEBOUNCE_MS', efeito: 'Quanto o agente espera antes de responder. Padrão: 4000 (4 segundos).' },
     { nome: 'AGENT_TITLE', efeito: 'Título em negrito que abre toda mensagem enviada pelo agente. Vazio = sem título.' },
     { nome: 'CLINIC_TZ', efeito: 'Fuso usado na saudação e nas datas. Padrão: America/Sao_Paulo (mesma hora de Belém).' },
-    { nome: 'CLINILINK_API_KEY', efeito: 'Chave do Clinilink. Leitura funciona com chave "ro"; reservar e cadastrar exigem chave "rw". Sem ela, o agente usa o catálogo simulado de exemplo.' },
-    { nome: 'AGENDAMENTO_REAL', efeito: 'true = a Amanda reserva e cadastra de verdade no Clinilink (exige chave de escrita). Qualquer outro valor = só consulta e passa para a equipe.' },
+    { nome: 'CLINILINK_API_KEY', efeito: 'Chave do Clinilink. Precisa ser de escrita ("rw") para reservar e cadastrar; com chave só de leitura o agente consulta, mas a reserva é recusada. Sem ela, o agente usa o catálogo simulado de exemplo.' },
     { nome: 'OPENAI_API_KEY', efeito: 'Chave do GPT que reescreve o tom. Sem ela, as mensagens saem como o roteiro escreveu.' },
     { nome: 'OPENAI_MODEL', efeito: 'Qual modelo do GPT reescreve o tom. Padrão: gpt-4o-mini.' },
     { nome: 'INOVSTAR_WEBHOOK_SECRET', efeito: 'Senha que confirma que o aviso veio da Inovstar.' },

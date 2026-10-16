@@ -5,7 +5,7 @@ import { evt } from '../lib/log.js';
  * Cliente da API de agendamento do Clinilink (Clinex).
  * Doc: clinilink/clinex/docs/api/clinex/agendamento/inovstar/INOVSTAR_API.md
  * Auth: header x-api-key. Leitura funciona com perfil "ro"; reservar e cadastrar exigem perfil "rw"
- * (nome:rw:chave em SCHEDULING_API_KEY) E a liberação AGENDAMENTO_REAL=true. Sem isso o agente só consulta.
+ * (nome:rw:chave em SCHEDULING_API_KEY). Com chave "ro" o Clinilink recusa a gravação (403) e o agente passa para a equipe.
  * Escrita NUNCA é repetida automaticamente: se o POST der timeout, o resultado é incerto e vai para a equipe.
  *
  * O servidor do Render pode "dormir" e levar até ~1 min para acordar: timeout longo + 1 retry.
@@ -83,7 +83,7 @@ export async function getPacientePorCpf(cpf: string): Promise<Paciente[]> {
   return (await get<{ pacientes: Paciente[] }>('/v1/agendamento/pacientes', { cpf })).pacientes;
 }
 
-// ---------------------------- ESCRITA (exige credencial rw + AGENDAMENTO_REAL) ----------------------------
+// ---------------------------- ESCRITA (exige credencial rw) ----------------------------
 
 export type NovoPaciente = { nome: string; cpf: string; dataNascimento?: string; sexo?: 'feminino' | 'masculino'; telefone?: string };
 export type NovoAgendamento = { pacienteId: string; unidadeId: string; agendaId: string; profissionalId: string; dataHora: string; procedimentoId: string };

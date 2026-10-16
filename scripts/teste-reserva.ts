@@ -6,7 +6,7 @@ import http from 'node:http';
 
 type Posts = { rota: string; corpo: any }[];
 const posts: Posts = [];
-let modo: { ocupados: number; agendamento?: 'ok' | 'duplicado' | '500' | 'ocupado-sempre'; cpfDuplicado?: boolean } = { ocupados: 0 };
+let modo: { ocupados: number; agendamento?: 'ok' | 'duplicado' | '500' | 'ocupado-sempre'; cpfDuplicado?: boolean; somenteLeitura?: boolean } = { ocupados: 0 };
 
 const U_GUAMA = '11111111-1111-4111-8111-111111111111';
 const PROC = '22222222-2222-4222-8222-222222222222';
@@ -32,6 +32,7 @@ const server = http.createServer((req, res) => {
     }
     if (req.method === 'POST') {
       posts.push({ rota: p, corpo });
+      if (modo.somenteLeitura) return j(403, { ok: false, erro: 'SOMENTE_LEITURA', mensagem: 'Esta credencial é somente leitura.' });
       if (p.endsWith('/pacientes')) {
         if (modo.cpfDuplicado) return j(409, { ok: false, erro: 'CPF_DUPLICADO', mensagem: 'Já existe', pacienteExistente: { id: '66666666-6666-4666-8666-666666666666', nome: 'JA EXISTE' } });
         return j(201, { ok: true, paciente: { id: '77777777-7777-4777-8777-777777777777', nome: corpo.nome } });
@@ -54,7 +55,7 @@ process.env.LOG_QUIET = '1';
 
 const { responder, MARCA_AGENDADO } = await import('../src/agents/receptivo/script/engine.js');
 const { fonteClinilink } = await import('../src/agents/receptivo/script/clinilinkFonte.js');
-const ctx = { now: new Date(), nome: 'Teste', tz: 'America/Sao_Paulo', telefone: '5591999990000', reservar: true };
+const ctx = { now: new Date(), nome: 'Teste', tz: 'America/Sao_Paulo', telefone: '5591999990000' };
 
 let falhas = 0;
 const confere = (nome: string, ok: boolean, detalhe = '') => { if (!ok) falhas++; console.log(`${ok ? 'OK  ' : 'FALHOU'} ${nome}${detalhe ? ` -> ${detalhe}` : ''}`); };
@@ -128,10 +129,11 @@ reset({ ocupados: 0, cpfDuplicado: true });
 r = await conversa([...base, '99988877766', 'Joana Teste Souza', '10/05/1990', 'feminino', 'sim']);
 confere('9 CPF_DUPLICADO: usa o paciente existente', r.reply.startsWith(MARCA_AGENDADO) && posts.find((x) => x.rota.endsWith('/agendamentos'))!.corpo.pacienteId === '66666666-6666-4666-8666-666666666666');
 
-// 10) liberação desligada: comportamento antigo, zero gravação
-reset({ ocupados: 0 });
-r = await conversa([...base, '11122233344', 'sim'], { ...ctx, reservar: false });
-confere('10 AGENDAMENTO_REAL desligado: só passa para a equipe, zero POST', Boolean(r.handoff) && posts.length === 0 && /NÃO feitos/.test(r.handoff!.motivo), `POSTs=${posts.length}`);
+// 10) credencial somente leitura: o Clinilink recusa, a Amanda NÃO diz que agendou e passa para a equipe
+reset({ ocupados: 0, somenteLeitura: true });
+r = await conversa([...base, '11122233344', 'sim']);
+confere('10 chave somente leitura: transfere e NÃO confirma', Boolean(r.handoff) && !r.reply.includes(MARCA_AGENDADO) && /SOMENTE_LEITURA/.test(r.handoff!.motivo), r.handoff?.motivo.slice(0, 80));
+confere('10 só uma tentativa de gravar', posts.length === 1, `POSTs=${posts.length}`);
 
 // 11) depois de agendar, uma mensagem nova abre jornada nova (não regrava)
 reset({ ocupados: 0 });

@@ -23,8 +23,6 @@ export const env = {
   // Consulta de agenda no Clinilink (somente leitura). Sem chave => catálogo simulado.
   clinilinkBase: process.env.CLINILINK_BASE_URL ?? 'https://lista-unilab-clinex.onrender.com',
   clinilinkKey: process.env.CLINILINK_API_KEY ?? '',
-  // true = a Amanda reserva e cadastra DE VERDADE no Clinilink (exige credencial rw). false = só consulta e passa para a equipe.
-  agendarDeVerdade: process.env.AGENDAMENTO_REAL === 'true',
   // Humanizador de mensagens (GPT). Sem chave => textos do roteiro como estão.
   openaiKey: process.env.OPENAI_API_KEY ?? '',
   openaiModel: process.env.OPENAI_MODEL ?? 'gpt-4o-mini',

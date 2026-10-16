@@ -36,11 +36,10 @@ export type State = {
 };
 
 /**
- * `reservar` = o ambiente liberou gravar no Clinilink (AGENDAMENTO_REAL + credencial rw).
  * `efetivar` é calculado pelo `responder`: só a ÚLTIMA mensagem pode gravar, porque o roteiro reprocessa a
  * conversa inteira a cada mensagem e uma gravação nas anteriores duplicaria o agendamento.
  */
-export type Ctx = { now: Date; nome: string; tz: string; telefone?: string; reservar?: boolean; efetivar?: boolean };
+export type Ctx = { now: Date; nome: string; tz: string; telefone?: string; efetivar?: boolean };
 export type Handoff = { motivo: string; urgente?: boolean };
 export type Result = { state: State; reply: string; handoff?: Handoff };
 
@@ -346,13 +345,9 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
     const novo = s.paciente ? `Paciente já cadastrado (${titulo(s.paciente.nome)}, id ${s.paciente.id ?? '?'}).` : `CADASTRAR paciente novo: ${s.cad.nome}, nascimento ${s.cad.nascimento ? fmtNasc(s.cad.nascimento) : '?'}, sexo ${s.cad.sexo}, telefone ${s.cad.telefone}, CPF ${s.cpf}.`;
     const aEquipe = (aviso: string, motivo: string) => out(`${aviso} Vou passar para a equipe concluir, já com tudo anotado. Só um instante.`, { motivo });
 
-    // sem liberação para gravar (ou reprocessando mensagens antigas): só passa para a equipe
-    if (!ctx.reservar || !fonte.reservar) {
-      return out('Fechado. Vou passar para a equipe concluir a sua reserva, já com tudo anotado. Só um instante.', { motivo: `Paciente escolheu a vaga: ${resumoVaga}. ${novo} Reserva${s.paciente ? '' : ' e cadastro'} ainda NÃO feitos (agente em modo leitura).` });
-    }
     if (!ctx.efetivar) return out('Fechado. Vou concluir a sua reserva, só um instante.'); // reprocessamento: nunca grava
 
-    const r = await fonte.reservar({
+    const r = await fonte.reservar!({
       servico: sv, unidade: un, slot, cpf: s.cpf!,
       pacienteId: s.paciente?.id,
       cadastro: s.paciente ? undefined : { nome: s.cad.nome!, nascimento: s.cad.nascimento!, sexo: s.cad.sexo!, telefone: s.cad.telefone! },
