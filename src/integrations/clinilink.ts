@@ -4,8 +4,8 @@ import { evt } from '../lib/log.js';
 /**
  * Cliente da API de agendamento do Clinilink (Clinex).
  * Doc: clinilink/clinex/docs/api/clinex/agendamento/inovstar/INOVSTAR_API.md
- * Auth: header x-api-key. Leitura funciona com perfil "ro"; reservar e cadastrar exigem perfil "rw"
- * (nome:rw:chave em SCHEDULING_API_KEY). Com chave "ro" o Clinilink recusa a gravação (403) e o agente passa para a equipe.
+ * Auth: header x-api-key. Leitura usa CLINILINK_API_KEY (perfil "ro" basta); reservar e cadastrar usam
+ * CLINILINK_API_KEY_ESCRITA (perfil "rw", entrada em SCHEDULING_API_KEY do servidor). Com chave "ro" o Clinilink recusa a gravação (403) e o agente passa para a equipe.
  * Escrita NUNCA é repetida automaticamente: se o POST der timeout, o resultado é incerto e vai para a equipe.
  *
  * O servidor do Render pode "dormir" e levar até ~1 min para acordar: timeout longo + 1 retry.
@@ -91,10 +91,10 @@ export type RespostaEscrita<T> = { ok: true; dados: T } | { ok: false; codigo: s
 
 /** POST sem retry. `incerto` = não sabemos se gravou (timeout/queda/500) e alguém precisa conferir. */
 async function post<T>(path: string, corpo: unknown): Promise<RespostaEscrita<T>> {
-  if (!env.clinilinkKey) return { ok: false, codigo: 'SEM_CHAVE', mensagem: 'CLINILINK_API_KEY não configurada' };
+  if (!env.clinilinkWriteKey) return { ok: false, codigo: 'SEM_CHAVE', mensagem: 'CLINILINK_API_KEY_ESCRITA não configurada' };
   const t0 = Date.now();
   try {
-    const res = await fetch(`${env.clinilinkBase}${path}`, { method: 'POST', headers: { 'x-api-key': env.clinilinkKey, 'content-type': 'application/json' }, body: JSON.stringify(corpo), signal: AbortSignal.timeout(40000) });
+    const res = await fetch(`${env.clinilinkBase}${path}`, { method: 'POST', headers: { 'x-api-key': env.clinilinkWriteKey, 'content-type': 'application/json' }, body: JSON.stringify(corpo), signal: AbortSignal.timeout(40000) });
     const body: any = await res.json().catch(() => null);
     const ok = res.ok && body?.ok;
     // log sem dado pessoal: só o resultado e o código de erro
