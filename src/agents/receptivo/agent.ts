@@ -1,7 +1,7 @@
 import { env } from '../../lib/env.js';
 import { describe, getHistory, sendText, transferToSector, type MessageReceivedEvent } from '../../integrations/inovstar.js';
 import { buildSystemPrompt } from './prompt.js';
-import { MARCA_FIM, etapa, responder } from './script/engine.js';
+import { MARCAS_FIM, MARCA_AGENDADO, etapa, responder } from './script/engine.js';
 import { fonteSimulada } from './script/catalog.js';
 import { fonteClinilink } from './script/clinilinkFonte.js';
 import { amigavelDetalhado } from '../../lib/humanizer.js';
@@ -109,7 +109,7 @@ async function processar(ev: MessageReceivedEvent) {
   // Roteiro fixo (sem IA): reprocessa as mensagens do paciente da jornada atual e responde a última.
   // A jornada recomeça depois da última mensagem de confirmação (MARCA_FIM) e é limitada a 12 horas.
   if (env.mode === 'scripted') {
-    const fimIdx = history.reduce((acc, m, i) => (m.direction === 'out' && m.text?.includes(MARCA_FIM) ? i : acc), -1);
+    const fimIdx = history.reduce((acc, m, i) => (m.direction === 'out' && MARCAS_FIM.some((x) => m.text?.includes(x)) ? i : acc), -1);
     const desde = Date.now() - 12 * 3600 * 1000;
     const textos = history
       .filter((m, i) => m.direction === 'in' && i > fimIdx && +new Date(m.createdAt) > desde)
@@ -120,7 +120,7 @@ async function processar(ev: MessageReceivedEvent) {
     const tag = `[${ev.attendanceId}]`;
     let r;
     try {
-      r = await responder(textos, { now: new Date(), nome, tz: env.timezone, telefone: ev.to }, fonte);
+      r = await responder(textos, { now: new Date(), nome, tz: env.timezone, telefone: ev.to, reservar: env.agendarDeVerdade }, fonte);
     } catch (e) {
       // Clinilink fora do ar / lento: não inventa dado, devolve para a equipe
       console.error(`${tag} falha ao consultar a fonte (${fonte.tipo}):`, (e as Error).message);
@@ -128,7 +128,7 @@ async function processar(ev: MessageReceivedEvent) {
     }
     if (!r) return skip('roteiro sem resposta');
     // o GPT só reescreve o tom; emergência/crise nunca passam por ele
-    const gpt = r.handoff?.urgente ? { texto: r.reply, status: 'desligado' as const, motivo: 'mensagem de segurança' } : await amigavelDetalhado(r.reply, nomesProtegidos(r));
+    const gpt = r.handoff?.urgente ? { texto: r.reply, status: 'desligado' as const, motivo: 'mensagem de segurança' } : r.reply.includes(MARCA_AGENDADO) ? { texto: r.reply, status: 'desligado' as const, motivo: 'confirmação de agendamento (texto exato)' } : await amigavelDetalhado(r.reply, nomesProtegidos(r));
     const texto = gpt.texto;
     const msg = withTitle(texto);
     evt('resposta', {

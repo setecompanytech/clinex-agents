@@ -23,11 +23,22 @@ export type Descoberta =
   | undefined; // não achou
 
 /** Um período de atendimento (ordem de chegada) numa data. `inicio` = hora em que a agenda abre. */
-export type Slot = { ymd: string; turno: Periodo; inicio: string; profissional?: string };
+export type Slot = { ymd: string; turno: Periodo; inicio: string; profissional?: string; profissionalId?: string };
 export type PacienteInfo = { id?: string; nome: string };
+
+export type PedidoReserva = {
+  servico: Servico; unidade: Unidade; slot: Slot; cpf: string;
+  pacienteId?: string; // paciente já cadastrado
+  cadastro?: { nome: string; nascimento: string; sexo: 'feminino' | 'masculino'; telefone: string }; // paciente novo
+};
+export type ResultadoReserva =
+  | { ok: true; profissional?: string; hora: string; cadastrou: boolean }
+  | { ok: false; codigo: string; motivo: string; incerto?: boolean; cadastrou?: boolean };
 
 export interface Fonte {
   tipo: 'simulado' | 'clinilink';
+  /** Só a fonte real implementa: cadastra (se novo) e reserva o horário livre. */
+  reservar?(pedido: PedidoReserva): Promise<ResultadoReserva>;
   nomesUnidades(): Promise<string[]>;
   /** `buscando` = ainda não há serviço na conversa (permite busca por palavra solta). */
   descobrir(textoNormalizado: string, buscando: boolean): Promise<Descoberta>;

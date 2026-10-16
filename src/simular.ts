@@ -8,7 +8,7 @@ import { env } from './lib/env.js';
 // Simulador local: npm run simular   (digite como o paciente; "sair" encerra, "novo" recomeça)
 // Usa Clinilink real se CLINILINK_API_KEY existir (somente leitura); GPT se OPENAI_API_KEY existir.
 const fonte = env.clinilinkKey ? fonteClinilink : fonteSimulada;
-const ctx = () => ({ now: new Date(), nome: process.env.SIM_NOME ?? '', tz: env.timezone, telefone: process.env.SIM_TEL ?? '5591981628017' });
+const ctx = () => ({ now: new Date(), nome: process.env.SIM_NOME ?? '', tz: env.timezone, telefone: process.env.SIM_TEL ?? '5591981628017', reservar: env.agendarDeVerdade });
 let textos: string[] = [];
 let fila: Promise<void> = Promise.resolve();
 

@@ -35,7 +35,12 @@ export type State = {
   fim: boolean;
 };
 
-export type Ctx = { now: Date; nome: string; tz: string; telefone?: string };
+/**
+ * `reservar` = o ambiente liberou gravar no Clinilink (AGENDAMENTO_REAL + credencial rw).
+ * `efetivar` é calculado pelo `responder`: só a ÚLTIMA mensagem pode gravar, porque o roteiro reprocessa a
+ * conversa inteira a cada mensagem e uma gravação nas anteriores duplicaria o agendamento.
+ */
+export type Ctx = { now: Date; nome: string; tz: string; telefone?: string; reservar?: boolean; efetivar?: boolean };
 export type Handoff = { motivo: string; urgente?: boolean };
 export type Result = { state: State; reply: string; handoff?: Handoff };
 
@@ -54,8 +59,10 @@ export function etapa(s: State, handoff?: Handoff): string {
   return 'confirmando o paciente';
 }
 
-/** Marca na mensagem final da simulação; o agente abre uma jornada nova depois dela. */
+/** Marcas na mensagem final; o agente abre uma jornada nova depois delas. */
 export const MARCA_FIM = 'Simulação: nada foi agendado';
+export const MARCA_AGENDADO = 'Agendamento confirmado';
+export const MARCAS_FIM = [MARCA_FIM, MARCA_AGENDADO];
 
 export const novoEstado = (): State => ({
   saudou: false, confirmPerguntado: false, servicoConfirmado: false, unidadesInformadas: false,
@@ -337,7 +344,28 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
   const quem = s.paciente ? titulo(s.paciente.nome) : s.cad.nome ?? '';
   if (fonte.tipo === 'clinilink') {
     const novo = s.paciente ? `Paciente já cadastrado (${titulo(s.paciente.nome)}, id ${s.paciente.id ?? '?'}).` : `CADASTRAR paciente novo: ${s.cad.nome}, nascimento ${s.cad.nascimento ? fmtNasc(s.cad.nascimento) : '?'}, sexo ${s.cad.sexo}, telefone ${s.cad.telefone}, CPF ${s.cpf}.`;
-    return out('Fechado. Vou passar para a equipe concluir a sua reserva, já com tudo anotado. Só um instante.', { motivo: `Paciente escolheu a vaga: ${resumoVaga}. ${novo} Reserva${s.paciente ? '' : ' e cadastro'} ainda NÃO feitos (agente em modo leitura).` });
+    const aEquipe = (aviso: string, motivo: string) => out(`${aviso} Vou passar para a equipe concluir, já com tudo anotado. Só um instante.`, { motivo });
+
+    // sem liberação para gravar (ou reprocessando mensagens antigas): só passa para a equipe
+    if (!ctx.reservar || !fonte.reservar) {
+      return out('Fechado. Vou passar para a equipe concluir a sua reserva, já com tudo anotado. Só um instante.', { motivo: `Paciente escolheu a vaga: ${resumoVaga}. ${novo} Reserva${s.paciente ? '' : ' e cadastro'} ainda NÃO feitos (agente em modo leitura).` });
+    }
+    if (!ctx.efetivar) return out('Fechado. Vou concluir a sua reserva, só um instante.'); // reprocessamento: nunca grava
+
+    const r = await fonte.reservar({
+      servico: sv, unidade: un, slot, cpf: s.cpf!,
+      pacienteId: s.paciente?.id,
+      cadastro: s.paciente ? undefined : { nome: s.cad.nome!, nascimento: s.cad.nascimento!, sexo: s.cad.sexo!, telefone: s.cad.telefone! },
+    });
+    if (r.ok) {
+      const med = r.profissional ?? slot.profissional;
+      return out(`${MARCA_AGENDADO}! ${s.paciente ? '' : `Cadastro de ${quem} feito. `}${cap(sv.frase)} no ${un.nome}, ${fmtData(slot.ymd)}, ${periodoTxt(slot.turno)}${med ? `, com ${med}` : ''}. O atendimento é por ordem de chegada, a partir das ${hora(r.hora)}. Recomendamos chegar cedo.`);
+    }
+    const extra = r.cadastrou ? ' O cadastro do paciente FOI criado.' : '';
+    if (r.incerto) return aEquipe('Não consegui confirmar a reserva agora.', `ATENÇÃO: a reserva pode ou não ter sido gravada (${r.codigo}). CONFERIR no Clinilink antes de refazer. Vaga: ${resumoVaga}. ${novo}${extra}`);
+    if (r.codigo === 'SEM_VAGA_AGORA' || r.codigo === 'HORARIO_OCUPADO') return aEquipe('Essa vaga acabou de ser preenchida.', `Vaga ocupada na hora de reservar (${r.codigo}). Oferecer outro horário. Pedido: ${resumoVaga}. ${novo}${extra}`);
+    if (r.codigo === 'SERVICO_DUPLICADO_NO_DIA') return aEquipe('Vi que este paciente já tem esse atendimento marcado para o mesmo dia.', `Reserva recusada: ${r.codigo}. Conferir o agendamento existente. Pedido: ${resumoVaga}. ${novo}${extra}`);
+    return aEquipe('Não consegui concluir a reserva.', `Reserva recusada pelo Clinilink (${r.codigo}: ${r.motivo}). Pedido: ${resumoVaga}. ${novo}${extra}`);
   }
   return out(`${s.paciente ? '' : `Cadastro de ${quem} feito. `}Sua vaga de ${sv.frase} está confirmada para ${fmtData(slot.ymd)}, na unidade ${un.nome}${slot.profissional ? `, com ${slot.profissional}` : ''}. Os atendimentos começam às ${hora(slot.inicio)}, por ordem de chegada. Recomendamos chegar cedo.\n(${MARCA_FIM} de verdade.)`);
 }
@@ -346,6 +374,6 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
 export async function responder(textos: string[], ctx: Ctx, fonte: Fonte): Promise<Result | undefined> {
   let state = novoEstado();
   let last: Result | undefined;
-  for (let i = 0; i < textos.length; i++) { last = await step(state, textos[i], ctx, fonte, i); state = last.state; }
+  for (let i = 0; i < textos.length; i++) { last = await step(state, textos[i], { ...ctx, efetivar: i === textos.length - 1 }, fonte, i); state = last.state; }
   return last;
 }

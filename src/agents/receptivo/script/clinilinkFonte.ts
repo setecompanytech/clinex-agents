@@ -1,8 +1,8 @@
-import { getPacientePorCpf, listAgenda, listClinicas, listProcedimentos, type Clinica, type Horario, type Procedimento } from '../../../integrations/clinilink.js';
+import { criarAgendamento, criarPaciente, getPacientePorCpf, listAgenda, listAgendaFresca, listClinicas, listProcedimentos, type Clinica, type Horario, type Procedimento } from '../../../integrations/clinilink.js';
 import { env } from '../../../lib/env.js';
-import { RAIZES, type Descoberta, type Fonte, type Periodo, type Servico, type Slot, type Unidade } from './catalog.js';
+import { RAIZES, type PedidoReserva, type ResultadoReserva, type Descoberta, type Fonte, type Periodo, type Servico, type Slot, type Unidade } from './catalog.js';
 
-/** Fonte REAL (somente leitura): unidades, médicos, preços, agenda e pacientes vêm do Clinilink. */
+/** Fonte REAL: unidades, médicos, preços, agenda e pacientes vêm do Clinilink. Reservar/cadastrar só com credencial rw. */
 
 const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 const titulo = (s: string) => s.toLocaleLowerCase('pt-BR').replace(/(^|[\s-])(\p{L})/gu, (_m, a, b) => a + b.toLocaleUpperCase('pt-BR')).replace(/\b(De|Da|Do|Dos|Das|E)\b/g, (x) => x.toLowerCase());
@@ -28,7 +28,7 @@ function pontuar(p: Procedimento, texto = '') {
 
 const slotDe = (h: Horario): Slot => {
   const inicio = h.agendaHoraInicio ?? h.hora;
-  return { ymd: h.data, turno: periodoDe(inicio), inicio, profissional: h.profissional?.nome ? titulo(h.profissional.nome) : undefined };
+  return { ymd: h.data, turno: periodoDe(inicio), inicio, profissional: h.profissional?.nome ? titulo(h.profissional.nome) : undefined, profissionalId: h.profissional?.id };
 };
 /** Um slot por (data, período): várias horas de uma mesma agenda viram um único período. */
 function agrupar(horarios: Horario[]): Slot[] {
@@ -116,6 +116,39 @@ export const fonteClinilink: Fonte = {
   async proximas(sv, un, de, max) {
     if (!un.id) return [];
     return agrupar(await listAgenda({ unidadeId: un.id, dataInicial: de, dataFinal: somaDias(de, 21), procedimentoId: sv.id })).slice(0, max);
+  },
+
+  async reservar(p: PedidoReserva): Promise<ResultadoReserva> {
+    const { unidade, slot, servico } = p;
+    if (!unidade.id) return { ok: false, codigo: 'UNIDADE_SEM_ID', motivo: 'unidade sem id' };
+    // 1) horário livre AGORA (sem cache): o primeiro do período escolhido, com o mesmo médico informado ao paciente
+    const livres = (await listAgendaFresca({ unidadeId: unidade.id, dataInicial: slot.ymd, dataFinal: slot.ymd, procedimentoId: servico.id }))
+      .filter((h) => periodoDe(h.agendaHoraInicio ?? h.hora) === slot.turno && (!slot.profissionalId || h.profissional?.id === slot.profissionalId))
+      .sort((a, b) => a.hora.localeCompare(b.hora));
+    if (livres.length === 0) return { ok: false, codigo: 'SEM_VAGA_AGORA', motivo: 'a vaga escolhida acabou de ser preenchida' };
+
+    // 2) paciente: já cadastrado, ou cria agora (CPF_DUPLICADO devolve o existente)
+    let pacienteId = p.pacienteId; let cadastrou = false;
+    if (!pacienteId) {
+      if (!p.cadastro) return { ok: false, codigo: 'SEM_DADOS', motivo: 'faltam dados do cadastro' };
+      const c = p.cadastro;
+      const r = await criarPaciente({ nome: c.nome, cpf: p.cpf, dataNascimento: c.nascimento, sexo: c.sexo, telefone: c.telefone });
+      if (r.ok) { pacienteId = r.dados.paciente?.id ?? r.dados.id; cadastrou = true; }
+      else if (r.codigo === 'CPF_DUPLICADO' && r.corpo?.pacienteExistente?.id) pacienteId = r.corpo.pacienteExistente.id;
+      else return { ok: false, codigo: r.codigo, motivo: `cadastro recusado: ${r.mensagem || r.codigo}`, incerto: r.incerto };
+      if (!pacienteId) return { ok: false, codigo: 'SEM_ID_PACIENTE', motivo: 'o cadastro não devolveu o id do paciente', incerto: true };
+    }
+
+    // 3) reserva; se alguém ocupou o horário no meio do caminho, tenta o próximo livre (até 3)
+    let ultimo = '';
+    for (const h of livres.slice(0, 3)) {
+      const dataHora = h.dataHora ?? `${h.data}T${h.hora}:00-03:00`;
+      const r = await criarAgendamento({ pacienteId, unidadeId: unidade.id, agendaId: h.agendaId, profissionalId: h.profissional?.id ?? slot.profissionalId ?? '', dataHora, procedimentoId: servico.id });
+      if (r.ok) return { ok: true, profissional: h.profissional?.nome ? titulo(h.profissional.nome) : slot.profissional, hora: h.agendaHoraInicio ?? h.hora, cadastrou };
+      ultimo = r.codigo;
+      if (r.codigo !== 'HORARIO_OCUPADO') return { ok: false, codigo: r.codigo, motivo: r.mensagem || r.codigo, incerto: r.incerto, cadastrou };
+    }
+    return { ok: false, codigo: ultimo || 'HORARIO_OCUPADO', motivo: 'os horários do período foram ocupados', cadastrou };
   },
 
   async paciente(cpf) {
