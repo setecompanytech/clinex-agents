@@ -113,17 +113,25 @@ async function processar(ev: MessageReceivedEvent) {
   if (!isAllowed(ev.to)) return skip(`número ${ev.to} fora da whitelist`);
   if (ev.isGroup) return skip('grupo');
   if (ev.isAssigned) return skip(`atendimento já tem atendente humano ${ev.attendanceInfo}`);
-  if (env.agentSectorId && ev.sectorId !== env.agentSectorId) return skip(`setor ${ev.sectorId} != setor da IA`);
+  // Conversa parada na fila da equipe, sem atendente: se foi a Amanda que transferiu, ela pode retomar quando o paciente volta a escrever.
+  const naFilaDaEquipe = Boolean(env.humanSectorId) && ev.sectorId === env.humanSectorId;
+  if (env.agentSectorId && ev.sectorId !== env.agentSectorId && !naFilaDaEquipe) return skip(`setor ${ev.sectorId} != setor da IA`);
 
   // Debounce: espera o paciente terminar de digitar e só a última mensagem dispara a resposta.
   await sleep(env.debounceMs);
   const { messages: history } = await getHistory(ev.attendanceId);
-  const lastIn = [...history].reverse().find((m) => m.direction === 'in');
+  const lastIn = [...history].reverse().find((m) => m.direction === 'in' && m.type !== 'system');
   if (lastIn && lastIn._id !== ev.messageId) return skip(`chegou mensagem mais nova (${lastIn._id} != ${ev.messageId}); o webhook dela responde`);
 
   // Se um humano/bot já respondeu depois da última mensagem do paciente, não duplica.
   const last = history[history.length - 1];
   if (last && last.direction === 'out' && last.status !== 'whisper') return skip(`última mensagem já é de saída (${last.type}); não duplica`);
+
+  // Na fila da equipe só retoma conversa em que a própria Amanda já falou (nas últimas 12 h); as demais são da equipe.
+  const tituloAmanda = env.agentTitle.replace(/\*/g, '').trim();
+  if (naFilaDaEquipe && !history.some((m) => m.direction === 'out' && tituloAmanda && m.text?.includes(tituloAmanda) && Date.now() - +new Date(m.createdAt) < 12 * 3600 * 1000)) {
+    return skip('conversa da fila da equipe que não é da Amanda');
+  }
 
   // Áudios: a Inovstar só transcreve sob demanda (POST /whatsapp/message/{id}/transcribe, síncrono, com cache do lado deles)
   const desde12h = Date.now() - 12 * 3600 * 1000;
@@ -156,7 +164,7 @@ async function processar(ev: MessageReceivedEvent) {
     // A jornada recomeça (1) depois da confirmação do agendamento e (2) depois de qualquer evento do sistema da
     // Inovstar ("Transferido para o setor...", "início de atendimento"): o que veio antes não conta (falhas antigas
     // faziam a Amanda transferir de novo logo na primeira mensagem).
-    const fimIdx = history.reduce((acc, m, i) => ((m.direction === 'out' && MARCAS_FIM.some((x) => m.text?.includes(x))) || m.type === 'system' ? i : acc), -1);
+    const fimIdx = history.reduce((acc, m, i) => ((m.direction === 'out' && MARCAS_FIM.some((x) => m.text?.includes(x))) || (m.type === 'system' && !/transferido pela api/i.test(m.text ?? '')) ? i : acc), -1);
     const desde = Date.now() - 12 * 3600 * 1000;
     // logo depois de um agendamento concluído (até 1 h): "obrigado" -> pergunta se ajuda em mais algo; "só isso" -> despede
     const marcaOut = fimIdx >= 0 ? history[fimIdx] : undefined;
@@ -176,8 +184,10 @@ async function processar(ev: MessageReceivedEvent) {
       turnos[turnos.length - 1].push(txt);
     });
     const textos = turnos.flat();
+    // o que a Amanda acabou de dizer: o GPT varia as expressões em vez de repetir o mesmo elogio
+    const anteriores = history.filter((m) => m.direction === 'out' && m.text && m.status !== 'whisper').slice(-2).map((m) => (m.text ?? '').replace(/^\*[^*\n]+\*\s*/, ''));
     // a última mensagem é um áudio sem transcrição ou um arquivo sem texto: pede para escrever (não conta como "não entendi")
-    const ultimaMsg = [...history].reverse().find((m) => m.direction === 'in');
+    const ultimaMsg = [...history].reverse().find((m) => m.direction === 'in' && m.type !== 'system');
     const ilg = ultimaMsg && ultimaMsg._id === ev.messageId ? ilegivel(ultimaMsg) : null;
     if (textos.length === 0 && !ilg) return skip('sem mensagens do paciente na jornada atual');
     const fonte = env.clinilinkKey ? fonteClinilink : fonteSimulada;
@@ -194,8 +204,10 @@ async function processar(ev: MessageReceivedEvent) {
     }
     if (!r) return skip('roteiro sem resposta');
     if (r.silencio) return skip('agradecimento depois da despedida: sem resposta');
+    // o paciente pediu um humano (ou foi urgência) e voltou a escrever: a equipe segue, a Amanda não retoma
+    if (naFilaDaEquipe && r.aposHandoffDuro) return skip('conversa transferida a pedido do paciente (ou urgência): a Amanda não retoma');
     // o GPT só reescreve o tom; emergência/crise nunca passam por ele
-    const gpt = ilg ? { texto: r.reply, status: 'desligado' as const, motivo: 'mensagem fixa (áudio/arquivo ilegível)' } : r.handoff?.urgente ? { texto: r.reply, status: 'desligado' as const, motivo: 'mensagem de segurança' } : SEM_GPT.some((x) => r.reply.includes(x)) ? { texto: r.reply, status: 'desligado' as const, motivo: 'texto exato (valores, chave pix, confirmação)' } : await amigavelDetalhado(r.reply, nomesProtegidos(r));
+    const gpt = ilg ? { texto: r.reply, status: 'desligado' as const, motivo: 'mensagem fixa (áudio/arquivo ilegível)' } : r.handoff?.urgente ? { texto: r.reply, status: 'desligado' as const, motivo: 'mensagem de segurança' } : SEM_GPT.some((x) => r.reply.includes(x)) ? { texto: r.reply, status: 'desligado' as const, motivo: 'texto exato (valores, chave pix, confirmação)' } : await amigavelDetalhado(r.reply, nomesProtegidos(r), { nome: textos.length % 3 === 0 ? nome : '', anteriores }); // o nome só em 1 a cada 3 mensagens, para não cansar
     const texto = gpt.texto;
     const msg = withTitle(texto);
     evt('resposta', {
@@ -207,21 +219,32 @@ async function processar(ev: MessageReceivedEvent) {
       enviado: msg,
       gpt: gpt.status,
       gpt_motivo: gpt.motivo,
+      retomou_da_fila: naFilaDaEquipe,
       transferiu: Boolean(r.handoff),
       motivo_transferencia: r.handoff?.motivo,
       enviou_de_verdade: env.autoReply,
     });
     if (!env.autoReply) return;
     await pareceDigitando(inicio, Boolean(r.handoff?.urgente));
-    if (r.handoff && env.humanSectorId) {
-      try { await transferToSector(ev.attendanceId, env.humanSectorId, r.handoff.motivo, msg); }
+    // A mensagem ao paciente vai SEMPRE como texto normal: a mensagem anexada ao endpoint de transferência não chega
+    // ao paciente (o histórico mostra só a resposta automática do setor). Depois, se for o caso, transfere.
+    const enviar = () => sendText({ channelId: ev.channelId, to: ev.to, attendanceId: ev.attendanceId, text: msg, clientMessageId: `agente-receptivo-${ev.messageId}` });
+    const transferir = async (setor: string, motivo: string) => {
+      try { await transferToSector(ev.attendanceId, setor, motivo); }
       catch (e) {
-        // a conversa já foi transferida por outra mensagem do mesmo paciente: nada a fazer
-        if (/já está neste setor/i.test((e as Error).message)) evt('ignorado', { motivo: 'atendimento já estava no setor da equipe' });
+        // já está no setor de destino (outra mensagem do mesmo paciente já transferiu): nada a fazer
+        if (/já está neste setor|Informe um setor diferente/i.test((e as Error).message)) evt('ignorado', { motivo: 'atendimento já estava no setor de destino' });
         else throw e;
       }
-    }
-    else await sendText({ channelId: ev.channelId, to: ev.to, attendanceId: ev.attendanceId, text: msg, clientMessageId: `agente-receptivo-${ev.messageId}` });
+    };
+    if (naFilaDaEquipe && !r.handoff && env.agentSectorId) {
+      // o paciente voltou: devolve a conversa para a Amanda e responde
+      await transferir(env.agentSectorId, 'A Amanda retomou o atendimento porque o paciente voltou a escrever.');
+      await enviar();
+    } else if (r.handoff && env.humanSectorId) {
+      await enviar();
+      if (!naFilaDaEquipe) await transferir(env.humanSectorId, r.handoff.motivo);
+    } else await enviar();
     return;
   }
 

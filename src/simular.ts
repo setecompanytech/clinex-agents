@@ -2,7 +2,7 @@ import { createInterface } from 'node:readline';
 import { responder } from './agents/receptivo/script/engine.js';
 import { fonteSimulada } from './agents/receptivo/script/catalog.js';
 import { fonteClinilink } from './agents/receptivo/script/clinilinkFonte.js';
-import { amigavel } from './lib/humanizer.js';
+import { amigavelDetalhado } from './lib/humanizer.js';
 import { env } from './lib/env.js';
 
 // Simulador local: npm run simular   (digite como o paciente; "sair" encerra, "novo" recomeça)
@@ -24,7 +24,7 @@ rl.on('line', (linha) => {
       textos.push(l);
       try {
         const r = await responder(textos, ctx(), fonte);
-        const texto = r && !r.handoff?.urgente ? await amigavel(r.reply, { tag: '[sim]' }) : r?.reply;
+        const texto = r && !r.handoff?.urgente ? (await amigavelDetalhado(r.reply, [], { nome: process.env.SIM_NOME })).texto : r?.reply;
         console.log(`\n${env.agentTitle.split('*').join('')}\n${texto}\n${r?.handoff ? `[transfere para a equipe: ${r.handoff.motivo}]\n` : ''}`);
       } catch (e) { console.log('ERRO:', (e as Error).message); }
     }

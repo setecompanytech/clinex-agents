@@ -86,7 +86,8 @@ export async function getHistory(attendanceId: string, limit = 30) {
   const messages: InovstarMessage[] = r.data.messages.map((m) => ({
     ...m,
     _id: String(m.id ?? m._id),
-    text: typeof m.text === 'object' && m.text ? (m.text.text ?? null) : (m.text ?? null),
+    // mensagem recebida: { text }; mensagem ENVIADA: { body }. Ler só `.text` deixava as mensagens da Amanda sem texto.
+    text: typeof m.text === 'object' && m.text ? (m.text.text ?? m.text.body ?? null) : (m.text ?? null),
     createdAt: m.timestamp ?? m.createdAt ?? m.waTimestamp,
     isWhisper: m.isWhisper ?? m.isPrivate,
   }));
@@ -100,11 +101,11 @@ export function sendText(params: { channelId: string; to: string; attendanceId: 
 }
 
 /** Devolve o atendimento a um setor (fila humana), já avisando o paciente na mesma chamada. */
-export function transferToSector(attendanceId: string, sectorId: string, reason: string, message: string) {
+export function transferToSector(attendanceId: string, sectorId: string, reason: string, message?: string) {
   return request('PUT', `/attendance/${attendanceId}/transfer`, {
     toSectorId: sectorId,
     reason: reason.slice(0, 500),
-    message,
+    ...(message ? { message } : {}),
   });
 }
 

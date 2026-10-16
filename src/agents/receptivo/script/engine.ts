@@ -1,6 +1,6 @@
 import type { Comprovante } from '../../../lib/comprovante.js';
 import { env } from '../../../lib/env.js';
-import type { Fonte, PacienteInfo, Periodo, Servico, Slot, Unidade } from './catalog.js';
+import { RAIZES, type Fonte, type PacienteInfo, type Periodo, type Servico, type Slot, type Unidade } from './catalog.js';
 
 /**
  * Motor de conversa por roteiro. O estado é recalculado a cada mensagem reprocessando as mensagens do
@@ -41,6 +41,8 @@ export type State = {
   pagFinal: boolean; // forma de pagamento resolvida (comprovante conferido, pagamento na recepção ou desistência do pix)
   compTent: number; // respostas/comprovantes que não serviram
   comprovante?: { valor: number; data: string; nota: string };
+  pagoPix?: number; // soma dos comprovantes já conferidos (o paciente pode pagar em mais de um pix)
+  transacoes?: string[]; // ids de transação já contados, para o mesmo comprovante não valer duas vezes
   pos?: Pos; // logo depois de um agendamento concluído
 };
 
@@ -54,7 +56,10 @@ export type Ctx = {
   lerComprovante?: (idMensagem: string) => Promise<Comprovante | null>; // lê a imagem do comprovante
 };
 export type Handoff = { motivo: string; urgente?: boolean };
-export type Result = { state: State; reply: string; handoff?: Handoff; silencio?: boolean };
+export type Result = {
+  state: State; reply: string; handoff?: Handoff; silencio?: boolean;
+  aposHandoffDuro?: boolean; // a conversa já passou por uma transferência que a Amanda NÃO deve desfazer (pediu humano, urgência)
+};
 
 /** Etapa legível da conversa, para o painel de logs. */
 export function etapa(s: State, handoff?: Handoff): string {
@@ -136,6 +141,7 @@ const EMERGENCIA = /dor (forte )?no peito|falta de ar|nao consigo respirar|desma
 const CRISE = /suicid|me matar|tirar minha vida|acabar com minha vida|nao quero mais viver|me machucar|autolesao/;
 const HUMANO = /atendente|humano|pessoa de verdade|falar com alguem|falar com uma pessoa|(falar|conversar|chamar|passar).{0,15}(recepcao|recepcionista)/;
 const SIM = /^(sim|s|pode|pode sim|pode reservar|quero|quero sim|ok|isso|isso mesmo|e isso|e isso mesmo|exato|confirmo|confirma|fechado|combinado|bora|claro|por favor|pode ser|ta bom|tudo bem|correto|certo|esse mesmo|sou eu)\b/;
+const RETOMAR = /\b(retom\w*|continu\w*|dar continuidade|voltei|ainda quero|onde (a gente )?parou|de onde paramos|seguir com (o|meu) agendamento)\b/;
 const NAO = /^(nao|n|nao quero|nao obrigad|nao e|outro|outra|prefiro outro|prefiro outra|errado)\b/;
 const SO_CUMPRIMENTO = /^(oi+|ola|ola+ boa|e ai|ei|bom dia|boa tarde|boa noite|teste|ola teste|agente de ia|amanda|atendimento|tudo bem\??|oie)[\s!.,?]*(teste|amanda|tudo bem\??)?[\s!.,?]*$/;
 
@@ -208,8 +214,8 @@ const soAgradecimento = (t: string) => {
 const NAO_MAIS = /\b(so isso|era so isso|e so isso|so era isso|nada mais|mais nada|nao preciso|nao precisa|nao,? obrigad[oa]|por hoje|por enquanto|tudo certo|pode encerrar|tchau|ate (mais|logo|breve))\b|^(nao|n)[\s!.,]*$/;
 const SO_SIM = /^(sim|s|quero|quero sim|claro|pode|pode sim|gostaria|preciso|isso|uhum|aham|por favor|queria|tenho sim|tenho)[\s!.,]*$/;
 
-export const TXT_MAIS = 'Imagina! Posso te ajudar com mais alguma coisa?';
-export const TXT_ADEUS = 'Por nada! Tenha um ótimo dia.';
+export const TXT_MAIS = 'Imagina, foi um prazer! Posso te ajudar com mais alguma coisa?';
+export const TXT_ADEUS = 'Por nada, foi um prazer te atender! Tenha um ótimo dia e cuide-se bem.';
 export type Pos = 'confirmado' | 'perguntou_mais' | 'encerrou';
 
 /**
@@ -218,7 +224,7 @@ export type Pos = 'confirmado' | 'perguntou_mais' | 'encerrou';
  */
 function posAgendamento(pos: Pos, t: string): { reply: string; pos?: Pos } | 'seguir' | 'silencio' {
   if (NAO_MAIS.test(t)) return pos === 'encerrou' ? 'silencio' : { reply: TXT_ADEUS, pos: 'encerrou' };
-  if (SO_SIM.test(t)) return pos === 'encerrou' ? 'seguir' : { reply: 'Claro! Qual consulta ou exame você gostaria de agendar?' };
+  if (SO_SIM.test(t)) return pos === 'encerrou' ? 'seguir' : { reply: 'Que bom! Me conta: qual consulta ou exame você gostaria de agendar?' };
   if (soAgradecimento(t)) {
     if (pos === 'confirmado') return { reply: TXT_MAIS, pos: 'perguntou_mais' };
     if (pos === 'perguntou_mais') return { reply: TXT_ADEUS, pos: 'encerrou' };
@@ -235,7 +241,8 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
   const t = norm(texto.replace(TOKEN_MIDIA, ' '));
   const h = hoje(ctx);
   const nome = ctx.nome;
-  const abertura = s.saudou ? '' : `${SAUDACAO(h.hora)}! Sou a Amanda, da Clinex.`;
+  const nomeOk = /^[\p{L}]{2,20}$/u.test(nome ?? '') ? nome : '';
+  const abertura = s.saudou ? '' : `${SAUDACAO(h.hora)}${nomeOk ? `, ${nomeOk}` : ''}! Sou a Amanda, da Clinex. Que bom ter você por aqui!`;
   const out = (reply: string, handoff?: Handoff): Result => { s.saudou = true; return { state: s, reply, handoff }; };
   const comAbertura = (txt: string) => (abertura ? `${abertura}\n${txt}` : txt);
   const partes: string[] = [];
@@ -245,7 +252,7 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
     s.confirmPerguntado = false; s.servicoConfirmado = false; s.unidadesInformadas = false; s.unidade = undefined;
     s.lista = undefined; s.data = undefined; s.turno = undefined; s.slot = undefined; s.cpf = undefined;
     s.paciente = undefined; s.pacienteConfirmado = false; s.cad = {};
-    s.pagPerguntado = false; s.pagamento = undefined; s.pixEnviado = false; s.pagFinal = false; s.compTent = 0; s.comprovante = undefined;
+    s.pagPerguntado = false; s.pagamento = undefined; s.pixEnviado = false; s.pagFinal = false; s.compTent = 0; s.comprovante = undefined; s.pagoPix = undefined; s.transacoes = undefined;
   };
 
   // 1) segurança primeiro
@@ -273,6 +280,10 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
   if (midia && !aguardandoComprovante && !t) return out(comAbertura('Recebi o arquivo, mas por aqui só consigo ler texto e áudio. Pode me responder escrevendo?'));
 
   // 2) serviço: escolha entre opções pendentes, ou descoberta na fonte
+  // o paciente voltou para retomar um atendimento que ficou pela metade (e não citou o serviço)
+  if (!s.servico && !s.opcoes && RETOMAR.test(t) && !RAIZES.some((x) => x.re.test(t))) {
+    return out(comAbertura('Que bom que você voltou! Vamos retomar o seu agendamento. Qual consulta ou exame você precisa?'));
+  }
   let mudouServico = false;
   const aplicar = (d: Awaited<ReturnType<Fonte['descobrir']>>): Result | undefined => {
     if (!d) return undefined;
@@ -298,6 +309,8 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
       const lista = s.opcoes.map((o, i) => `${i + 1}. ${o.nome}`).join('\n');
       return out(comAbertura(`Encontrei estas opções:\n${lista}\nQual delas você precisa?`));
     }
+    // o paciente voltou para retomar um atendimento que ficou pela metade
+    if (RETOMAR.test(t)) return out(comAbertura('Que bom que você voltou! Vamos retomar o seu agendamento. Qual consulta ou exame você precisa?'));
     const cumprimento = SO_CUMPRIMENTO.test(t);
     if (!cumprimento && !NAO.test(t)) s.falhas += 1;
     if (s.falhas >= 2) return out(comAbertura('Vou passar você para alguém da nossa equipe continuar o atendimento. Só um instante.'), { motivo: 'Não foi possível identificar o serviço pedido pelo paciente.' });
@@ -406,7 +419,7 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
   // 7b) forma de pagamento: pix (espera o comprovante), link de crédito (equipe envia) ou pagar na recepção
   const valorPix = un.precoPix;
   const pedirCpf = (pre: string) => dizer(`${pre} Para eu reservar, preciso do CPF do paciente. Qual é?`);
-  const pixMsg = `Perfeito! Segue a chave pix para o pagamento${valorPix ? ` de ${reais(valorPix)}` : ''}:\n\n${MARCA_PIX} ${env.pixKey}\n\nAssim que pagar, me envie o comprovante aqui para eu seguir com o agendamento.`;
+  const pixMsg = `Combinado! Segue a chave pix para o pagamento${valorPix ? ` de ${reais(valorPix)}` : ''}:\n\n${MARCA_PIX} ${env.pixKey}\n\nAssim que pagar, é só me enviar o comprovante por aqui que eu sigo com o seu agendamento.`;
   const deLink = () => out('Combinado! Vou pedir para a equipe te enviar o link de pagamento e concluir o agendamento, já com tudo anotado. Só um instante.', { motivo: `Paciente quer pagar por link de crédito: enviar o link e concluir o agendamento. Vaga: ${resumoVaga}. Agendamento AINDA NÃO feito.` });
   let preCpf = '';
   if (!s.pagFinal) {
@@ -425,10 +438,11 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
       s.compTent = 0;
     } else if (aguardandoComprovante) {
       // já mandamos a chave pix: só seguimos com o comprovante, ou se ele desistir do pix
+      const aEquipeComp = (aviso: string, motivo: string) => out(`${aviso} Vou pedir para a equipe conferir, já com tudo anotado. Só um instante.`, { motivo: `${motivo} Vaga: ${resumoVaga}. Agendamento AINDA NÃO feito.` });
+      const falta = valorPix ? Math.max(0, valorPix - (s.pagoPix ?? 0)) : 0;
       if (RECEPCAO.test(t)) { s.pagamento = 'recepcao'; }
       else if (LINK.test(t) && !PIX.test(t)) { s.pagamento = 'link'; }
       else if (midia) {
-        const aEquipeComp = (aviso: string, motivo: string) => out(`${aviso} Vou pedir para a equipe conferir, já com tudo anotado. Só um instante.`, { motivo: `${motivo} Vaga: ${resumoVaga}. Agendamento AINDA NÃO feito.` });
         if (!ctx.lerComprovante) return aEquipeComp('Recebi o seu comprovante.', 'Comprovante de pix recebido, mas a leitura automática está indisponível: conferir a imagem.');
         const c = await ctx.lerComprovante(midia[2]).catch(() => null);
         const nova = (msg: string, motivo: string) => {
@@ -436,7 +450,7 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
           if (s.compTent >= 3) return aEquipeComp('Não estou conseguindo conferir o comprovante.', `Comprovante não pôde ser conferido após ${s.compTent} tentativas (${motivo}).`);
           return dizer(msg);
         };
-        if (!c || c.tipo === 'ilegivel') return nova('Não consegui ler essa imagem. Pode enviar de novo, de preferência o print do comprovante com o valor e a data visíveis?', 'imagem ilegível');
+        if (!c || c.tipo === 'ilegivel') return nova('Desculpa, não consegui ler essa imagem. Pode enviar de novo, de preferência o print do comprovante com o valor e a data visíveis?', 'imagem ilegível');
         if (c.tipo === 'outro') return nova('Essa imagem não parece ser um comprovante de pix. Pode enviar o comprovante do pagamento?', 'imagem que não é comprovante');
         if (c.status && c.status !== 'concluido') return nova('O comprovante não mostra o pagamento como concluído. Pode enviar o comprovante depois que o pix for efetuado?', `status ${c.status}`);
         if (!c.data) return nova('Não consegui ver a data no comprovante. Pode enviar o print completo, com valor e data?', 'sem data');
@@ -444,18 +458,42 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
         if (c.valor == null) return nova('Não consegui ver o valor no comprovante. Pode enviar o print completo, com valor e data?', 'sem valor');
         const alvo = norm(`${c.destinatario ?? ''} ${c.chave ?? ''}`);
         if (alvo.trim() && ![...env.pixRecebedor.split(','), env.pixKey].some((k) => k.trim() && alvo.includes(norm(k)))) return aEquipeComp('O comprovante mostra um recebedor diferente do nosso.', `ATENÇÃO: comprovante com recebedor "${c.destinatario ?? c.chave}", diferente da chave ${env.pixKey}.`);
-        if (valorPix && c.valor + 0.005 < valorPix) return aEquipeComp(`O comprovante mostra ${reais(c.valor)}, e o valor é ${reais(valorPix)}.`, `Comprovante de ${reais(c.valor)}, menor que o valor de ${reais(valorPix)}.`);
-        s.comprovante = { valor: c.valor, data: c.data, nota: `Pix antecipado: comprovante de ${reais(c.valor)} (${fmtNasc(c.data)}) lido pela IA${alvo.trim() ? '' : ', recebedor não identificado'}; CONFERIR no extrato` };
+        // o mesmo comprovante não conta duas vezes
+        if (c.transacao && (s.transacoes ?? []).includes(c.transacao)) return nova('Esse comprovante eu já recebi. Se tiver outro pagamento, é só me enviar.', 'comprovante repetido');
+        if (c.transacao) s.transacoes = [...(s.transacoes ?? []), c.transacao];
+        const total = (s.pagoPix ?? 0) + c.valor;
+        // pagou menos que o valor: soma, explica a diferença e deixa escolher (pagar o resto por pix ou na recepção)
+        if (valorPix && total + 0.005 < valorPix) {
+          const antes = s.pagoPix;
+          s.pagoPix = total;
+          s.compTent = 0;
+          s.comprovante = { valor: total, data: c.data, nota: `Pix antecipado PARCIAL de ${reais(total)} (comprovante lido pela IA; CONFERIR no extrato)` };
+          return dizer(`${antes ? `Recebi mais esse comprovante, e o total pago até agora é ${reais(total)}.` : `Recebi o seu comprovante de ${reais(c.valor)}.`} O valor é ${reais(valorPix)}, então ainda faltam ${reais(valorPix - total)}. Prefere pagar o restante agora por pix ou deixar para pagar na recepção?`);
+        }
+        s.comprovante = { valor: total, data: c.data, nota: `Pix antecipado: ${reais(total)} (${fmtNasc(c.data)}${s.pagoPix ? ', mais de um comprovante' : ''}) lido pela IA${alvo.trim() ? '' : ', recebedor não identificado'}; CONFERIR no extrato` };
+        s.pagoPix = total;
         s.pagFinal = true;
-        preCpf = 'Pagamento confirmado, obrigada!';
+        preCpf = 'Pagamento confirmado, muito obrigada!';
       }
-      else if (/pagu|fiz o pix|transferi|ja fiz|efetuei|enviei|mandei/.test(t)) return dizer('Perfeito! Me envie o comprovante (foto ou print) para eu conferir e seguir com o agendamento.');
-      else if (/chave|copia e cola|qr|valor|quanto/.test(t)) return dizer(`${MARCA_PIX} ${env.pixKey}${valorPix ? `\nValor: ${reais(valorPix)}` : ''}\nQuando pagar, me envie o comprovante aqui.`);
-      else return dizer('Estou aguardando o comprovante do pix para seguir com o agendamento. Se preferir pagar na recepção, é só me avisar.');
+      else if (/pagu|fiz o pix|transferi|ja fiz|efetuei|enviei|mandei/.test(t)) return dizer('Que bom! Me envia o comprovante (foto ou print) para eu conferir e seguir com o seu agendamento.');
+      else if (/chave|copia e cola|qr|valor|quanto/.test(t) || (s.pagoPix && (PIX.test(t) || /agora|restante|diferenca|falta/.test(t)))) return dizer(`Aqui está!\n${MARCA_PIX} ${env.pixKey}${valorPix ? `\nValor${s.pagoPix ? ' que falta' : ''}: ${reais(falta || valorPix)}` : ''}\nQuando pagar, me envia o comprovante por aqui, tá bom?`);
+      else if (s.pagoPix) {
+        s.compTent += 1;
+        if (s.compTent >= 3) return aEquipeComp('Vou passar para a equipe combinar o restante do pagamento com você.', `Pagou ${reais(s.pagoPix)} por pix e não definiu como pagar o restante (${reais(falta)}).`);
+        return dizer(`Ainda faltam ${reais(falta)}. Prefere pagar o restante agora por pix ou deixar para pagar na recepção?`);
+      }
+      else return dizer('Estou aguardando o comprovante do pix para seguir com o seu agendamento, tá bom? Se preferir pagar na recepção, é só me avisar.');
     }
     if (!s.pagFinal) {
       if (s.pagamento === 'link') return deLink();
-      if (s.pagamento === 'recepcao') { s.pagFinal = true; preCpf = 'Sem problema, o pagamento fica para a recepção, no dia do atendimento.'; }
+      if (s.pagamento === 'recepcao') {
+        s.pagFinal = true;
+        if (s.pagoPix) { // pagou uma parte por pix: o resto fica para a recepção
+          const resto = valorPix ? Math.max(0, valorPix - s.pagoPix) : 0;
+          s.comprovante = { valor: s.pagoPix, data: s.comprovante?.data ?? h.ymd, nota: `Pix antecipado PARCIAL de ${reais(s.pagoPix)} (comprovante lido pela IA; CONFERIR no extrato)${resto ? `. Saldo de ${reais(resto)} a pagar na recepção` : ''}` };
+          preCpf = `Combinado, ${resto ? `o restante, ${reais(resto)}, fica` : 'o restante fica'} para a recepção, no dia do atendimento.`;
+        } else preCpf = 'Sem problema, o pagamento fica para a recepção, no dia do atendimento.';
+      }
       else if (s.pagamento === 'pix') {
         if (!s.pixEnviado) { s.pixEnviado = true; return dizer(pixMsg); }
       }
@@ -526,7 +564,8 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
     });
     if (r.ok) {
       const med = r.profissional ?? slot.profissional;
-      return out(`${MARCA_AGENDADO}! ${s.paciente ? '' : `Cadastro de ${quem} feito. `}${cap(sv.frase)} no ${un.nome}, ${fmtData(slot.ymd)}, ${periodoTxt(slot.turno)}${med ? `, com ${med}` : ''}. O atendimento é por ordem de chegada, a partir das ${hora(r.hora)}. Recomendamos chegar cedo.`);
+      const primeiro = quem.split(' ')[0];
+      return out(`${MARCA_AGENDADO}! Deu tudo certo. ${s.paciente ? '' : `Cadastro de ${quem} feito. `}Ficou assim${primeiro ? ` para ${primeiro}` : ''}: ${sv.frase} no ${un.nome}, ${fmtData(slot.ymd)}, ${periodoTxt(slot.turno)}${med ? `, com ${med}` : ''}. O atendimento é por ordem de chegada, a partir das ${hora(r.hora)}, e recomendamos chegar cedinho. Estamos te esperando com carinho!`);
     }
     const extra = r.cadastrou ? ' O cadastro do paciente FOI criado.' : '';
     if (r.incerto) return aEquipe('Não consegui confirmar a reserva agora.', `ATENÇÃO: a reserva pode ou não ter sido gravada (${r.codigo}). CONFERIR no Clinilink antes de refazer. Vaga: ${resumoVaga}. ${novo}${extra}`);
@@ -551,6 +590,7 @@ export async function responder(entrada: (string | string[])[], ctx: Ctx, fonte:
   if (ctx.pos) state = { ...state, saudou: true, pos: ctx.pos }; // a conversa já começou: logo depois de um agendamento
   let last: Result | undefined;
   let i = 0;
+  let aposHandoffDuro = false;
   for (let t = 0; t < turnos.length; t++) {
     const msgs = turnos[t];
     for (let j = 0; j < msgs.length; j++) {
@@ -558,9 +598,15 @@ export async function responder(entrada: (string | string[])[], ctx: Ctx, fonte:
       last = await step(state, msgs[j], { ...ctx, efetivar: t === turnos.length - 1 }, fonte, i++);
       state = last.state;
       // no último turno, quem encerra a jornada ou transfere já é a resposta que o paciente vai receber
-      if (t === turnos.length - 1 && (last.handoff || last.state.fim)) return last;
-      // transferência numa resposta que JÁ foi enviada: a conversa foi para a equipe, o que veio depois é jornada nova
-      if (last.handoff && j === msgs.length - 1) state = { ...novoEstado(), saudou: true };
+      if (t === turnos.length - 1 && (last.handoff || last.state.fim)) return { ...last, aposHandoffDuro };
+      // transferência numa resposta que JÁ foi enviada. Se o paciente pediu um humano (ou foi urgência), o que vier
+      // depois é jornada nova e a Amanda não retoma sozinha. Nos demais casos (comprovante, vaga, falha do sistema...)
+      // a conversa CONTINUA de onde parou quando o paciente volta a escrever, com as tentativas zeradas.
+      if (last.handoff && j === msgs.length - 1) {
+        const duro = Boolean(last.handoff.urgente) || /atendimento humano/i.test(last.handoff.motivo);
+        aposHandoffDuro = duro;
+        state = duro ? { ...novoEstado(), saudou: true } : { ...state, falhas: 0, compTent: 0, pagamento: state.pagamento === 'link' ? undefined : state.pagamento };
+      }
       if (j < msgs.length - 1) { // resposta descartada: desfaz o que ela marcou como dito
         state.saudou = antes.saudou;
         state.unidadesInformadas = antes.unidadesInformadas;
@@ -568,5 +614,5 @@ export async function responder(entrada: (string | string[])[], ctx: Ctx, fonte:
       }
     }
   }
-  return last;
+  return last && { ...last, aposHandoffDuro };
 }

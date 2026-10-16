@@ -156,7 +156,7 @@ confere('12 guardou o "amanhã" que ele já tinha dito', r.state.data === dia(1)
 // 13) "oi" + pedido juntos: a saudação não pode se perder
 reset({ ocupados: 0 });
 r = await responder([['oi', 'quero agendar ginecologista']], ctx, fonteClinilink) as any;
-confere('13 "oi" + pedido juntos: ainda cumprimenta', /^(Bom dia|Boa tarde|Boa noite)! Sou a Amanda/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 90));
+confere('13 "oi" + pedido juntos: ainda cumprimenta', /^(Bom dia|Boa tarde|Boa noite)(, \p{L}+)?! Sou a Amanda/u.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 90));
 
 // 14) CPF + "sim" juntos: o "sim" não confirma um nome que ele nunca viu (e nada é gravado)
 reset({ ocupados: 0 });
@@ -220,7 +220,7 @@ reset({ ocupados: 0 });
 r = await resp([...base0, 'pix'].map((x) => [x]));
 confere('P3 pix: envia a chave com o valor e pede o comprovante', /Chave pix: clinicaclinex@gmail\.com/.test(r.reply) && /R\$ 100,00/.test(r.reply) && /comprovante/.test(r.reply), r.reply.replace(/\n/g, ' | '));
 r = await resp([...base0, 'pix', 'já paguei'].map((x) => [x]));
-confere('P3 "já paguei" sem imagem: pede o comprovante', /me envie o comprovante/i.test(r.reply) && !/CPF/.test(r.reply), r.reply);
+confere('P3 "já paguei" sem imagem: pede o comprovante', /Me envia o comprovante/.test(r.reply) && !/CPF/.test(r.reply), r.reply);
 r = await resp([...base0, 'pix', 'e aí, tudo bem?', 'qual o endereço?'].map((x) => [x]));
 confere('P3 outras mensagens: continua esperando o comprovante, sem avançar', /aguardando o comprovante/.test(r.reply) && !/CPF/.test(r.reply) && posts.length === 0, r.reply);
 r = await resp([...base0, 'pix', 'qual a chave mesmo?'].map((x) => [x]));
@@ -231,7 +231,7 @@ reset({ ocupados: 0 });
 r = await resp([...base0, 'pix', img('img-ok')].map((x) => [x]));
 confere('P4 comprovante certo: confirma o pagamento e pede o CPF', /Pagamento confirmado/.test(r.reply) && /CPF/.test(r.reply) && posts.length === 0, r.reply.replace(/\n/g, ' | '));
 r = await resp([...base0, 'pix', img('img-ok'), '11122233344', 'sim'].map((x) => [x]));
-confere('P4 agenda depois do pix e registra o comprovante na observação', r.reply.startsWith(MARCA_AGENDADO) && /Pix antecipado: comprovante de R\$ 100,00/.test(posts.find((x) => x.rota.endsWith('/agendamentos'))!.corpo.observacao), posts.find((x) => x.rota.endsWith('/agendamentos'))?.corpo.observacao);
+confere('P4 agenda depois do pix e registra o comprovante na observação', r.reply.startsWith(MARCA_AGENDADO) && /Pix antecipado: R\$ 100,00/.test(posts.find((x) => x.rota.endsWith('/agendamentos'))!.corpo.observacao), posts.find((x) => x.rota.endsWith('/agendamentos'))?.corpo.observacao);
 reset({ ocupados: 0 });
 r = await resp([...base0, 'pix', img('img-maior')].map((x) => [x]));
 confere('P4 valor maior que o da consulta é aceito', /Pagamento confirmado/.test(r.reply));
@@ -241,14 +241,12 @@ for (const [id, esperado, nome] of [
   ['img-foto', /não parece ser um comprovante/, 'imagem que não é comprovante'],
   ['img-antigo', /Preciso do comprovante do pagamento de hoje/, 'comprovante antigo'],
   ['img-agendado', /não mostra o pagamento como concluído/, 'pix só agendado'],
-  ['desconhecida', /Não consegui ler essa imagem/, 'imagem ilegível'],
+  ['desconhecida', /não consegui ler essa imagem/, 'imagem ilegível'],
 ] as const) {
   reset({ ocupados: 0 });
   r = await resp([...base0, 'pix', img(id)].map((x) => [x]));
   confere(`P5 ${nome}: pede outro comprovante e não avança`, esperado.test(r.reply) && !r.handoff && !/CPF/.test(r.reply), r.reply.slice(0, 90));
 }
-r = await resp([...base0, 'pix', img('img-menor')].map((x) => [x]));
-confere('P5 valor menor que o da consulta: transfere para a equipe', Boolean(r.handoff) && /menor que o valor/.test(r.handoff.motivo), r.handoff?.motivo.slice(0, 100));
 r = await resp([...base0, 'pix', img('img-outro-recebedor')].map((x) => [x]));
 confere('P5 recebedor diferente: transfere para a equipe', Boolean(r.handoff) && /recebedor/.test(r.handoff.motivo), r.handoff?.motivo.slice(0, 100));
 r = await resp([...base0, 'pix', img('img-foto'), img('img-foto'), img('img-foto')].map((x) => [x]));
@@ -294,7 +292,7 @@ confere('Q2 "não": despede', /Tenha um ótimo dia/.test(q.reply), q.reply);
 q = await pos('perguntou_mais', [['obrigado']]);
 confere('Q2 só "obrigado" à pergunta de mais algo: despede', /Tenha um ótimo dia/.test(q.reply), q.reply);
 q = await pos('perguntou_mais', [['sim']]);
-confere('Q3 "sim": pergunta o que quer agendar', /Qual consulta ou exame você gostaria de agendar\?/.test(q.reply), q.reply);
+confere('Q3 "sim": pergunta o que quer agendar', /qual consulta ou exame você gostaria de agendar\?/i.test(q.reply), q.reply);
 q = await pos('perguntou_mais', [['sim'], ['quero agendar ginecologista']]);
 confere('Q3 depois do "sim", o pedido segue o fluxo normal', /agendar consulta Ginecologia/.test(q.reply) && !/^(Bom dia|Boa tarde|Boa noite)/.test(q.reply), q.reply);
 q = await pos('confirmado', [['quero marcar outra consulta de ginecologia']]);
@@ -309,6 +307,63 @@ q = await pos('encerrou', [['quero marcar uma consulta de ginecologia']]);
 confere('Q5 pedido novo depois da despedida: atende normalmente', /agendar consulta Ginecologia/.test(q.reply), q.reply);
 q = await pos('confirmado', [['preciso de um atendente']]);
 confere('Q6 pedido de atendente depois do agendamento continua valendo', Boolean(q.handoff), q.reply);
+
+// ===================== pagamento parcial e retomada =====================
+Object.assign(comprovantes, {
+  'img-meio': { tipo: 'comprovante', valor: 50, data: hojeSP, destinatario: 'CLINEX', status: 'concluido', transacao: 'E111' },
+  'img-meio-de-novo': { tipo: 'comprovante', valor: 50, data: hojeSP, destinatario: 'CLINEX', status: 'concluido', transacao: 'E111' },
+  'img-resto': { tipo: 'comprovante', valor: 50, data: hojeSP, destinatario: 'CLINEX', status: 'concluido', transacao: 'E222' },
+});
+
+// R1) pagou menos: soma, explica a diferença e oferece o restante por pix ou na recepção (não vai direto para a equipe)
+reset({ ocupados: 0 });
+r = await resp([...base0, 'pix', img('img-meio')].map((x) => [x]));
+confere('R1 valor menor: reconhece o que pagou, diz quanto falta e oferece escolher', !r.handoff && /Recebi o seu comprovante de R\$ 50,00/.test(r.reply) && /faltam R\$ 50,00/.test(r.reply) && /restante agora por pix ou deixar para pagar na recepção/.test(r.reply) && posts.length === 0, r.reply);
+r = await resp([...base0, 'pix', img('img-meio'), 'deixa o resto para pagar na recepção'].map((x) => [x]));
+confere('R1 resto na recepção: segue para o CPF', !r.handoff && /o restante, R\$ 50,00, fica para a recepção/.test(r.reply) && /CPF/.test(r.reply), r.reply);
+r = await resp([...base0, 'pix', img('img-meio'), 'deixa o resto para pagar na recepção', '11122233344', 'sim'].map((x) => [x]));
+const obsParcial = posts.find((x) => x.rota.endsWith('/agendamentos'))?.corpo.observacao ?? '';
+confere('R1 agenda e a observação avisa: pix parcial + saldo na recepção', r.reply.startsWith(MARCA_AGENDADO) && /PARCIAL de R\$ 50,00/.test(obsParcial) && /Saldo de R\$ 50,00 a pagar na recepção/.test(obsParcial), obsParcial);
+
+// R2) paga o resto por pix: os comprovantes somam
+reset({ ocupados: 0 });
+r = await resp([...base0, 'pix', img('img-meio'), 'vou pagar o resto agora no pix'].map((x) => [x]));
+confere('R2 resto por pix: manda a chave com o valor que falta', /Chave pix:/.test(r.reply) && /Valor que falta: R\$ 50,00/.test(r.reply), r.reply.replace(/\n/g, ' | '));
+r = await resp([...base0, 'pix', img('img-meio'), 'pix', img('img-resto')].map((x) => [x]));
+confere('R2 segundo comprovante completa o valor: confirma o pagamento', /Pagamento confirmado/.test(r.reply) && /CPF/.test(r.reply), r.reply);
+r = await resp([...base0, 'pix', img('img-meio'), 'pix', img('img-resto'), '11122233344', 'sim'].map((x) => [x]));
+confere('R2 observação registra o total e que foram dois comprovantes', /Pix antecipado: R\$ 100,00 .*mais de um comprovante/.test(posts.find((x) => x.rota.endsWith('/agendamentos'))?.corpo.observacao ?? ''), posts.find((x) => x.rota.endsWith('/agendamentos'))?.corpo.observacao);
+
+// R3) o mesmo comprovante não conta duas vezes
+reset({ ocupados: 0 });
+r = await resp([...base0, 'pix', img('img-meio'), img('img-meio-de-novo')].map((x) => [x]));
+confere('R3 comprovante repetido: avisa que já recebeu e não soma de novo', /já recebi/.test(r.reply) && !/Pagamento confirmado/.test(r.reply), r.reply);
+
+// R4) indecisão: depois de 3 respostas soltas passa para a equipe; pedir atendente também
+r = await resp([...base0, 'pix', img('img-meio'), 'hmm', 'não sei', 'talvez'].map((x) => [x]));
+confere('R4 sem decidir o restante: passa para a equipe com o valor anotado', Boolean(r.handoff) && /não definiu como pagar o restante/.test(r.handoff.motivo), r.handoff?.motivo.slice(0, 90));
+r = await resp([...base0, 'pix', img('img-meio'), 'quero falar com um atendente'].map((x) => [x]));
+confere('R4 pediu atendente: transfere', Boolean(r.handoff));
+
+// ===================== retomar depois de uma transferência =====================
+// T1) transferência "branda" (comprovante com problema, vaga, falha): o paciente volta e a conversa CONTINUA de onde parou
+reset({ ocupados: 0 });
+r = await resp([...base0, 'pix', img('img-foto'), img('img-foto'), img('img-foto'), 'ja paguei'].map((x) => [x]));
+confere('T1 volta depois de transferência branda: continua esperando o comprovante', !r.handoff && /Me envia o comprovante/.test(r.reply) && r.aposHandoffDuro === false, r.reply);
+r = await resp([...base0, 'pix', img('img-foto'), img('img-foto'), img('img-foto'), img('img-ok')].map((x) => [x]));
+confere('T1 e o comprovante certo depois da transferência é aceito', /Pagamento confirmado/.test(r.reply), r.reply);
+r = await resp([...base0, 'link de crédito', 'melhor, vou pagar no pix'].map((x) => [x]));
+confere('T1 mudou de ideia depois do link de crédito: manda a chave pix', /Chave pix:/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 100));
+r = await resp([['boa tarde, quero uma consulta'], ['ola, quero marcar uma consulta'], ['Olá']]);
+confere('T1 falhas antigas não contaminam: "Olá" só cumprimenta', !r.handoff && /Como posso te ajudar|Qual consulta/.test(r.reply), r.reply);
+// T2) transferência "dura" (o paciente pediu um humano): a Amanda não retoma sozinha
+r = await resp([['oi'], ['quero falar com um atendente'], ['??']]);
+confere('T2 pediu atendente e voltou a escrever: a Amanda não retoma', r.aposHandoffDuro === true, String(r.aposHandoffDuro));
+r = await resp([['estou com dor no peito e falta de ar'], ['ok']]);
+confere('T2 urgência: a Amanda não retoma', r.aposHandoffDuro === true, String(r.aposHandoffDuro));
+// T3) quer retomar um atendimento antigo
+r = await resp([['Voltei, quero retomar meu agendamento']]);
+confere('T3 "quero retomar meu agendamento": acolhe e pergunta o que precisa', !r.handoff && /retomar o seu agendamento/.test(r.reply) && /Qual consulta ou exame/.test(r.reply), r.reply);
 
 server.close();
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTODOS OS CENÁRIOS PASSARAM');
