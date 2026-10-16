@@ -365,10 +365,33 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
   return out(`${s.paciente ? '' : `Cadastro de ${quem} feito. `}Sua vaga de ${sv.frase} está confirmada para ${fmtData(slot.ymd)}, na unidade ${un.nome}${slot.profissional ? `, com ${slot.profissional}` : ''}. Os atendimentos começam às ${hora(slot.inicio)}, por ordem de chegada. Recomendamos chegar cedo.\n(${MARCA_FIM} de verdade.)`);
 }
 
-/** Reprocessa todas as mensagens do paciente, na ordem, e devolve o resultado da última. */
-export async function responder(textos: string[], ctx: Ctx, fonte: Fonte): Promise<Result | undefined> {
+/**
+ * Reprocessa as mensagens do paciente, na ordem, e devolve o resultado da última.
+ * `turnos`: cada item são as mensagens que o paciente mandou entre duas respostas da Amanda. Quando ele manda
+ * várias de uma vez ("isso" + "pra amanhã"), só a ÚLTIMA recebe resposta; a resposta calculada para as anteriores
+ * nunca chega ao paciente. Por isso o que ela "informou" (saudação, resumo de unidades, nome do paciente para
+ * confirmar) é desfeito: senão a Amanda pularia o resumo, ou aceitaria um "sim" a uma pergunta que ele não viu.
+ * Só o último turno pode gravar no Clinilink (os anteriores já foram respondidos de verdade).
+ */
+export async function responder(entrada: (string | string[])[], ctx: Ctx, fonte: Fonte): Promise<Result | undefined> {
+  const turnos = entrada.map((x) => (Array.isArray(x) ? x : [x]));
   let state = novoEstado();
   let last: Result | undefined;
-  for (let i = 0; i < textos.length; i++) { last = await step(state, textos[i], { ...ctx, efetivar: i === textos.length - 1 }, fonte, i); state = last.state; }
+  let i = 0;
+  for (let t = 0; t < turnos.length; t++) {
+    const msgs = turnos[t];
+    for (let j = 0; j < msgs.length; j++) {
+      const antes = { saudou: state.saudou, unidadesInformadas: state.unidadesInformadas };
+      last = await step(state, msgs[j], { ...ctx, efetivar: t === turnos.length - 1 }, fonte, i++);
+      state = last.state;
+      // no último turno, quem encerra a jornada ou transfere já é a resposta que o paciente vai receber
+      if (t === turnos.length - 1 && (last.handoff || last.state.fim)) return last;
+      if (j < msgs.length - 1) { // resposta descartada: desfaz o que ela marcou como dito
+        state.saudou = antes.saudou;
+        state.unidadesInformadas = antes.unidadesInformadas;
+        if (state.paciente && !state.pacienteConfirmado) state.paciente = undefined; // o nome nunca foi mostrado
+      }
+    }
+  }
   return last;
 }

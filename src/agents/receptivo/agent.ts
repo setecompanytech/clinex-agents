@@ -125,16 +125,25 @@ async function processar(ev: MessageReceivedEvent) {
   if (env.mode === 'scripted') {
     const fimIdx = history.reduce((acc, m, i) => (m.direction === 'out' && MARCAS_FIM.some((x) => m.text?.includes(x)) ? i : acc), -1);
     const desde = Date.now() - 12 * 3600 * 1000;
-    const textos = history
-      .filter((m, i) => m.direction === 'in' && i > fimIdx && +new Date(m.createdAt) > desde)
-      .map((m) => describe(m))
-      .filter((x): x is string => Boolean(x));
+    // turnos: mensagens do paciente entre duas respostas (qualquer saída que não seja nota interna)
+    const turnos: string[][] = [];
+    let saiuDesdeAUltima = true;
+    history.forEach((m, i) => {
+      if (m.direction === 'out' && m.status !== 'whisper') { saiuDesdeAUltima = true; return; }
+      if (m.direction !== 'in' || i <= fimIdx || +new Date(m.createdAt) <= desde) return;
+      const txt = describe(m);
+      if (!txt) return;
+      if (saiuDesdeAUltima || turnos.length === 0) turnos.push([]);
+      saiuDesdeAUltima = false;
+      turnos[turnos.length - 1].push(txt);
+    });
+    const textos = turnos.flat();
     if (textos.length === 0) return skip('sem mensagens do paciente na jornada atual');
     const fonte = env.clinilinkKey ? fonteClinilink : fonteSimulada;
     const tag = `[${ev.attendanceId}]`;
     let r;
     try {
-      r = await responder(textos, { now: new Date(), nome, tz: env.timezone, telefone: ev.to }, fonte);
+      r = await responder(turnos, { now: new Date(), nome, tz: env.timezone, telefone: ev.to }, fonte);
     } catch (e) {
       // Clinilink fora do ar / lento: não inventa dado, devolve para a equipe
       console.error(`${tag} falha ao consultar a fonte (${fonte.tipo}):`, (e as Error).message);

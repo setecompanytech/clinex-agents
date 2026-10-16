@@ -9,6 +9,7 @@ const posts: Posts = [];
 let modo: { ocupados: number; agendamento?: 'ok' | 'duplicado' | '500' | 'ocupado-sempre'; cpfDuplicado?: boolean; somenteLeitura?: boolean } = { ocupados: 0 };
 
 const U_GUAMA = '11111111-1111-4111-8111-111111111111';
+const U_TELEGRAFO = '99999999-9999-4999-8999-999999999999';
 const PROC = '22222222-2222-4222-8222-222222222222';
 const MEDICO = '33333333-3333-4333-8333-333333333333';
 const AGENDA = '44444444-4444-4444-8444-444444444444';
@@ -25,7 +26,7 @@ const server = http.createServer((req, res) => {
     const corpo = raw ? JSON.parse(raw) : undefined;
     const p = url.pathname;
     if (req.method === 'GET') {
-      if (p.endsWith('/clinicas')) return j(200, { ok: true, clinicas: [{ id: U_GUAMA, nome: 'CLINEX GUAMÁ' }] });
+      if (p.endsWith('/clinicas')) return j(200, { ok: true, clinicas: [{ id: U_GUAMA, nome: 'CLINEX GUAMÁ' }, { id: U_TELEGRAFO, nome: 'CLINEX TELEGRAFO' }] });
       if (p.endsWith('/procedimentos')) return j(200, { ok: true, procedimentos: [{ id: PROC, nome: 'CONSULTA GINECOLOGIA', categoria: 'Consulta', preco: 100, precoDinheiro: 100 }] });
       if (p.endsWith('/agenda')) return j(200, { ok: true, horarios: horarios().slice(modo.ocupados) });
       if (p.endsWith('/pacientes')) return j(200, { ok: true, pacientes: url.searchParams.get('cpf') === '11122233344' ? [{ id: '55555555-5555-4555-8555-555555555555', nome: 'MARIA EXEMPLO' }] : [] });
@@ -62,7 +63,7 @@ const confere = (nome: string, ok: boolean, detalhe = '') => { if (!ok) falhas++
 const nPost = (fim: string) => posts.filter((x) => x.rota.endsWith(fim)).length;
 
 /** Como o agente real: a cada mensagem, reprocessa a conversa inteira até ali. */
-async function conversa(textos: string[], c = ctx) {
+async function conversa(textos: (string | string[])[], c = ctx) {
   let r;
   for (let i = 1; i <= textos.length; i++) r = await responder(textos.slice(0, i), c, fonteClinilink);
   return r!;
@@ -139,6 +140,27 @@ confere('10 só uma tentativa de gravar', posts.length === 1, `POSTs=${posts.len
 reset({ ocupados: 0 });
 r = await conversa([...base, '11122233344', 'sim', 'obrigada']);
 confere('11 mensagem depois do fim não regrava', nPost('/agendamentos') === 1, `agendamentos=${nPost('/agendamentos')} | ${r.reply.replace(/\n/g, ' | ').slice(0, 80)}`);
+
+// 12) o paciente manda "isso" e "pra amanhã" quase juntos: o resumo de unidades e médicos NÃO pode sumir
+reset({ ocupados: 0 });
+r = await responder([['quero agendar ginecologista'], ['isso', 'pra amanhã']], ctx, fonteClinilink) as any;
+confere('12 mensagens juntas: mostra o resumo e pergunta a unidade', /tem agenda nestas unidades/.test(r.reply) && /Guamá com/.test(r.reply) && /Telégrafo com/.test(r.reply) && /qual unidade|Para qual unidade/i.test(r.reply) && !/Para eu seguir/.test(r.reply), r.reply.replace(/\n/g, ' | '));
+confere('12 guardou o "amanhã" que ele já tinha dito', r.state.data === dia(1), String(r.state.data));
+
+// 13) "oi" + pedido juntos: a saudação não pode se perder
+reset({ ocupados: 0 });
+r = await responder([['oi', 'quero agendar ginecologista']], ctx, fonteClinilink) as any;
+confere('13 "oi" + pedido juntos: ainda cumprimenta', /^(Bom dia|Boa tarde|Boa noite)! Sou a Amanda/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 90));
+
+// 14) CPF + "sim" juntos: o "sim" não confirma um nome que ele nunca viu (e nada é gravado)
+reset({ ocupados: 0 });
+r = await responder([...base.map((x) => [x]), ['11122233344', 'sim']], ctx, fonteClinilink) as any;
+confere('14 CPF + sim juntos: mostra o nome para confirmar e NÃO reserva', /Encontrei o cadastro/.test(r.reply) && posts.length === 0, `${r.reply.replace(/\n/g, ' | ')} | POSTs=${posts.length}`);
+
+// 15) "sim" e "obrigada" juntos na confirmação do paciente: a reserva acontece (uma vez)
+reset({ ocupados: 0 });
+r = await responder([...base.map((x) => [x]), ['11122233344'], ['sim', 'obrigada']], ctx, fonteClinilink) as any;
+confere('15 "sim" + "obrigada" juntos: reservou uma vez', nPost('/agendamentos') === 1, `agendamentos=${nPost('/agendamentos')}`);
 
 server.close();
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTODOS OS CENÁRIOS PASSARAM');
