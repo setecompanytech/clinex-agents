@@ -1,3 +1,5 @@
+import type { Comprovante } from '../../../lib/comprovante.js';
+import { env } from '../../../lib/env.js';
 import type { Fonte, PacienteInfo, Periodo, Servico, Slot, Unidade } from './catalog.js';
 
 /**
@@ -33,15 +35,26 @@ export type State = {
   cad: Cadastro;
   falhas: number;
   fim: boolean;
+  pagPerguntado: boolean;
+  pagamento?: 'pix' | 'link' | 'recepcao';
+  pixEnviado: boolean;
+  pagFinal: boolean; // forma de pagamento resolvida (comprovante conferido, pagamento na recepção ou desistência do pix)
+  compTent: number; // respostas/comprovantes que não serviram
+  comprovante?: { valor: number; data: string; nota: string };
+  pos?: Pos; // logo depois de um agendamento concluído
 };
 
 /**
  * `efetivar` é calculado pelo `responder`: só a ÚLTIMA mensagem pode gravar, porque o roteiro reprocessa a
  * conversa inteira a cada mensagem e uma gravação nas anteriores duplicaria o agendamento.
  */
-export type Ctx = { now: Date; nome: string; tz: string; telefone?: string; efetivar?: boolean };
+export type Ctx = {
+  now: Date; nome: string; tz: string; telefone?: string; efetivar?: boolean;
+  pos?: Pos; // estado da conversa logo depois de um agendamento (o agente deduz da última mensagem enviada)
+  lerComprovante?: (idMensagem: string) => Promise<Comprovante | null>; // lê a imagem do comprovante
+};
 export type Handoff = { motivo: string; urgente?: boolean };
-export type Result = { state: State; reply: string; handoff?: Handoff };
+export type Result = { state: State; reply: string; handoff?: Handoff; silencio?: boolean };
 
 /** Etapa legível da conversa, para o painel de logs. */
 export function etapa(s: State, handoff?: Handoff): string {
@@ -52,6 +65,7 @@ export function etapa(s: State, handoff?: Handoff): string {
   if (!s.servicoConfirmado) return 'confirmando o serviço';
   if (!s.unidade) return 'escolhendo a unidade';
   if (!s.slot) return 'escolhendo data e turno';
+  if (!s.pagFinal) return s.pagamento === 'pix' && s.pixEnviado ? 'aguardando o comprovante do pix' : 'escolhendo a forma de pagamento';
   if (!s.cpf) return 'pedindo o CPF';
   if (s.paciente === undefined) return 'consultando o paciente';
   if (s.paciente === null) return 'cadastro do paciente novo';
@@ -61,11 +75,18 @@ export function etapa(s: State, handoff?: Handoff): string {
 /** Marcas na mensagem final; o agente abre uma jornada nova depois delas. */
 export const MARCA_FIM = 'Simulação: nada foi agendado';
 export const MARCA_AGENDADO = 'Agendamento confirmado';
-export const MARCAS_FIM = [MARCA_FIM, MARCA_AGENDADO];
+export const MARCA_MAIS = 'Posso te ajudar com mais alguma coisa';
+export const MARCA_ADEUS = 'Tenha um ótimo dia';
+export const MARCA_PIX = 'Chave pix:';
+export const MARCA_PAGAMENTO = 'antecipar o pagamento';
+export const MARCAS_FIM = [MARCA_FIM, MARCA_AGENDADO, MARCA_MAIS, MARCA_ADEUS];
+/** Mensagens com texto exato (valores, chave, marcas): não passam pelo GPT. */
+export const SEM_GPT = [MARCA_AGENDADO, MARCA_MAIS, MARCA_ADEUS, MARCA_PIX, MARCA_PAGAMENTO];
 
 export const novoEstado = (): State => ({
   saudou: false, confirmPerguntado: false, servicoConfirmado: false, unidadesInformadas: false,
   pacienteConfirmado: false, cad: {}, falhas: 0, fim: false,
+  pagPerguntado: false, pixEnviado: false, pagFinal: false, compTent: 0,
 });
 
 const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
@@ -113,7 +134,7 @@ const lerTurno = (t: string): Periodo | 'noite' | undefined => (/(^|[^a-z])(manh
 // ---------- detectores ----------
 const EMERGENCIA = /dor (forte )?no peito|falta de ar|nao consigo respirar|desmai|convuls|sangramento (intenso|forte)|avc|infarto|rigidez (de|na) nuca|fraqueza (subita|de um lado)|fala (travada|enrolada)/;
 const CRISE = /suicid|me matar|tirar minha vida|acabar com minha vida|nao quero mais viver|me machucar|autolesao/;
-const HUMANO = /atendente|humano|pessoa de verdade|falar com alguem|falar com uma pessoa|recepcao/;
+const HUMANO = /atendente|humano|pessoa de verdade|falar com alguem|falar com uma pessoa|(falar|conversar|chamar|passar).{0,15}(recepcao|recepcionista)/;
 const SIM = /^(sim|s|pode|pode sim|pode reservar|quero|quero sim|ok|isso|isso mesmo|e isso|e isso mesmo|exato|confirmo|confirma|fechado|combinado|bora|claro|por favor|pode ser|ta bom|tudo bem|correto|certo|esse mesmo|sou eu)\b/;
 const NAO = /^(nao|n|nao quero|nao obrigad|nao e|outro|outra|prefiro outro|prefiro outra|errado)\b/;
 const SO_CUMPRIMENTO = /^(oi+|ola|ola+ boa|e ai|ei|bom dia|boa tarde|boa noite|teste|ola teste|agente de ia|amanda|atendimento|tudo bem\??|oie)[\s!.,?]*(teste|amanda|tudo bem\??)?[\s!.,?]*$/;
@@ -161,12 +182,57 @@ const limparNome = (texto: string) => texto.trim()
   .replace(/[.!,\s]+$/, '');
 const fmtNasc = (iso: string) => iso.split('-').reverse().join('/');
 
+// ---------- pagamento e pós-atendimento ----------
+const reais = (n: number) => `R$ ${n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+/** Mídia enviada pelo paciente chega ao roteiro como [[midia:tipo:id]] (o agente troca a imagem por esta marca). */
+export const TOKEN_MIDIA = /\[\[midia:(image|document):([^\]]+)\]\]/;
+
+const RECEPCAO = /nao (quero|vou|precisa|preciso|pretendo)( mais)?( de)? (pagar|antecipar|adiantar)|(so|apenas|somente)( quero| queria| preciso)? agendar|pagar (la|na recepcao|na clinica|na hora|no dia|depois|presencial)|pago (la|na recepcao|na clinica|na hora|no dia|depois)|\bna recepcao\b|\bna clinica\b|presencial|pessoalmente|\bdinheiro\b|\bdebito\b|depois eu pago|na hora que chegar/;
+const PIX = /\bpix\b/;
+const LINK = /(link|credito|cartao|parcel)/;
+/** Forma de pagamento citada pelo paciente; undefined = não deu para entender. */
+function lerPagamento(t: string): 'pix' | 'link' | 'recepcao' | undefined {
+  if (RECEPCAO.test(t)) return 'recepcao';
+  if (PIX.test(t)) return 'pix';
+  if (LINK.test(t)) return 'link';
+  if (NAO.test(t)) return 'recepcao'; // "não" a "quer antecipar o pagamento?"
+  return undefined;
+}
+
+const AGRADECE = new Set(['muito', 'obrigado', 'obrigada', 'brigado', 'brigada', 'valeu', 'vlw', 'show', 'perfeito', 'beleza', 'blz', 'ok', 'okay', 'certo', 'combinado', 'ta', 'bom', 'tudo', 'bem', 'otimo', 'excelente', 'maravilha', 'legal', 'massa', 'top', 'demais', 'mesmo', 'viu', 'entao', 'grato', 'grata', 'agradeco', 'deus', 'abencoe', 'gracas', 'obg', 'obgd', 'tmj', 'flw', 'falou', 'abraco', 'abracos', 'ate', 'logo', 'mais', 'tchau', 'amanha', 'vejo', 'voces', 'vcs', 'dia', 'tarde', 'noite', 'te', 'a', 'o', 'de']);
+const soAgradecimento = (t: string) => {
+  if (t && !/[a-z0-9]/.test(t)) return true; // só emoji (joinha, mãos juntas...)
+  const w = t.split(/[^a-z]+/).filter(Boolean);
+  return w.length > 0 && w.length <= 10 && w.every((x) => AGRADECE.has(x));
+};
+const NAO_MAIS = /\b(so isso|era so isso|e so isso|so era isso|nada mais|mais nada|nao preciso|nao precisa|nao,? obrigad[oa]|por hoje|por enquanto|tudo certo|pode encerrar|tchau|ate (mais|logo|breve))\b|^(nao|n)[\s!.,]*$/;
+const SO_SIM = /^(sim|s|quero|quero sim|claro|pode|pode sim|gostaria|preciso|isso|uhum|aham|por favor|queria|tenho sim|tenho)[\s!.,]*$/;
+
+export const TXT_MAIS = 'Imagina! Posso te ajudar com mais alguma coisa?';
+export const TXT_ADEUS = 'Por nada! Tenha um ótimo dia.';
+export type Pos = 'confirmado' | 'perguntou_mais' | 'encerrou';
+
+/**
+ * Logo depois de um agendamento concluído: "obrigado" -> pergunta se pode ajudar em mais algo; "era só isso" -> despede;
+ * "quero outro" -> segue normal; depois da despedida, novo agradecimento não recebe resposta.
+ */
+function posAgendamento(pos: Pos, t: string): { reply: string; pos?: Pos } | 'seguir' | 'silencio' {
+  if (NAO_MAIS.test(t)) return pos === 'encerrou' ? 'silencio' : { reply: TXT_ADEUS, pos: 'encerrou' };
+  if (SO_SIM.test(t)) return pos === 'encerrou' ? 'seguir' : { reply: 'Claro! Qual consulta ou exame você gostaria de agendar?' };
+  if (soAgradecimento(t)) {
+    if (pos === 'confirmado') return { reply: TXT_MAIS, pos: 'perguntou_mais' };
+    if (pos === 'perguntou_mais') return { reply: TXT_ADEUS, pos: 'encerrou' };
+    return 'silencio';
+  }
+  return 'seguir';
+}
+
 // ---------- núcleo ----------
 export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 0): Promise<Result> {
   // depois de uma jornada concluída, uma nova mensagem abre outra jornada (mantém a saudação já feita)
   const s: State = prev.fim ? { ...novoEstado(), saudou: true } : { ...prev, cad: { ...prev.cad } };
   const base = prev.fim ? s : prev;
-  const t = norm(texto);
+  const t = norm(texto.replace(TOKEN_MIDIA, ' '));
   const h = hoje(ctx);
   const nome = ctx.nome;
   const abertura = s.saudou ? '' : `${SAUDACAO(h.hora)}! Sou a Amanda, da Clinex.`;
@@ -179,6 +245,7 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
     s.confirmPerguntado = false; s.servicoConfirmado = false; s.unidadesInformadas = false; s.unidade = undefined;
     s.lista = undefined; s.data = undefined; s.turno = undefined; s.slot = undefined; s.cpf = undefined;
     s.paciente = undefined; s.pacienteConfirmado = false; s.cad = {};
+    s.pagPerguntado = false; s.pagamento = undefined; s.pixEnviado = false; s.pagFinal = false; s.compTent = 0; s.comprovante = undefined;
   };
 
   // 1) segurança primeiro
@@ -191,6 +258,19 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
   if (HUMANO.test(t)) {
     return out(comAbertura('Claro, vou te passar para alguém da nossa equipe. Só um instante.'), { motivo: 'Paciente pediu atendimento humano.' });
   }
+
+  // 1b) logo depois de um agendamento concluído: agradecimento, "só isso" ou novo pedido
+  if (s.pos) {
+    const p = posAgendamento(s.pos, t);
+    if (p === 'silencio') { s.saudou = true; return { state: s, reply: '', silencio: true }; }
+    if (p !== 'seguir') { s.pos = p.pos; return out(p.reply); }
+    s.pos = undefined;
+  }
+
+  // 1c) imagem/arquivo: só interessa como comprovante de pix, quando estamos esperando um
+  const midia = texto.match(TOKEN_MIDIA);
+  const aguardandoComprovante = s.pagamento === 'pix' && s.pixEnviado && !s.pagFinal && Boolean(s.slot);
+  if (midia && !aguardandoComprovante && !t) return out(comAbertura('Recebi o arquivo, mas por aqui só consigo ler texto e áudio. Pode me responder escrevendo?'));
 
   // 2) serviço: escolha entre opções pendentes, ou descoberta na fonte
   let mudouServico = false;
@@ -323,8 +403,69 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
   const slot = s.slot!;
   const resumoVaga = `${sv.frase} no ${un.nome}, ${fmtData(slot.ymd)}, ${periodoTxt(slot.turno)}, a partir das ${hora(slot.inicio)}, por ordem de chegada${slot.profissional ? `, com ${slot.profissional}` : ''}`;
 
+  // 7b) forma de pagamento: pix (espera o comprovante), link de crédito (equipe envia) ou pagar na recepção
+  const valorPix = un.precoPix;
+  const pedirCpf = (pre: string) => dizer(`${pre} Para eu reservar, preciso do CPF do paciente. Qual é?`);
+  const pixMsg = `Perfeito! Segue a chave pix para o pagamento${valorPix ? ` de ${reais(valorPix)}` : ''}:\n\n${MARCA_PIX} ${env.pixKey}\n\nAssim que pagar, me envie o comprovante aqui para eu seguir com o agendamento.`;
+  const deLink = () => out('Combinado! Vou pedir para a equipe te enviar o link de pagamento e concluir o agendamento, já com tudo anotado. Só um instante.', { motivo: `Paciente quer pagar por link de crédito: enviar o link e concluir o agendamento. Vaga: ${resumoVaga}. Agendamento AINDA NÃO feito.` });
+  let preCpf = '';
+  if (!s.pagFinal) {
+    if (!s.pagPerguntado) {
+      s.pagPerguntado = true;
+      s.pagamento = lerPagamento(t); // se ele já adiantou a forma de pagamento, não pergunta de novo
+      if (!s.pagamento) return dizer(`${pick(['Fechado', 'Combinado'], n)}, é ${resumoVaga}. Para agilizar o seu atendimento na recepção, gostaria de ${MARCA_PAGAMENTO} por pix ou link de crédito?`);
+    } else if (!s.pagamento) {
+      const f = lerPagamento(t);
+      if (!f) {
+        s.compTent += 1;
+        if (s.compTent >= 3) return out('Vou passar para a equipe combinar o pagamento com você, já com tudo anotado. Só um instante.', { motivo: `Paciente não definiu a forma de pagamento. Vaga: ${resumoVaga}. Agendamento AINDA NÃO feito.` });
+        return dizer('Prefere pagar por pix, por link de crédito ou na recepção, no dia do atendimento?');
+      }
+      s.pagamento = f;
+      s.compTent = 0;
+    } else if (aguardandoComprovante) {
+      // já mandamos a chave pix: só seguimos com o comprovante, ou se ele desistir do pix
+      if (RECEPCAO.test(t)) { s.pagamento = 'recepcao'; }
+      else if (LINK.test(t) && !PIX.test(t)) { s.pagamento = 'link'; }
+      else if (midia) {
+        const aEquipeComp = (aviso: string, motivo: string) => out(`${aviso} Vou pedir para a equipe conferir, já com tudo anotado. Só um instante.`, { motivo: `${motivo} Vaga: ${resumoVaga}. Agendamento AINDA NÃO feito.` });
+        if (!ctx.lerComprovante) return aEquipeComp('Recebi o seu comprovante.', 'Comprovante de pix recebido, mas a leitura automática está indisponível: conferir a imagem.');
+        const c = await ctx.lerComprovante(midia[2]).catch(() => null);
+        const nova = (msg: string, motivo: string) => {
+          s.compTent += 1;
+          if (s.compTent >= 3) return aEquipeComp('Não estou conseguindo conferir o comprovante.', `Comprovante não pôde ser conferido após ${s.compTent} tentativas (${motivo}).`);
+          return dizer(msg);
+        };
+        if (!c || c.tipo === 'ilegivel') return nova('Não consegui ler essa imagem. Pode enviar de novo, de preferência o print do comprovante com o valor e a data visíveis?', 'imagem ilegível');
+        if (c.tipo === 'outro') return nova('Essa imagem não parece ser um comprovante de pix. Pode enviar o comprovante do pagamento?', 'imagem que não é comprovante');
+        if (c.status && c.status !== 'concluido') return nova('O comprovante não mostra o pagamento como concluído. Pode enviar o comprovante depois que o pix for efetuado?', `status ${c.status}`);
+        if (!c.data) return nova('Não consegui ver a data no comprovante. Pode enviar o print completo, com valor e data?', 'sem data');
+        if (c.data < addDias(h.ymd, -1) || c.data > h.ymd) return nova(`Esse comprovante é de ${fmtData(c.data)}. Preciso do comprovante do pagamento de hoje. Pode enviar o correto?`, `comprovante de ${c.data}`);
+        if (c.valor == null) return nova('Não consegui ver o valor no comprovante. Pode enviar o print completo, com valor e data?', 'sem valor');
+        const alvo = norm(`${c.destinatario ?? ''} ${c.chave ?? ''}`);
+        if (alvo.trim() && ![...env.pixRecebedor.split(','), env.pixKey].some((k) => k.trim() && alvo.includes(norm(k)))) return aEquipeComp('O comprovante mostra um recebedor diferente do nosso.', `ATENÇÃO: comprovante com recebedor "${c.destinatario ?? c.chave}", diferente da chave ${env.pixKey}.`);
+        if (valorPix && c.valor + 0.005 < valorPix) return aEquipeComp(`O comprovante mostra ${reais(c.valor)}, e o valor é ${reais(valorPix)}.`, `Comprovante de ${reais(c.valor)}, menor que o valor de ${reais(valorPix)}.`);
+        s.comprovante = { valor: c.valor, data: c.data, nota: `Pix antecipado: comprovante de ${reais(c.valor)} (${fmtNasc(c.data)}) lido pela IA${alvo.trim() ? '' : ', recebedor não identificado'}; CONFERIR no extrato` };
+        s.pagFinal = true;
+        preCpf = 'Pagamento confirmado, obrigada!';
+      }
+      else if (/pagu|fiz o pix|transferi|ja fiz|efetuei|enviei|mandei/.test(t)) return dizer('Perfeito! Me envie o comprovante (foto ou print) para eu conferir e seguir com o agendamento.');
+      else if (/chave|copia e cola|qr|valor|quanto/.test(t)) return dizer(`${MARCA_PIX} ${env.pixKey}${valorPix ? `\nValor: ${reais(valorPix)}` : ''}\nQuando pagar, me envie o comprovante aqui.`);
+      else return dizer('Estou aguardando o comprovante do pix para seguir com o agendamento. Se preferir pagar na recepção, é só me avisar.');
+    }
+    if (!s.pagFinal) {
+      if (s.pagamento === 'link') return deLink();
+      if (s.pagamento === 'recepcao') { s.pagFinal = true; preCpf = 'Sem problema, o pagamento fica para a recepção, no dia do atendimento.'; }
+      else if (s.pagamento === 'pix') {
+        if (!s.pixEnviado) { s.pixEnviado = true; return dizer(pixMsg); }
+      }
+    }
+    if (s.pagFinal) return pedirCpf(preCpf);
+    return dizer('Estou aguardando o comprovante do pix para seguir com o agendamento.');
+  }
+
   // 8) CPF
-  const slotAntes = Boolean(base.slot);
+  const slotAntes = Boolean(base.slot && base.pagFinal);
   if (!s.cpf) {
     const cpf = slotAntes ? cpfDoTexto(t) : undefined;
     if (cpf) s.cpf = cpf;
@@ -380,6 +521,7 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
     const r = await fonte.reservar!({
       servico: sv, unidade: un, slot, cpf: s.cpf!,
       pacienteId: s.paciente?.id,
+      observacao: ['Agendado pela Amanda (IA) via WhatsApp', s.comprovante?.nota ?? (s.pagamento === 'recepcao' ? 'Pagamento na recepção' : '')].filter(Boolean).join('. '),
       cadastro: s.paciente ? undefined : { nome: s.cad.nome!, nascimento: s.cad.nascimento!, sexo: s.cad.sexo!, telefone: s.cad.telefone! },
     });
     if (r.ok) {
@@ -406,6 +548,7 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
 export async function responder(entrada: (string | string[])[], ctx: Ctx, fonte: Fonte): Promise<Result | undefined> {
   const turnos = entrada.map((x) => (Array.isArray(x) ? x : [x]));
   let state = novoEstado();
+  if (ctx.pos) state = { ...state, saudou: true, pos: ctx.pos }; // a conversa já começou: logo depois de um agendamento
   let last: Result | undefined;
   let i = 0;
   for (let t = 0; t < turnos.length; t++) {

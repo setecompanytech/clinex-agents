@@ -74,7 +74,8 @@ async function conversa(textos: (string | string[])[], c = ctx) {
   return r!;
 }
 const reset = (m: typeof modo) => { posts.length = 0; modo = m; (globalThis as any).__ocupaPrimeiro = false; };
-const base = ['oi', 'quero agendar ginecologista', 'sim', 'guama amanhã'];
+/** conversa até o pagamento resolvido ("na recepção"): o próximo passo é o CPF */
+const base = ['oi', 'quero agendar ginecologista', 'sim', 'guama amanhã', 'na recepção'];
 
 // 1) paciente NOVO, jornada completa, com reprocessamento a cada mensagem
 reset({ ocupados: 0 });
@@ -179,12 +180,135 @@ reset({ ocupados: 0 });
 r = await responder([['Oi, bom dia! Eu queria marcar uma consulta com a ginecologista, por favor.'], ['Isso mesmo.'], ['Guamá.']], ctx, fonteClinilink) as any;
 confere('17 áudio: pedido longo, confirmação e unidade falados', /Tenho estas opções|Para .* tenho/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 120));
 r = await responder([['Oi, bom dia! Eu queria marcar uma consulta com a ginecologista, por favor.'], ['Isso mesmo.'], ['Guamá.'], ['Pode ser a segunda opção.']], ctx, fonteClinilink) as any;
-confere('17 áudio: "a segunda opção" escolhe a 2ª da lista (não é segunda-feira)', /CPF/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 120));
+confere('17 áudio: "a segunda opção" escolhe a 2ª da lista (não é segunda-feira)', /pagamento/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 120));
 reset({ ocupados: 0 });
 r = await responder([...base.map((x) => [x]), ['O meu CPF é 999 888 777 66.'], ['Meu nome é Joana Teste Souza.'], ['Nasci em 10 de maio de 1990.'], ['Sou mulher.'], ['Pode sim.']], ctx, fonteClinilink) as any;
 confere('17 áudio: CPF espaçado, nome com "meu nome é", nascimento por extenso, "sou mulher" -> agenda', r.reply.startsWith(MARCA_AGENDADO) && nPost('/agendamentos') === 1, r.reply.replace(/\n/g, ' | ').slice(0, 100));
 const cad17 = posts.find((x) => x.rota.endsWith('/pacientes'))?.corpo;
 confere('17 cadastro certo: nome limpo, 1990-05-10, feminino', cad17?.nome === 'Joana Teste Souza' && cad17?.dataNascimento === '1990-05-10' && cad17?.sexo === 'feminino' && cad17?.cpf === '99988877766', JSON.stringify({ nome: cad17?.nome, nasc: cad17?.dataNascimento, sexo: cad17?.sexo }));
+
+// ===================== pagamento (pix / link / recepção) =====================
+const hojeSP = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+const comprovantes: Record<string, any> = {
+  'img-ok': { tipo: 'comprovante', valor: 100, data: hojeSP, destinatario: 'CLINEX SERVICOS MEDICOS LTDA', status: 'concluido' },
+  'img-maior': { tipo: 'comprovante', valor: 120, data: hojeSP, destinatario: 'CLINEX', status: 'concluido' },
+  'img-menor': { tipo: 'comprovante', valor: 50, data: hojeSP, destinatario: 'CLINEX', status: 'concluido' },
+  'img-outro-recebedor': { tipo: 'comprovante', valor: 100, data: hojeSP, destinatario: 'FULANO DE TAL', status: 'concluido' },
+  'img-antigo': { tipo: 'comprovante', valor: 100, data: '2026-01-10', destinatario: 'CLINEX', status: 'concluido' },
+  'img-agendado': { tipo: 'comprovante', valor: 100, data: hojeSP, destinatario: 'CLINEX', status: 'agendado' },
+  'img-foto': { tipo: 'outro' },
+};
+const ctxPix = { ...ctx, lerComprovante: async (id: string) => comprovantes[id] ?? { tipo: 'ilegivel' } };
+const base0 = ['oi', 'quero agendar ginecologista', 'sim', 'guama amanhã'];
+const img = (id: string) => `[[midia:image:${id}]]`;
+const resp = async (turnos: (string | string[])[], c: any = ctxPix) => (await responder(turnos, c, fonteClinilink)) as any;
+
+// P1) depois de escolher o horário, a pergunta é a forma de pagamento (e não o CPF)
+reset({ ocupados: 0 });
+r = await resp(base0.map((x) => [x]));
+confere('P1 depois do horário vem a pergunta de pagamento (pix ou link de crédito)', /antecipar o pagamento por pix ou link de crédito\?/.test(r.reply) && !/CPF/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(-120));
+
+// P2) "na recepção" não é pedido de atendente; segue para o CPF e registra na observação
+reset({ ocupados: 0 });
+r = await resp([...base0, 'vou pagar na recepção'].map((x) => [x]));
+confere('P2 "na recepção" segue para o CPF (não transfere)', !r.handoff && /CPF/.test(r.reply) && /recepção/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 110));
+r = await resp([...base0, 'na recepção', '11122233344', 'sim'].map((x) => [x]));
+confere('P2 agendou e a observação diz "Pagamento na recepção"', r.reply.startsWith(MARCA_AGENDADO) && /Pagamento na recepção/.test(posts.find((x) => x.rota.endsWith('/agendamentos'))!.corpo.observacao), posts.find((x) => x.rota.endsWith('/agendamentos'))?.corpo.observacao);
+
+// P3) pix: manda a chave e o valor, e ESPERA o comprovante (nada de CPF nem reserva)
+reset({ ocupados: 0 });
+r = await resp([...base0, 'pix'].map((x) => [x]));
+confere('P3 pix: envia a chave com o valor e pede o comprovante', /Chave pix: clinicaclinex@gmail\.com/.test(r.reply) && /R\$ 100,00/.test(r.reply) && /comprovante/.test(r.reply), r.reply.replace(/\n/g, ' | '));
+r = await resp([...base0, 'pix', 'já paguei'].map((x) => [x]));
+confere('P3 "já paguei" sem imagem: pede o comprovante', /me envie o comprovante/i.test(r.reply) && !/CPF/.test(r.reply), r.reply);
+r = await resp([...base0, 'pix', 'e aí, tudo bem?', 'qual o endereço?'].map((x) => [x]));
+confere('P3 outras mensagens: continua esperando o comprovante, sem avançar', /aguardando o comprovante/.test(r.reply) && !/CPF/.test(r.reply) && posts.length === 0, r.reply);
+r = await resp([...base0, 'pix', 'qual a chave mesmo?'].map((x) => [x]));
+confere('P3 pediu a chave de novo: reenvia', /Chave pix: clinicaclinex@gmail\.com/.test(r.reply), r.reply.replace(/\n/g, ' | '));
+
+// P4) pix + comprovante certo: confirma o pagamento, pede o CPF, e só então reserva
+reset({ ocupados: 0 });
+r = await resp([...base0, 'pix', img('img-ok')].map((x) => [x]));
+confere('P4 comprovante certo: confirma o pagamento e pede o CPF', /Pagamento confirmado/.test(r.reply) && /CPF/.test(r.reply) && posts.length === 0, r.reply.replace(/\n/g, ' | '));
+r = await resp([...base0, 'pix', img('img-ok'), '11122233344', 'sim'].map((x) => [x]));
+confere('P4 agenda depois do pix e registra o comprovante na observação', r.reply.startsWith(MARCA_AGENDADO) && /Pix antecipado: comprovante de R\$ 100,00/.test(posts.find((x) => x.rota.endsWith('/agendamentos'))!.corpo.observacao), posts.find((x) => x.rota.endsWith('/agendamentos'))?.corpo.observacao);
+reset({ ocupados: 0 });
+r = await resp([...base0, 'pix', img('img-maior')].map((x) => [x]));
+confere('P4 valor maior que o da consulta é aceito', /Pagamento confirmado/.test(r.reply));
+
+// P5) comprovantes que NÃO servem
+for (const [id, esperado, nome] of [
+  ['img-foto', /não parece ser um comprovante/, 'imagem que não é comprovante'],
+  ['img-antigo', /Preciso do comprovante do pagamento de hoje/, 'comprovante antigo'],
+  ['img-agendado', /não mostra o pagamento como concluído/, 'pix só agendado'],
+  ['desconhecida', /Não consegui ler essa imagem/, 'imagem ilegível'],
+] as const) {
+  reset({ ocupados: 0 });
+  r = await resp([...base0, 'pix', img(id)].map((x) => [x]));
+  confere(`P5 ${nome}: pede outro comprovante e não avança`, esperado.test(r.reply) && !r.handoff && !/CPF/.test(r.reply), r.reply.slice(0, 90));
+}
+r = await resp([...base0, 'pix', img('img-menor')].map((x) => [x]));
+confere('P5 valor menor que o da consulta: transfere para a equipe', Boolean(r.handoff) && /menor que o valor/.test(r.handoff.motivo), r.handoff?.motivo.slice(0, 100));
+r = await resp([...base0, 'pix', img('img-outro-recebedor')].map((x) => [x]));
+confere('P5 recebedor diferente: transfere para a equipe', Boolean(r.handoff) && /recebedor/.test(r.handoff.motivo), r.handoff?.motivo.slice(0, 100));
+r = await resp([...base0, 'pix', img('img-foto'), img('img-foto'), img('img-foto')].map((x) => [x]));
+confere('P5 três imagens que não servem: transfere', Boolean(r.handoff), r.reply);
+r = await resp([...base0, 'pix', img('img-ok')].map((x) => [x]), { ...ctx });
+confere('P5 sem leitura automática: transfere para conferir a imagem', Boolean(r.handoff) && /conferir a imagem/.test(r.handoff.motivo), r.handoff?.motivo.slice(0, 100));
+
+// P6) desistiu do pix e quer só agendar: segue sem comprovante
+reset({ ocupados: 0 });
+r = await resp([...base0, 'pix', 'não vou pagar no pix, só quero agendar'].map((x) => [x]));
+confere('P6 desistiu do pix: segue para o CPF', !r.handoff && /CPF/.test(r.reply) && /recepção/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 110));
+r = await resp([...base0, 'pix', 'não vou pagar no pix, só quero agendar', '11122233344', 'sim'].map((x) => [x]));
+confere('P6 desistiu do pix: agenda sem comprovante', r.reply.startsWith(MARCA_AGENDADO), r.reply.slice(0, 50));
+
+// P7) link de crédito vai para a equipe; "não" a antecipar vai para a recepção; resposta solta pergunta de novo
+reset({ ocupados: 0 });
+r = await resp([...base0, 'link de crédito'].map((x) => [x]));
+confere('P7 link de crédito: passa para a equipe com a vaga anotada', Boolean(r.handoff) && /link de crédito/.test(r.handoff.motivo) && /AINDA NÃO feito/.test(r.handoff.motivo), r.handoff?.motivo.slice(0, 80));
+r = await resp([...base0, 'não'].map((x) => [x]));
+confere('P7 "não" a antecipar: paga na recepção e segue', !r.handoff && /CPF/.test(r.reply), r.reply.slice(0, 80));
+r = await resp([...base0, 'hmm, deixa eu ver'].map((x) => [x]));
+confere('P7 resposta solta: pergunta de novo a forma de pagamento', /pix, por link de crédito ou na recepção/.test(r.reply), r.reply);
+r = await resp([...base0.slice(0, 3), 'guama amanhã, vou pagar no pix'].map((x) => [x]));
+confere('P7 já adiantou "no pix": não repete a pergunta, manda a chave', /Chave pix:/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 90));
+
+// P8) imagem fora da hora do comprovante: explica que só lê texto e áudio
+reset({ ocupados: 0 });
+r = await resp([...base0.slice(0, 2), img('img-foto')].map((x) => [x]));
+confere('P8 imagem fora do pagamento: pede para escrever', /só consigo ler texto e áudio/.test(r.reply), r.reply);
+
+// ===================== depois do agendamento =====================
+const pos = async (p: any, turnos: (string | string[])[]) => (await responder(turnos, { ...ctx, pos: p }, fonteClinilink)) as any;
+let q = await pos('confirmado', [['obrigado']]);
+confere('Q1 "obrigado" depois do agendamento: pergunta se pode ajudar em mais algo', /Posso te ajudar com mais alguma coisa\?/.test(q.reply) && !q.handoff, q.reply);
+q = await pos('confirmado', [['Obrigada, valeu!']]);
+confere('Q1 outro agradecimento também', /mais alguma coisa/.test(q.reply), q.reply);
+q = await pos('confirmado', [['👍']]);
+confere('Q1 só um emoji de joinha conta como agradecimento', /mais alguma coisa/.test(q.reply), q.reply);
+q = await pos('perguntou_mais', [['não, era só isso, obrigado']]);
+confere('Q2 "era só isso": agradece e deseja um ótimo dia', /Tenha um ótimo dia/.test(q.reply) && !q.handoff, q.reply);
+q = await pos('perguntou_mais', [['não']]);
+confere('Q2 "não": despede', /Tenha um ótimo dia/.test(q.reply), q.reply);
+q = await pos('perguntou_mais', [['obrigado']]);
+confere('Q2 só "obrigado" à pergunta de mais algo: despede', /Tenha um ótimo dia/.test(q.reply), q.reply);
+q = await pos('perguntou_mais', [['sim']]);
+confere('Q3 "sim": pergunta o que quer agendar', /Qual consulta ou exame você gostaria de agendar\?/.test(q.reply), q.reply);
+q = await pos('perguntou_mais', [['sim'], ['quero agendar ginecologista']]);
+confere('Q3 depois do "sim", o pedido segue o fluxo normal', /agendar consulta Ginecologia/.test(q.reply) && !/^(Bom dia|Boa tarde|Boa noite)/.test(q.reply), q.reply);
+q = await pos('confirmado', [['quero marcar outra consulta de ginecologia']]);
+confere('Q3 "quero marcar outra consulta" já começa o novo agendamento', /agendar consulta Ginecologia/.test(q.reply), q.reply);
+q = await pos('confirmado', [['obrigado', 'era só isso']]);
+confere('Q4 "obrigado" + "era só isso" juntos: só a despedida', /Tenha um ótimo dia/.test(q.reply), q.reply);
+q = await pos('encerrou', [['obrigado']]);
+confere('Q5 agradecimento depois da despedida: sem resposta', q.silencio === true && q.reply === '', JSON.stringify({ silencio: q.silencio, reply: q.reply }));
+q = await pos('encerrou', [['tchau']]);
+confere('Q5 "tchau" depois da despedida: sem resposta', q.silencio === true, JSON.stringify({ silencio: q.silencio }));
+q = await pos('encerrou', [['quero marcar uma consulta de ginecologia']]);
+confere('Q5 pedido novo depois da despedida: atende normalmente', /agendar consulta Ginecologia/.test(q.reply), q.reply);
+q = await pos('confirmado', [['preciso de um atendente']]);
+confere('Q6 pedido de atendente depois do agendamento continua valendo', Boolean(q.handoff), q.reply);
 
 server.close();
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTODOS OS CENÁRIOS PASSARAM');

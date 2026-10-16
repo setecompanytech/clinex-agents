@@ -4,7 +4,7 @@
  * Clinilink. A fonte real fica em clinilinkFonte.ts e é escolhida quando CLINILINK_API_KEY existe.
  */
 export type Periodo = 'manhã' | 'tarde';
-export type Unidade = { id?: string; nome: string; profissionais?: string[] };
+export type Unidade = { id?: string; nome: string; profissionais?: string[]; precoPix?: number };
 
 export type Servico = {
   id: string;
@@ -30,6 +30,7 @@ export type PedidoReserva = {
   servico: Servico; unidade: Unidade; slot: Slot; cpf: string;
   pacienteId?: string; // paciente já cadastrado
   cadastro?: { nome: string; nascimento: string; sexo: 'feminino' | 'masculino'; telefone: string }; // paciente novo
+  observacao?: string; // gravada no agendamento (forma de pagamento, comprovante)
 };
 export type ResultadoReserva =
   | { ok: true; profissional?: string; hora: string; cadastrou: boolean }
@@ -86,7 +87,7 @@ const dow = (ymd: string) => new Date(`${ymd}T12:00:00Z`).getUTCDay();
 const simServico = (x: Sim): Servico => ({
   id: x.id, nome: x.nome, tipo: x.tipo,
   frase: x.tipo === 'consulta' ? `consulta de ${x.nome}` : `exame de ${x.nome}`,
-  unidades: x.unidades.map((nome) => ({ nome, profissionais: [PROF[nome]] })),
+  unidades: x.unidades.map((nome) => ({ nome, profissionais: [PROF[nome]], precoPix: Number(x.preco.replace(/[^\d,]/g, '').replace(',', '.')) })),
   precoTexto: x.tipo === 'consulta'
     ? `A consulta custa ${x.preco}, no dinheiro ou Pix${x.retornoDias ? `, e dá direito a retorno em até ${x.retornoDias} dias` : ''}.`
     : `O exame custa ${x.preco}, no dinheiro ou Pix.`,

@@ -31,6 +31,10 @@ export const env = {
   // Humanizador de mensagens (GPT). Sem chave => textos do roteiro como estão.
   openaiKey: process.env.OPENAI_API_KEY ?? '',
   openaiModel: process.env.OPENAI_MODEL ?? 'gpt-4o-mini',
+  // chave pix para o pagamento antecipado e nome que deve aparecer como recebedor no comprovante
+  pixKey: process.env.PIX_KEY ?? 'clinicaclinex@gmail.com',
+  // palavras (separadas por vírgula) que identificam o recebedor no comprovante; basta uma aparecer no nome ou na chave
+  pixRecebedor: process.env.PIX_RECEBEDOR ?? 'clinex',
   clinicName: process.env.CLINIC_NAME ?? 'Clínica',
   // base de conhecimento em texto (serviços, convênios, endereço, horários...). Sem banco: vem do env/arquivo.
   knowledge: process.env.CLINIC_KNOWLEDGE ?? '',

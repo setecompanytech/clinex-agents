@@ -86,7 +86,7 @@ export async function getPacientePorCpf(cpf: string): Promise<Paciente[]> {
 // ---------------------------- ESCRITA (exige credencial rw) ----------------------------
 
 export type NovoPaciente = { nome: string; cpf: string; dataNascimento?: string; sexo?: 'feminino' | 'masculino'; telefone?: string };
-export type NovoAgendamento = { pacienteId: string; unidadeId: string; agendaId: string; profissionalId: string; dataHora: string; procedimentoId: string };
+export type NovoAgendamento = { pacienteId: string; unidadeId: string; agendaId: string; profissionalId: string; dataHora: string; procedimentoId: string; observacao?: string };
 export type RespostaEscrita<T> = { ok: true; dados: T } | { ok: false; codigo: string; mensagem: string; incerto?: boolean; corpo?: any };
 
 /** POST sem retry. `incerto` = não sabemos se gravou (timeout/queda/500) e alguém precisa conferir. */
@@ -113,7 +113,7 @@ export const criarPaciente = (p: NovoPaciente) =>
 export const criarAgendamento = (a: NovoAgendamento) =>
   post<{ agendamentoId: string; status: string; dataHora: string; profissional?: { nome: string }; valorTotal?: number }>('/v1/agendamento/agendamentos', {
     pacienteId: a.pacienteId, unidadeId: a.unidadeId, agendaId: a.agendaId, profissionalId: a.profissionalId, dataHora: a.dataHora,
-    procedimentos: [a.procedimentoId], observacao: 'Agendado pela Amanda (IA) via WhatsApp', origem: 'whatsapp',
+    procedimentos: [a.procedimentoId], observacao: a.observacao ?? 'Agendado pela Amanda (IA) via WhatsApp', origem: 'whatsapp',
   });
 
 /** Agenda SEM cache: usada no momento de reservar, para pegar o horário livre de verdade. */

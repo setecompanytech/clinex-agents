@@ -13,7 +13,7 @@ export type InovstarMessage = {
   createdAt: string;
   isWhisper?: boolean;
   transcription?: { text: string | null; status: string };
-  media?: { caption?: string | null };
+  media?: { caption?: string | null; url?: string | null; mimeType?: string | null; filename?: string | null };
   interactiveReply?: { title?: string | null };
 };
 
@@ -128,12 +128,31 @@ export function textoLimpo(m: InovstarMessage): string | null {
   return null;
 }
 
-/** Áudio que chegou agora e ainda está sendo transcrito (sem texto e sem marca de falha). */
-export const aguardandoTranscricao = (m: InovstarMessage) =>
-  m.type === 'audio' && !m.text && !m.transcription?.text && !/fail|error|erro|unavailable|unsupported|skipped|none/i.test(m.transcription?.status ?? '');
-
 /** Mensagem do paciente que o roteiro não consegue ler: áudio sem transcrição ou arquivo/imagem sem texto. */
 export function ilegivel(m: InovstarMessage): 'audio' | 'arquivo' | null {
-  if (m.direction !== 'in' || textoLimpo(m) || m.isWhisper || m.type === 'system') return null;
+  if (m.direction !== 'in' || textoLimpo(m) || m.isWhisper || m.type === 'system' || m.type === 'image' || m.type === 'document') return null; // imagem/documento: o roteiro decide (comprovante)
   return m.type === 'audio' ? 'audio' : 'arquivo';
+}
+
+/** Texto do paciente para o roteiro: igual ao textoLimpo, mas imagem/documento viram [[midia:tipo:id]] (comprovante de pix). */
+export function textoRoteiro(m: InovstarMessage): string | null {
+  if (m.direction === 'in' && (m.type === 'image' || m.type === 'document') && !m.isWhisper) {
+    const legenda = textoLimpo(m);
+    return `[[midia:${m.type}:${m._id}]]${legenda ? ` ${legenda}` : ''}`;
+  }
+  return textoLimpo(m);
+}
+
+/** A Inovstar só transcreve áudio sob demanda. A chamada é síncrona e o resultado fica em cache do lado deles. */
+export async function transcribeMessage(messageId: string): Promise<{ text: string | null; status: string }> {
+  for (let i = 0; i < 3; i++) {
+    try {
+      const r = await request<{ data: { transcription: { text: string | null; status: string } } }>('POST', `/whatsapp/message/${messageId}/transcribe`, {});
+      return r.data.transcription;
+    } catch (e) {
+      if (/TRANSCRIPTION_IN_PROGRESS|-> 409/.test((e as Error).message) && i < 2) { await new Promise((ok) => setTimeout(ok, 2500)); continue; }
+      throw e;
+    }
+  }
+  return { text: null, status: 'failed' };
 }

@@ -67,7 +67,7 @@ async function montar(c: Cand): Promise<Descoberta> {
   const servico: Servico = {
     id: c.proc.id, nome, tipo: consulta ? 'consulta' : 'exame',
     frase: nome.replace(/^Consulta\b/, 'consulta'),
-    unidades: comAgenda.map(({ u, medicos }): Unidade => ({ id: u.id, nome: nomeUnidade(u), profissionais: medicos })), precoTexto,
+    unidades: comAgenda.map(({ u, medicos, proc }): Unidade => ({ id: u.id, nome: nomeUnidade(u), profissionais: medicos, precoPix: proc.precoDinheiro ?? proc.preco ?? undefined })), precoTexto,
   };
   return { servico };
 }
@@ -143,7 +143,7 @@ export const fonteClinilink: Fonte = {
     let ultimo = '';
     for (const h of livres.slice(0, 3)) {
       const dataHora = h.dataHora ?? `${h.data}T${h.hora}:00-03:00`;
-      const r = await criarAgendamento({ pacienteId, unidadeId: unidade.id, agendaId: h.agendaId, profissionalId: h.profissional?.id ?? slot.profissionalId ?? '', dataHora, procedimentoId: servico.id });
+      const r = await criarAgendamento({ pacienteId, unidadeId: unidade.id, agendaId: h.agendaId, profissionalId: h.profissional?.id ?? slot.profissionalId ?? '', dataHora, procedimentoId: servico.id, observacao: p.observacao });
       if (r.ok) return { ok: true, profissional: h.profissional?.nome ? titulo(h.profissional.nome) : slot.profissional, hora: h.agendaHoraInicio ?? h.hora, cadastrou };
       ultimo = r.codigo;
       if (r.codigo !== 'HORARIO_OCUPADO') return { ok: false, codigo: r.codigo, motivo: r.mensagem || r.codigo, incerto: r.incerto, cadastrou };
