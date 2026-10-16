@@ -118,17 +118,47 @@ const SIM = /^(sim|s|pode|pode sim|pode reservar|quero|quero sim|ok|isso|isso me
 const NAO = /^(nao|n|nao quero|nao obrigad|nao e|outro|outra|prefiro outro|prefiro outra|errado)\b/;
 const SO_CUMPRIMENTO = /^(oi+|ola|ola+ boa|e ai|ei|bom dia|boa tarde|boa noite|teste|ola teste|agente de ia|amanda|atendimento|tudo bem\??|oie)[\s!.,?]*(teste|amanda|tudo bem\??)?[\s!.,?]*$/;
 
-const cpfDoTexto = (t: string): string | undefined => { const m = t.match(/\b(\d{3})\.?(\d{3})\.?(\d{3})-?(\d{2})\b/); return m ? m.slice(1).join('') : undefined; };
+const cpfDoTexto = (t: string): string | undefined => {
+  const m = t.match(/\b(\d{3})\.?(\d{3})\.?(\d{3})-?(\d{2})\b/);
+  if (m) return m.slice(1).join('');
+  const d = t.replace(/\D/g, ''); // "123 456 789 09", "123,456,789,09" (áudio transcrito)
+  return d.length === 11 ? d : undefined;
+};
+
+/** Escolha numa lista: "2", "opção 2", "o primeiro", "a terceira", "o último", "dois". -1 = não é uma escolha. */
+function lerEscolha(t: string, total: number): number {
+  const porOpcao = /\b(opcao|alternativa|numero)\b/.test(t);
+  const FILL = '(?:(?:a|o|essa|esse|de|quero|opcao|alternativa|numero)\\s+)*';
+  const dig = t.match(new RegExp(`^\\s*${FILL}(\\d)\\b(?![/.-]\\d)`));
+  if (dig) return Number(dig[1]) - 1;
+  if (/\bultim[oa]\b/.test(t)) return total - 1;
+  const ord: [RegExp, number][] = [[/\bprimeir[oa]\b/, 0], [/\bterceir[oa]\b/, 2], [/\bquint[oa]\b/, 4]];
+  // "segunda" e "quarta" também são dias da semana: só valem como posição quando vêm com "opção/número"
+  if (porOpcao) ord.push([/\bsegund[oa]\b/, 1], [/\bquart[oa]\b/, 3]);
+  for (const [re, i] of ord) if (re.test(t)) return i;
+  const NUM: Record<string, number> = { um: 0, uma: 0, dois: 1, duas: 1, tres: 2, quatro: 3, cinco: 4 };
+  const w = t.match(new RegExp(`^\\s*${FILL}(um|uma|dois|duas|tres|quatro|cinco)\\b`)) ?? t.match(/\b(?:opcao|alternativa|numero)\s+(um|uma|dois|duas|tres|quatro|cinco)\b/);
+  return w ? NUM[w[1]] : -1;
+}
 const pick = <T,>(arr: T[], n: number) => arr[n % arr.length];
 
+const MESES = ['janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
 function lerNascimento(t: string): string | undefined {
   const m = t.match(/\b(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})\b/);
-  if (!m) return undefined;
-  const [d, mo, a] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  // por extenso (áudio): "10 de maio de 1990"
+  const e = norm(t).match(new RegExp(`\\b(\\d{1,2})\\s*(?:de\\s+)?(${MESES.join('|')})\\s*(?:de\\s+)?(\\d{4})\\b`));
+  if (!m && !e) return undefined;
+  const [d, mo, a] = m ? [Number(m[1]), Number(m[2]), Number(m[3])] : [Number(e![1]), MESES.indexOf(e![2]) + 1, Number(e![3])];
   const dt = new Date(Date.UTC(a, mo - 1, d));
   if (a < 1900 || a > new Date().getUTCFullYear() || dt.getUTCDate() !== d || dt.getUTCMonth() !== mo - 1) return undefined;
   return `${a}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 }
+/** "Meu nome é Joana Silva." (áudio) -> "Joana Silva" */
+const limparNome = (texto: string) => texto.trim()
+  .replace(/^(?:oi|ol[aá]|bom dia|boa tarde|boa noite)[,.!\s]+/i, '')
+  .replace(/^(?:o\s+)?(?:meu\s+)?nome(?:\s+completo)?\s+(?:é|e)\s+/i, '')
+  .replace(/^(?:me chamo|eu me chamo|eu sou(?:\s+[oa])?|sou(?:\s+[oa])?)\s+/i, '')
+  .replace(/[.!,\s]+$/, '');
 const fmtNasc = (iso: string) => iso.split('-').reverse().join('/');
 
 // ---------- núcleo ----------
@@ -173,7 +203,7 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
   };
   if (!s.slot) {
     if (s.opcoes && !s.servico) {
-      const idx = Number((t.match(/^\s*(\d)\b/) ?? [])[1]) - 1;
+      const idx = lerEscolha(t, s.opcoes.length);
       const escolhida = s.opcoes[idx] ?? s.opcoes.find((o) => norm(o.nome).split(/\s+/).filter((w) => w.length > 3).some((w) => t.includes(w)));
       if (escolhida) { const r = aplicar(await fonte.resolver(escolhida.id)); if (r) return r; }
     } else {
@@ -233,10 +263,11 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
     }
     if (!s.unidade && sv.unidades.length > 1 && /tanto faz|qualquer|a mais proxima|o mais proximo/.test(t)) s.unidade = sv.unidades[0];
     if (!s.unidade && sv.unidades.length === 1) s.unidade = sv.unidades[0];
-    const tn = lerTurno(t); const d = lerData(t, ctx);
+    const escolhaLista = s.lista?.length ? lerEscolha(t, s.lista.length) : -1; // "a segunda opção" não é um dia da semana
+    const tn = lerTurno(t); const d = escolhaLista >= 0 ? undefined : lerData(t, ctx);
     if (d) { s.data = d; s.lista = undefined; }
     if (tn === 'noite') aviso = aviso || 'Nosso atendimento é pela manhã e à tarde.';
-    else if (tn) { s.turno = tn; s.lista = undefined; }
+    else if (tn && escolhaLista < 0) { s.turno = tn; s.lista = undefined; }
   }
 
   // 6) informa as unidades com agenda (e o médico de cada uma) antes de perguntar qualquer coisa
@@ -257,9 +288,8 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
   // 7) dia e período: o paciente escolhe da lista (número) ou diz a data
   if (!s.slot) {
     // resposta por número a uma lista anterior
-    if (s.lista && s.lista.length && !s.slot && !lerData(t, ctx)) {
-      const num = Number((t.match(/^\s*(\d)\b/) ?? [])[1]);
-      const idx = num ? num - 1 : /primeir/.test(t) ? 0 : /ultim/.test(t) ? s.lista.length - 1 : -1;
+    if (s.lista && s.lista.length && !s.slot) {
+      const idx = lerEscolha(t, s.lista.length);
       if (idx >= 0 && s.lista[idx]) { s.slot = s.lista[idx]; s.data = s.slot.ymd; s.turno = s.slot.turno; s.lista = undefined; }
     }
   }
@@ -319,7 +349,7 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
   if (s.paciente === null) {
     const c = s.cad;
     if (!acabouDeConsultar) {
-      if (!c.nome) { const m = texto.trim(); if (/^[\p{L}' ]{5,80}$/u.test(m) && m.includes(' ') && !SIM.test(t) && !NAO.test(t)) c.nome = titulo(m); }
+      if (!c.nome) { const m = limparNome(texto); if (/^[\p{L}' ]{5,80}$/u.test(m) && m.includes(' ') && !SIM.test(t) && !NAO.test(t)) c.nome = titulo(m); }
       else if (!c.nascimento) { const nsc = lerNascimento(texto); if (nsc) c.nascimento = nsc; }
       else if (!c.sexo) { if (/fem|mulher/.test(t)) c.sexo = 'feminino'; else if (/masc|homem/.test(t)) c.sexo = 'masculino'; }
       else if (!c.telefone) {
@@ -386,6 +416,8 @@ export async function responder(entrada: (string | string[])[], ctx: Ctx, fonte:
       state = last.state;
       // no último turno, quem encerra a jornada ou transfere já é a resposta que o paciente vai receber
       if (t === turnos.length - 1 && (last.handoff || last.state.fim)) return last;
+      // transferência numa resposta que JÁ foi enviada: a conversa foi para a equipe, o que veio depois é jornada nova
+      if (last.handoff && j === msgs.length - 1) state = { ...novoEstado(), saudou: true };
       if (j < msgs.length - 1) { // resposta descartada: desfaz o que ela marcou como dito
         state.saudou = antes.saudou;
         state.unidadesInformadas = antes.unidadesInformadas;

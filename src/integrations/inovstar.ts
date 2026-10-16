@@ -117,3 +117,23 @@ export function describe(m: InovstarMessage): string | null {
   if (m.media?.caption) return `[${m.type}] ${m.media.caption}`;
   return `[${m.type}]`;
 }
+
+/** Texto do paciente para o ROTEIRO: áudio vira a própria transcrição, sem prefixo. Mídia sem texto não vira "mensagem". */
+export function textoLimpo(m: InovstarMessage): string | null {
+  if (m.isWhisper || m.type === 'system' || m.status === 'whisper') return null;
+  if (m.text) return m.text;
+  if (m.type === 'audio') return m.transcription?.text?.trim() || null;
+  if (m.interactiveReply?.title) return m.interactiveReply.title;
+  if (m.media?.caption) return m.media.caption;
+  return null;
+}
+
+/** Áudio que chegou agora e ainda está sendo transcrito (sem texto e sem marca de falha). */
+export const aguardandoTranscricao = (m: InovstarMessage) =>
+  m.type === 'audio' && !m.text && !m.transcription?.text && !/fail|error|erro|unavailable|unsupported|skipped|none/i.test(m.transcription?.status ?? '');
+
+/** Mensagem do paciente que o roteiro não consegue ler: áudio sem transcrição ou arquivo/imagem sem texto. */
+export function ilegivel(m: InovstarMessage): 'audio' | 'arquivo' | null {
+  if (m.direction !== 'in' || textoLimpo(m) || m.isWhisper || m.type === 'system') return null;
+  return m.type === 'audio' ? 'audio' : 'arquivo';
+}

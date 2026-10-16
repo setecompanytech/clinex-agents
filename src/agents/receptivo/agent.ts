@@ -1,5 +1,5 @@
 import { env } from '../../lib/env.js';
-import { describe, getHistory, sendText, transferToSector, type MessageReceivedEvent } from '../../integrations/inovstar.js';
+import { aguardandoTranscricao, describe, getHistory, ilegivel, sendText, textoLimpo, transferToSector, type MessageReceivedEvent } from '../../integrations/inovstar.js';
 import { buildSystemPrompt } from './prompt.js';
 import { MARCAS_FIM, MARCA_AGENDADO, etapa, responder } from './script/engine.js';
 import { fonteSimulada } from './script/catalog.js';
@@ -94,7 +94,14 @@ async function processar(ev: MessageReceivedEvent) {
 
   // Debounce: espera o paciente terminar de digitar e só a última mensagem dispara a resposta.
   await sleep(env.debounceMs);
-  const { messages: history } = await getHistory(ev.attendanceId);
+  let { messages: history } = await getHistory(ev.attendanceId);
+  // áudio recém-chegado: a transcrição pode levar alguns segundos; espera até ~17 s antes de desistir
+  for (let i = 0; i < 7; i++) {
+    const ult = [...history].reverse().find((m) => m.direction === 'in');
+    if (!ult || ult._id !== ev.messageId || !aguardandoTranscricao(ult)) break;
+    await sleep(2500);
+    history = (await getHistory(ev.attendanceId)).messages;
+  }
   const lastIn = [...history].reverse().find((m) => m.direction === 'in');
   if (lastIn && lastIn._id !== ev.messageId) return skip(`chegou mensagem mais nova (${lastIn._id} != ${ev.messageId}); o webhook dela responde`);
 
@@ -123,7 +130,10 @@ async function processar(ev: MessageReceivedEvent) {
   // Roteiro fixo (sem IA): reprocessa as mensagens do paciente da jornada atual e responde a última.
   // A jornada recomeça depois da última mensagem de confirmação (MARCA_FIM) e é limitada a 12 horas.
   if (env.mode === 'scripted') {
-    const fimIdx = history.reduce((acc, m, i) => (m.direction === 'out' && MARCAS_FIM.some((x) => m.text?.includes(x)) ? i : acc), -1);
+    // A jornada recomeça (1) depois da confirmação do agendamento e (2) depois de qualquer evento do sistema da
+    // Inovstar ("Transferido para o setor...", "início de atendimento"): o que veio antes não conta (falhas antigas
+    // faziam a Amanda transferir de novo logo na primeira mensagem).
+    const fimIdx = history.reduce((acc, m, i) => ((m.direction === 'out' && MARCAS_FIM.some((x) => m.text?.includes(x))) || m.type === 'system' ? i : acc), -1);
     const desde = Date.now() - 12 * 3600 * 1000;
     // turnos: mensagens do paciente entre duas respostas (qualquer saída que não seja nota interna)
     const turnos: string[][] = [];
@@ -131,18 +141,23 @@ async function processar(ev: MessageReceivedEvent) {
     history.forEach((m, i) => {
       if (m.direction === 'out' && m.status !== 'whisper') { saiuDesdeAUltima = true; return; }
       if (m.direction !== 'in' || i <= fimIdx || +new Date(m.createdAt) <= desde) return;
-      const txt = describe(m);
+      const txt = textoLimpo(m);
       if (!txt) return;
       if (saiuDesdeAUltima || turnos.length === 0) turnos.push([]);
       saiuDesdeAUltima = false;
       turnos[turnos.length - 1].push(txt);
     });
     const textos = turnos.flat();
-    if (textos.length === 0) return skip('sem mensagens do paciente na jornada atual');
+    // a última mensagem é um áudio sem transcrição ou um arquivo sem texto: pede para escrever (não conta como "não entendi")
+    const ultimaMsg = [...history].reverse().find((m) => m.direction === 'in');
+    const ilg = ultimaMsg && ultimaMsg._id === ev.messageId ? ilegivel(ultimaMsg) : null;
+    if (textos.length === 0 && !ilg) return skip('sem mensagens do paciente na jornada atual');
     const fonte = env.clinilinkKey ? fonteClinilink : fonteSimulada;
     const tag = `[${ev.attendanceId}]`;
     let r;
-    try {
+    if (ilg) {
+      r = { state: undefined as never, reply: ilg === 'audio' ? 'Não consegui ouvir esse áudio. Pode escrever a sua mensagem ou enviar o áudio de novo?' : 'Por aqui consigo ler texto e ouvir áudio. Pode escrever o que você precisa?', handoff: undefined };
+    } else try {
       r = await responder(turnos, { now: new Date(), nome, tz: env.timezone, telefone: ev.to }, fonte);
     } catch (e) {
       // Clinilink fora do ar / lento: não inventa dado, devolve para a equipe
@@ -151,14 +166,14 @@ async function processar(ev: MessageReceivedEvent) {
     }
     if (!r) return skip('roteiro sem resposta');
     // o GPT só reescreve o tom; emergência/crise nunca passam por ele
-    const gpt = r.handoff?.urgente ? { texto: r.reply, status: 'desligado' as const, motivo: 'mensagem de segurança' } : r.reply.includes(MARCA_AGENDADO) ? { texto: r.reply, status: 'desligado' as const, motivo: 'confirmação de agendamento (texto exato)' } : await amigavelDetalhado(r.reply, nomesProtegidos(r));
+    const gpt = ilg ? { texto: r.reply, status: 'desligado' as const, motivo: 'mensagem fixa (áudio/arquivo ilegível)' } : r.handoff?.urgente ? { texto: r.reply, status: 'desligado' as const, motivo: 'mensagem de segurança' } : r.reply.includes(MARCA_AGENDADO) ? { texto: r.reply, status: 'desligado' as const, motivo: 'confirmação de agendamento (texto exato)' } : await amigavelDetalhado(r.reply, nomesProtegidos(r));
     const texto = gpt.texto;
     const msg = withTitle(texto);
     evt('resposta', {
       fonte: fonte.tipo,
-      etapa: r.state ? etapa(r.state, r.handoff) : 'falha ao consultar a agenda',
+      etapa: r.state ? etapa(r.state, r.handoff) : ilg ? 'mensagem ilegível (áudio sem transcrição ou arquivo)' : 'falha ao consultar a agenda',
       mensagens_na_jornada: textos.length,
-      paciente_disse: textos[textos.length - 1],
+      paciente_disse: ilg ? `[${ilg} ilegível]` : textos[textos.length - 1],
       roteiro: r.reply,
       enviado: msg,
       gpt: gpt.status,
@@ -169,7 +184,14 @@ async function processar(ev: MessageReceivedEvent) {
     });
     if (!env.autoReply) return;
     await pareceDigitando(inicio, Boolean(r.handoff?.urgente));
-    if (r.handoff && env.humanSectorId) await transferToSector(ev.attendanceId, env.humanSectorId, r.handoff.motivo, msg);
+    if (r.handoff && env.humanSectorId) {
+      try { await transferToSector(ev.attendanceId, env.humanSectorId, r.handoff.motivo, msg); }
+      catch (e) {
+        // a conversa já foi transferida por outra mensagem do mesmo paciente: nada a fazer
+        if (/já está neste setor/i.test((e as Error).message)) evt('ignorado', { motivo: 'atendimento já estava no setor da equipe' });
+        else throw e;
+      }
+    }
     else await sendText({ channelId: ev.channelId, to: ev.to, attendanceId: ev.attendanceId, text: msg, clientMessageId: `agente-receptivo-${ev.messageId}` });
     return;
   }

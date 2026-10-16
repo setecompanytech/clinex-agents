@@ -14,10 +14,15 @@ const PROC = '22222222-2222-4222-8222-222222222222';
 const MEDICO = '33333333-3333-4333-8333-333333333333';
 const AGENDA = '44444444-4444-4444-8444-444444444444';
 const dia = (n: number) => { const d = new Date(Date.now() + n * 86400000); return d.toISOString().slice(0, 10); };
-const horarios = () => ['08:00', '08:30', '09:00'].map((hora) => ({
-  data: dia(1), hora, dataHora: `${dia(1)}T${hora}:00-03:00`, agendaId: AGENDA, agendaNome: 'Manhã Guamá', agendaHoraInicio: '08:00', duracaoMinutos: 30,
-  profissional: { id: MEDICO, nome: 'MEDICA TESTE DA SILVA' }, unidade: { id: U_GUAMA, nome: 'CLINEX GUAMÁ' },
-}));
+const mk = (data: string, hora: string, inicio: string) => ({
+  data, hora, dataHora: `${data}T${hora}:00-03:00`, agendaId: AGENDA, agendaNome: "Agenda Guamá", agendaHoraInicio: inicio, duracaoMinutos: 30,
+  profissional: { id: MEDICO, nome: "MEDICA TESTE DA SILVA" }, unidade: { id: U_GUAMA, nome: "CLINEX GUAMÁ" },
+});
+/** amanhã de manhã (3 horários, os primeiros podem estar "ocupados") e depois de amanhã à tarde (2 horários) */
+const horarios = (ini: string, fim: string) => [
+  ...["08:00", "08:30", "09:00"].slice(modo.ocupados).map((h) => mk(dia(1), h, "08:00")),
+  ...["13:30", "14:00"].map((h) => mk(dia(2), h, "13:00")),
+].filter((h) => h.data >= ini && h.data <= fim);
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url!, 'http://x');
@@ -28,7 +33,7 @@ const server = http.createServer((req, res) => {
     if (req.method === 'GET') {
       if (p.endsWith('/clinicas')) return j(200, { ok: true, clinicas: [{ id: U_GUAMA, nome: 'CLINEX GUAMÁ' }, { id: U_TELEGRAFO, nome: 'CLINEX TELEGRAFO' }] });
       if (p.endsWith('/procedimentos')) return j(200, { ok: true, procedimentos: [{ id: PROC, nome: 'CONSULTA GINECOLOGIA', categoria: 'Consulta', preco: 100, precoDinheiro: 100 }] });
-      if (p.endsWith('/agenda')) return j(200, { ok: true, horarios: horarios().slice(modo.ocupados) });
+      if (p.endsWith('/agenda')) return j(200, { ok: true, horarios: horarios(url.searchParams.get('dataInicial') ?? '0000', url.searchParams.get('dataFinal') ?? '9999') });
       if (p.endsWith('/pacientes')) return j(200, { ok: true, pacientes: url.searchParams.get('cpf') === '11122233344' ? [{ id: '55555555-5555-4555-8555-555555555555', nome: 'MARIA EXEMPLO' }] : [] });
     }
     if (req.method === 'POST') {
@@ -161,6 +166,25 @@ confere('14 CPF + sim juntos: mostra o nome para confirmar e NÃO reserva', /Enc
 reset({ ocupados: 0 });
 r = await responder([...base.map((x) => [x]), ['11122233344'], ['sim', 'obrigada']], ctx, fonteClinilink) as any;
 confere('15 "sim" + "obrigada" juntos: reservou uma vez', nPost('/agendamentos') === 1, `agendamentos=${nPost('/agendamentos')}`);
+
+// 16) falhas ANTES de uma transferência não contaminam a conversa nova (bug: "Olá" já era transferido)
+reset({ ocupados: 0 });
+r = await responder([['boa tarde, quero uma consulta'], ['ola, quero marcar uma consulta'], ['Olá'], ['quero agendar ginecologista']], ctx, fonteClinilink) as any;
+confere('16 depois de uma transferência a jornada recomeça', !r.handoff && /agendar consulta Ginecologia|consulta Ginecologia/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 110));
+r = await responder([['boa tarde, quero uma consulta'], ['ola, quero marcar uma consulta'], ['Olá']], ctx, fonteClinilink) as any;
+confere('16 "Olá" depois da transferência só cumprimenta', !r.handoff && /Como posso te ajudar|Qual consulta/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 110));
+
+// 17) jeito de falar dos áudios transcritos (frases longas, pontuação, números por extenso)
+reset({ ocupados: 0 });
+r = await responder([['Oi, bom dia! Eu queria marcar uma consulta com a ginecologista, por favor.'], ['Isso mesmo.'], ['Guamá.']], ctx, fonteClinilink) as any;
+confere('17 áudio: pedido longo, confirmação e unidade falados', /Tenho estas opções|Para .* tenho/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 120));
+r = await responder([['Oi, bom dia! Eu queria marcar uma consulta com a ginecologista, por favor.'], ['Isso mesmo.'], ['Guamá.'], ['Pode ser a segunda opção.']], ctx, fonteClinilink) as any;
+confere('17 áudio: "a segunda opção" escolhe a 2ª da lista (não é segunda-feira)', /CPF/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 120));
+reset({ ocupados: 0 });
+r = await responder([...base.map((x) => [x]), ['O meu CPF é 999 888 777 66.'], ['Meu nome é Joana Teste Souza.'], ['Nasci em 10 de maio de 1990.'], ['Sou mulher.'], ['Pode sim.']], ctx, fonteClinilink) as any;
+confere('17 áudio: CPF espaçado, nome com "meu nome é", nascimento por extenso, "sou mulher" -> agenda', r.reply.startsWith(MARCA_AGENDADO) && nPost('/agendamentos') === 1, r.reply.replace(/\n/g, ' | ').slice(0, 100));
+const cad17 = posts.find((x) => x.rota.endsWith('/pacientes'))?.corpo;
+confere('17 cadastro certo: nome limpo, 1990-05-10, feminino', cad17?.nome === 'Joana Teste Souza' && cad17?.dataNascimento === '1990-05-10' && cad17?.sexo === 'feminino' && cad17?.cpf === '99988877766', JSON.stringify({ nome: cad17?.nome, nasc: cad17?.dataNascimento, sexo: cad17?.sexo }));
 
 server.close();
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTODOS OS CENÁRIOS PASSARAM');

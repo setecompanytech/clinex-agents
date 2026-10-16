@@ -225,7 +225,7 @@ export const flow = {
       subtitle: 'Junta mensagens picadas e lê a conversa na Inovstar',
       detail: {
         oQueFaz: 'O agente espera o paciente terminar de digitar (muita gente manda várias mensagens curtas) e então lê o histórico da conversa na Inovstar.',
-        regra: 'Espera 4 segundos e busca as últimas 30 mensagens do atendimento. Não existe banco de dados: o histórico da própria Inovstar é a memória do agente. Áudios entram como texto quando houver transcrição.',
+        regra: 'Espera 4 segundos e busca as últimas 30 mensagens do atendimento. Não existe banco de dados: o histórico da própria Inovstar é a memória do agente. Áudios entram como texto, pela transcrição da Inovstar: se o áudio acabou de chegar, a Amanda espera até uns 17 segundos pela transcrição. Áudio que não pôde ser transcrito, imagem ou arquivo sem texto não contam como "não entendi": ela pede para o paciente escrever ou mandar de novo. Frases faladas são entendidas ("o terceiro horário", "10 de maio de 1990", "meu nome é Joana Silva", CPF falado com espaços).',
         exemplo: 'O paciente manda "oi", "tudo bem?" e "preciso de cardiologista" em 3 segundos. O agente espera, lê as três e responde uma vez só.',
         seFalhar: 'Se a Inovstar não entregar o histórico, o agente não consegue seguir e nada é enviado; o erro fica no log e a equipe vê a conversa normalmente.',
         tecnico: 'sleep(env.debounceMs) e getHistory() em src/agents/receptivo/agent.ts e src/integrations/inovstar.ts (GET do histórico do atendimento). Variável DEBOUNCE_MS (padrão 4000).',
