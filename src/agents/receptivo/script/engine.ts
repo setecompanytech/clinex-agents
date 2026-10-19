@@ -412,7 +412,8 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
       if (escolhida) { const r = aplicar(await fonte.resolver(escolhida.id)); if (r) return r; }
     } else {
       // dúvida ("funciona sábado?", "qual o horário de atendimento?"): sem busca solta por palavras, para não "achar" um serviço sem querer
-      const r = aplicar(await fonte.descobrir(t, !s.servico && !faq));
+      const soSaudacao = SO_CUMPRIMENTO.test(t) && !/\bteste\b/.test(t); // "oi", "bom dia": não procura serviço; "teste" pode ser o começo de "teste ergométrico"
+      const r = aplicar(await fonte.descobrir(t, !s.servico && !faq && !soSaudacao));
       if (r) return r;
     }
   }

@@ -176,6 +176,79 @@ async function descobrirProfissional(t: string): Promise<Descoberta> {
   return servicoDaProfissional(pont[0].p);
 }
 
+// ---------------- similaridade no catálogo: "teste ergo", "ergometrio", "só teste" ----------------
+/** Palavras que não identificam serviço nenhum (verbos, saudações, dias...). "teste" NÃO está aqui: ele pode ser o começo de "teste ergométrico". */
+const SEM_VALOR = new Set([...STOP].filter((w) => w !== 'teste').concat(['ola', 'bom', 'boa', 'uma', 'umas', 'uns', 'pra', 'com', 'sem', 'ter', 'que', 'quer', 'queria', 'exames', 'vou', 'ver', 'info', 'minha', 'meu', 'esse', 'essa', 'isso', 'aqui', 'algum', 'alguma', 'qual', 'quais', 'onde', 'como', 'quando', 'custa', 'pode', 'poderia', 'possivel', 'agora', 'proxima', 'proximo', 'medico', 'medica', 'doutor', 'doutora', 'unidade', 'unidades', 'guama', 'telegrafo', 'clinica', 'clinex', 'tudo', 'mais', 'ainda', 'porque', 'tambem', 'muito', 'pouco', 'alguem', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo', 'realizar', 'marcado', 'marcada', 'agendado', 'agendada']));
+
+/** Palavras do pedido que podem ser parte do nome de um serviço (4+ letras, sem acento). */
+const palavrasDoPedido = (t: string) => [...new Set(t.split(/[^a-z]+/).filter((w) => w.length >= 4 && !SEM_VALOR.has(w)))].slice(0, 4);
+
+const prefixoComum = (a: string, b: string) => { let i = 0; while (i < a.length && i < b.length && a[i] === b[i]) i++; return i; };
+/** Distância de edição entre palavras curtas (<= 2 basta). */
+function distancia(a: string, b: string): number {
+  const d: number[][] = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[a.length][b.length];
+}
+/** Quanto uma palavra do pedido (q) combina com uma palavra do nome do serviço (n): igual 3; começo do nome ("ergo" -> "ergometrico") 2,5; parecida 2; erro de digitação 1,5-2. */
+function simPalavra(q: string, n: string): number {
+  if (q === n) return 3;
+  if (n.startsWith(q)) return 2.5;
+  if (q.length >= 5 && n.includes(q)) return 2;
+  const pc = prefixoComum(q, n);
+  if (pc >= 6 && pc >= 0.7 * Math.min(q.length, n.length)) return 2; // "ergometrico" ~ "ergometria"
+  if (q.length >= 5 && perto(q, n)) return 2; // erro de uma letra
+  if (q.length >= 8 && distancia(q, n) <= 2) return 1.5;
+  return 0;
+}
+
+type ItemCatalogo = { cand: Cand; palavras: string[] };
+/** Catálogo inteiro que o chatbot pode agendar (todas as unidades). Fica em memória por 10 min (vazio, 20 s). */
+async function catalogo(): Promise<ItemCatalogo[]> {
+  const clinicas = await listClinicas();
+  const mapa = new Map<string, Cand>();
+  await Promise.all(clinicas.map(async (c) => {
+    for (const p of await listProcedimentos(c.id, '').catch(() => [])) {
+      const k = mapa.get(p.id) ?? { proc: p, clinicas: [] };
+      k.clinicas.push(c); mapa.set(p.id, k);
+    }
+  }));
+  return [...mapa.values()].map((cand) => ({ cand, palavras: norm(cand.proc.nome).split(/[^a-z0-9]+/).filter((x) => x.length >= 2 && !/^(de|da|do|dos|das|e|com|para|em)$/.test(x)) }));
+}
+
+/** Ordena candidatos pela semelhança com o que o paciente escreveu (mais palavras batendo, depois mais parecidas). */
+function ranquear(cands: Cand[], palavras: string[], t: string) {
+  return cands.map((cand) => {
+    const nomes = norm(cand.proc.nome).split(/[^a-z0-9]+/).filter((x) => x.length >= 2);
+    let hits = 0; let score = 0; let forte = 0;
+    for (const q of palavras) { const melhor = Math.max(0, ...nomes.map((n) => simPalavra(q, n))); if (melhor > 0) { hits++; score += melhor; forte = Math.max(forte, melhor); } }
+    return { cand, hits, score, forte };
+  }).sort((x, y) => y.hits - x.hits || y.score - x.score || pontuar(y.cand.proc, t) - pontuar(x.cand.proc, t));
+}
+
+/** Um vencedor claro vira o serviço; vários parecidos (ex.: só "teste") viram opções para o paciente escolher. */
+async function decidir(pont: ReturnType<typeof ranquear>, viaSintoma: boolean): Promise<Descoberta> {
+  const topo = pont[0]; const seg = pont[1];
+  for (const x of pont.slice(0, 8)) conhecidos.set(x.cand.proc.id, x.cand);
+  if (!seg || topo.hits > seg.hits || topo.score - seg.score >= 1.5) {
+    const d = await montar(topo.cand);
+    return d && 'servico' in d ? { servico: { ...d.servico, viaSintoma } } : d;
+  }
+  const opcoes = pont.filter((x) => x.hits === topo.hits && topo.score - x.score < 1.5).slice(0, 5);
+  return { opcoes: opcoes.map((x) => ({ id: x.cand.proc.id, nome: titulo(x.cand.proc.nome) })) };
+}
+
+/**
+ * Procura no catálogo inteiro os serviços de nome igual ou PARECIDO com o pedido.
+ * `forte`: só vale se alguma palavra do pedido for igual ou o começo de uma palavra do nome ("ergo" -> "ergométrico").
+ */
+async function buscarSimilares(t: string, palavras: string[], viaSintoma: boolean, forte: boolean): Promise<Descoberta> {
+  const itens = await catalogo();
+  const pont = ranquear(itens.map((x) => x.cand), palavras, t).filter((x) => x.hits > 0 && (!forte || x.forte >= 2.5));
+  return pont.length ? decidir(pont, viaSintoma) : undefined;
+}
+
 export const fonteClinilink: Fonte = {
   tipo: 'clinilink',
   async nomesUnidades() { return (await listClinicas()).map(nomeUnidade); },
@@ -185,14 +258,20 @@ export const fonteClinilink: Fonte = {
     const pessoa = await descobrirProfissional(t);
     if (pessoa) return pessoa;
     const raizes = RAIZES.filter((r) => r.re.test(t));
-    let termos = raizes.flatMap((r) => [r.busca, ...(r.alt ?? [])]); // ex.: ultrassom -> usg -> ultrassonografia
-    const solto = [...new Set(t.split(/[^a-z]+/).filter((w) => w.length >= 5 && !STOP.has(w)))].slice(0, 2);
-    // palavra solta: tenta inteira e depois só o radical ("ergometrico" -> "ergometr" acha "ergometria"), para pegar nome igual ou parecido
-    if (termos.length === 0 && buscando) termos = solto.flatMap((w) => (w.length >= 8 ? [w, w.slice(0, w.length - 3)] : [w]));
-    if (termos.length === 0) return undefined;
+    const termos = raizes.flatMap((r) => [r.busca, ...(r.alt ?? [])]); // ex.: ultrassom -> usg -> ultrassonografia
+    const palavras = palavrasDoPedido(t);
+    // sem raiz conhecida e sem palavra que possa ser nome de serviço: não é pedido de serviço
+    if (termos.length === 0 && !(buscando && palavras.length)) return undefined;
     const pediu = /\b(quero|queria|preciso|gostaria|marcar|agendar|fazer|realizar|consulta|exame)\b/.test(t);
-    const rotulo = raizes[0]?.nome ?? (pediu && buscando ? solto.join(' ') : '');
+    const rotulo = raizes[0]?.nome ?? (pediu && buscando ? palavras.join(' ') : '');
     const viaSintoma = raizes.some((r) => r.sintoma?.test(t));
+
+    // "exame de gravidez", "teste ergo": o NOME do serviço ganha da raiz de especialidade (gravidez != consulta de ginecologia)
+    const dizExame = /\b(exames?|testes?)\b/.test(t);
+    if (buscando && palavras.length && (termos.length === 0 || dizExame)) {
+      const forte = await buscarSimilares(t, palavras, viaSintoma, true);
+      if (forte) return forte;
+    }
 
     const clinicas = await listClinicas();
     for (const termo of termos) {
@@ -204,15 +283,20 @@ export const fonteClinilink: Fonte = {
       }
       if (mapa.size === 0) continue;
       for (const [id, v] of mapa) conhecidos.set(id, v);
-      const cands = [...mapa.values()].sort((a, b) => pontuar(b.proc, t) - pontuar(a.proc, t));
-      const melhor = pontuar(cands[0].proc, t);
-      const empatados = cands.filter((x) => pontuar(x.proc, t) === melhor);
-      if (empatados.length > 1) return { opcoes: empatados.slice(0, 4).map((x) => ({ id: x.proc.id, nome: titulo(x.proc.nome) })) };
-      const d = await montar(cands[0]);
-      return d && 'servico' in d ? { servico: { ...d.servico, viaSintoma } } : d;
+      // vários candidatos para a mesma raiz: o mais parecido com o que ele escreveu; sem diferença, o mais "consulta"; empate, opções
+      const pont = ranquear([...mapa.values()], palavras, t);
+      const topo = pont[0];
+      const iguais = pont.filter((x) => x.hits === topo.hits && Math.abs(x.score - topo.score) < 0.01 && pontuar(x.cand.proc, t) === pontuar(topo.cand.proc, t));
+      if (iguais.length > 1) return { opcoes: iguais.slice(0, 5).map((x) => ({ id: x.cand.proc.id, nome: titulo(x.cand.proc.nome) })) };
+      return decidir(pont, viaSintoma);
     }
-    // nada com esse nome nem parecido (ou não está liberado para agendamento pelo chatbot): o paciente fica sabendo
-    evt('servico_nao_encontrado', { termo: rotulo || solto.join(' '), tentativas: termos });
+    // a busca exata não achou: procura no catálogo inteiro por nome igual ou PARECIDO (abreviação, erro de digitação, radical)
+    if (palavras.length) {
+      const sim = await buscarSimilares(t, palavras, viaSintoma, false);
+      if (sim) return sim;
+    }
+    // nada igual nem parecido (ou não está liberado para agendamento pelo chatbot): o paciente fica sabendo
+    evt('servico_nao_encontrado', { termo: rotulo || palavras.join(' '), tentativas: termos, palavras });
     return rotulo ? { naoAchouServico: rotulo } : undefined;
   },
 

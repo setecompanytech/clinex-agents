@@ -44,9 +44,18 @@ const server = http.createServer((req, res) => {
       if (p.endsWith('/procedimentos')) {
         const b = url.searchParams.get('busca') ?? '';
         const un = url.searchParams.get('unidadeId');
+        if (b === '') {
+          const c = (id: string, nome: string, categoria = 'Consulta', preco = 100) => ({ id, nome, categoria, preco, precoDinheiro: un === U_GUAMA ? 0 : 999 });
+          return j(200, { ok: true, procedimentos: [
+            c(PROC, 'CONSULTA GINECOLOGIA'), c(PROC2, 'CONSULTA DERMATOLOGIA'), c(PROC3, 'CONSULTA CARDIOLOGIA'), c(PROC_USG, 'USG ABDOME TOTAL', 'Exames', 150),
+            c('26262626-2626-4262-8262-262626262626', 'ERGOMETRIA', 'Exames', 120), c('27272727-2727-4272-8272-272727272727', 'CONSULTA FONOAUDIOLOGIA'),
+            c('28282828-2828-4282-8282-282828282828', 'TESTE DE ESFORCO COM ECG', 'Exames', 120), c('29292929-2929-4292-8292-292929292929', 'CONSULTA SEMVALOR', 'Consulta', 0),
+            c('31313131-3131-4313-8313-313131313131', 'TESTE ERGOMETRICO', 'Exames', 140), c('32323232-3232-4323-8323-323232323232', 'TESTE RAPIDO DE GRAVIDEZ', 'Exames', 40), c('33333333-3434-4343-8343-343434343434', 'TESTE DE ALERGIA', 'Exames', 90),
+          ] });
+        }
         // procedimentos "estranhos" do cadastro: a busca real é por pedaço do nome, sem acento
         const sem = (x: string) => x.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-        const extras = [{ id: '26262626-2626-4262-8262-262626262626', nome: 'ERGOMETRIA', categoria: 'Exames' }, { id: '27272727-2727-4272-8272-272727272727', nome: 'CONSULTA FONOAUDIOLOGIA', categoria: 'Consulta' }, { id: '28282828-2828-4282-8282-282828282828', nome: 'TESTE DE ESFORCO COM ECG', categoria: 'Exames' }]
+        const extras = [{ id: '31313131-3131-4313-8313-313131313131', nome: 'TESTE ERGOMETRICO', categoria: 'Exames' }, { id: '26262626-2626-4262-8262-262626262626', nome: 'ERGOMETRIA', categoria: 'Exames' }, { id: '27272727-2727-4272-8272-272727272727', nome: 'CONSULTA FONOAUDIOLOGIA', categoria: 'Consulta' }, { id: '28282828-2828-4282-8282-282828282828', nome: 'TESTE DE ESFORCO COM ECG', categoria: 'Exames' }]
           .filter((x) => b.length >= 4 && sem(x.nome).includes(sem(b))).map((x) => ({ ...x, preco: 120, precoDinheiro: un === U_GUAMA ? 0 : 999 })); // precoDinheiro ZERADO no Guamá e 999 no outro: nunca pode aparecer
         if (extras.length) return j(200, { ok: true, procedimentos: extras });
         if (/ergometrico|fonoaudiologo|audiom|hemoglob|glicada/i.test(b)) return j(200, { ok: true, procedimentos: [] });
@@ -507,9 +516,9 @@ confere('D7 depois de não entender, consegue pedir de outro jeito e o fluxo seg
 // ===================== serviços com nome parecido / não encontrados =====================
 // N1) "teste ergométrico" mas o cadastro chama de ERGOMETRIA: acha pelo radical
 r = await dd(['Quero fazer um teste ergométrico']);
-confere('N1 "teste ergométrico" acha ERGOMETRIA (nome parecido)', /Você quer agendar Ergometria, é isso\?/.test(r.reply) && !/Não encontrei|Não consegui/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 170));
+confere('N1 "teste ergométrico" vai direto ao serviço de nome igual (Teste Ergometrico)', /Você quer agendar Teste Ergometrico, é isso\?/.test(r.reply) && !/Não encontrei|Não consegui/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 170));
 r = await dd(['queria um teste de esforço']);
-confere('N1 "teste de esforço" também chega ao exame', /Ergometria|Teste De Esforco Com Ecg|Encontrei estas opções/.test(r.reply) && !/Não encontrei/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 200));
+confere('N1 "teste de esforço" chega ao Teste de Esforço com ECG', /Você quer agendar Teste de Esforco Com Ecg/i.test(r.reply) && !/Não encontrei/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 200));
 // N2) palavra solta que não é uma raiz conhecida: tenta o radical ("fonoaudiologo" -> "fonoaudiol")
 r = await dd(['quero marcar com fonoaudiologo']);
 confere('N2 palavra parecida: "fonoaudiologo" acha Fonoaudiologia pelo radical', /Fonoaudiologia/.test(r.reply) && !/Não encontrei/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 150));
@@ -545,6 +554,24 @@ r = await dd(['quero agendar consulta semvalor', 'sim', 'qual o valor?']);
 confere('$3 preço zero e o paciente pergunta o valor: diz que a equipe confirma (sem "zero")', /equipe confirme certinho/.test(r.reply) && !/R\$/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 200));
 r = await dd(['quero agendar consulta semvalor', 'sim', 'guama', '1', 'pix', img('img-ok')]);
 confere('$3 preço zero + comprovante de pix: não confere valor sozinha, passa para a equipe conferir', Boolean(r.handoff) && /valor do serviço não está definido/.test(r.handoff.motivo), r.handoff?.motivo.slice(0, 110));
+
+// ===================== similaridade: "teste ergo", "só teste", erro de digitação =====================
+r = await dd(['Quero agendar um teste ergo']);
+confere('S1 "teste ergo" (abreviado): acha "Teste Ergometrico" e confirma', /Você quer agendar Teste Ergometrico, é isso\?/.test(r.reply) && !/Não consegui|Não encontrei/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 170));
+r = await dd(['teste']);
+confere('S2 só "teste": mostra as sugestões de qual serviço', /Encontrei estas opções/.test(r.reply) && /Teste Ergometrico/.test(r.reply) && /Teste Rapido de Gravidez/i.test(r.reply) && /Teste de Alergia/i.test(r.reply) && !r.handoff, r.reply.replace(/\n/g, ' | ').slice(0, 260));
+r = await dd(['teste', '2']);
+confere('S2 escolhendo uma das sugestões pelo número, segue o fluxo', /Você quer agendar (Teste Ergometrico|Teste Rapido de Gravidez|Teste de Alergia|Teste de Esforco Com Ecg)/i.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 130));
+r = await dd(['quero um teste ergometrio']);
+confere('S3 erro de digitação ("ergometrio"): acha Teste Ergometrico', /Você quer agendar Teste Ergometrico/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 150));
+r = await dd(['preciso fazer um teste alergia']);
+confere('S3 "teste alergia" (palavras do nome fora de ordem/sem "de"): acha Teste De Alergia', /Você quer agendar Teste de Alergia/i.test(r.reply), r.reply.slice(0, 120));
+r = await dd(['quero fazer um exame de gravidez']);
+confere('S4 "exame de gravidez": acha o Teste Rápido de Gravidez pelo nome parecido', /Gravidez/.test(r.reply) && !/Não encontrei|Não consegui/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 140));
+r = await dd(['oi']);
+confere('S5 "oi" continua sendo só um cumprimento (não dispara busca)', /Como posso te ajudar/.test(r.reply) && !/Encontrei|Você quer agendar/.test(r.reply), r.reply);
+r = await dd(['quero agendar zzzzz']);
+confere('S6 nada parecido: diz que não encontrou e oferece a equipe', /Não encontrei zzzzz/.test(r.reply) && /Posso chamar alguém/.test(r.reply) && !r.handoff, r.reply.replace(/\n/g, ' | ').slice(0, 160));
 
 server.close();
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTODOS OS CENÁRIOS PASSARAM');
