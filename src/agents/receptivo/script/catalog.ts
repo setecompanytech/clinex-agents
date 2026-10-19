@@ -14,12 +14,15 @@ export type Servico = {
   unidades: Unidade[]; // unidades COM agenda, cada uma com os médicos que atendem
   precoTexto: string; // "A consulta custa R$ 200,00, no dinheiro ou Pix." ('' se não houver valor)
   viaSintoma?: boolean; // o paciente descreveu um sintoma em vez de pedir o serviço
+  profissional?: { id: string; nome: string }; // o paciente pediu um profissional específico: a agenda é só dela(e)
 };
 
 export type Descoberta =
   | { servico: Servico }
   | { opcoes: { id: string; nome: string }[] } // mais de um procedimento parecido: perguntar qual
   | { semAgenda: string } // existe, mas sem vaga aberta
+  | { naoAchouProfissional: string } // o paciente pediu uma pessoa pelo nome e não há ninguém assim com agenda
+  | { semAgendaProfissional: { nome: string; alternativa?: Servico } } // a pessoa existe, mas sem horários abertos (alternativa = mesma especialidade, outros profissionais)
   | undefined; // não achou
 
 /** Um período de atendimento (ordem de chegada) numa data. `inicio` = hora em que a agenda abre. */
@@ -53,14 +56,16 @@ export interface Fonte {
 }
 
 /** Raízes de busca: nome popular OU sintoma -> termo no catálogo. */
-export const RAIZES: { re: RegExp; busca: string; sintoma?: RegExp }[] = [
+// `alt`: outros nomes com que o mesmo serviço aparece no cadastro (ex.: ultrassom -> USG -> ultrassonografia)
+export const RAIZES: { re: RegExp; busca: string; alt?: string[]; sintoma?: RegExp }[] = [
   { re: /endocrin|diabetes|tireoide|hormonio/, busca: 'endocrin' },
   { re: /cardio|coracao|palpita|arritmia|pressao alta/, busca: 'cardio', sintoma: /dor|sinto|palpita|aperto|pressao|arritmia/ },
   { re: /derma|pele|acne|mancha|coceira/, busca: 'dermato' },
   { re: /gineco|menstrua|preventivo|gravid/, busca: 'gineco' },
   { re: /ortoped|osso|joelho|coluna|fratura|dor nas costas/, busca: 'ortoped' },
   { re: /pediatr|crianca|meu filho|minha filha|bebe/, busca: 'pediatr' },
-  { re: /ultrassom|ultrasson|usg|ecografia/, busca: 'ultrassom' },
+  { re: /ultrassom|ultrasson|usg|ecografia/, busca: 'ultrassom', alt: ['usg', 'ultrassonografia'] },
+  { re: /clinic[oa] geral|clinico|medic[oa] geral|generalista/, busca: 'clinico geral' },
 ];
 
 // ------------------------- FONTE SIMULADA -------------------------

@@ -291,7 +291,7 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
       case 'unidades': {
         if (!sv) return faq === 'unidades' && nomesUnFaq.length ? `Temos as unidades ${nomesUnFaq.join(' e ')}.` : '';
         if (reply.includes('tem agenda')) return '';
-        const linha = (u: Unidade) => `${u.nome}${u.profissionais?.length ? ` com ${u.profissionais.join(' e ')}` : ''}`;
+        const linha = (u: Unidade) => `${u.nome}${!sv.profissional && u.profissionais?.length ? ` com ${u.profissionais.join(' e ')}` : ''}`;
         return sv.unidades.length === 1 ? `${cap(sv.frase)} tem agenda no ${linha(sv.unidades[0])}.` : [`${cap(sv.frase)} tem agenda nestas unidades:`, ...sv.unidades.map(linha)].join('\n');
       }
       // o que eu não sei com segurança, não invento: a equipe confirma
@@ -355,8 +355,20 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
   const aplicar = (d: Awaited<ReturnType<Fonte['descobrir']>>): Result | undefined => {
     if (!d) return undefined;
     if ('semAgenda' in d) return out(comAbertura(`No momento não há vagas abertas para ${d.semAgenda}. Vou pedir para a equipe conferir e te retornar.`), { motivo: `Sem vagas abertas na agenda para ${d.semAgenda}.` });
+    // pediu uma pessoa pelo nome ("com a dra Rebecca") e não há ninguém assim com agenda: não transfere, pede mais um dado
+    if ('naoAchouProfissional' in d) return out(comAbertura(`Não encontrei ${d.naoAchouProfissional} entre os nossos profissionais com agenda aberta. Pode me dizer o sobrenome, ou a especialidade ou o exame que você precisa?`));
+    if ('semAgendaProfissional' in d) {
+      const x = d.semAgendaProfissional;
+      if (x.alternativa) {
+        // oferece a mesma especialidade com outros profissionais e segue o fluxo normal (confirmar o serviço)
+        s.servico = x.alternativa; s.opcoes = undefined; reiniciaDepoisDoServico(); mudouServico = true;
+        partes.push(`${x.nome} não tem horários abertos nos próximos dias. Posso te mostrar ${x.alternativa.frase} com outros profissionais.`);
+        return undefined;
+      }
+      return out(comAbertura(`${x.nome} não tem horários abertos nos próximos dias. Me diz a especialidade ou o exame que você precisa, que eu vejo as outras opções.`));
+    }
     if ('opcoes' in d) { s.opcoes = d.opcoes; s.servico = undefined; return undefined; }
-    if (d.servico.id !== s.servico?.id) { s.servico = d.servico; s.opcoes = undefined; reiniciaDepoisDoServico(); mudouServico = true; }
+    if (d.servico.id !== s.servico?.id || d.servico.profissional?.id !== s.servico?.profissional?.id) { s.servico = d.servico; s.opcoes = undefined; reiniciaDepoisDoServico(); mudouServico = true; }
     return undefined;
   };
   // 2b) mudou de ideia antes de informar o CPF: outro serviço, outra unidade ou outro dia/horário. Ajusta e segue, sem recomeçar.
@@ -405,11 +417,13 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
     if (RETOMAR.test(t)) return out(comAbertura('Que bom que você voltou! Vamos retomar o seu agendamento. Qual consulta ou exame você precisa?'));
     const cumprimento = SO_CUMPRIMENTO.test(t);
     if (!cumprimento && !NAO.test(t)) s.falhas += 1;
-    if (s.falhas >= 2) return out(comAbertura('Vou passar você para alguém da nossa equipe continuar o atendimento. Só um instante.'), { motivo: 'Não foi possível identificar o serviço pedido pelo paciente.' });
     if (!s.saudou && cumprimento) return out(`${abertura} Como posso te ajudar?`);
     if (cumprimento) return out('Qual consulta ou exame você precisa?');
     if (NAO.test(t) && prev.confirmPerguntado === false && base.servico === undefined && s.saudou && !abertura) return out('Sem problema. Qual consulta ou exame você precisa?');
-    return out(comAbertura('Não consegui identificar o serviço. Me diz o nome da especialidade ou do exame, por exemplo cardiologia, dermatologia ou ultrassom.'));
+    // não transfere sozinha por não entender: pede de outro jeito e, se ele insistir, lembra que pode chamar a equipe
+    return out(comAbertura(s.falhas >= 2
+      ? 'Ainda não consegui identificar o que você precisa. Pode me dizer a especialidade (cardiologia, dermatologia, ginecologia, ultrassom...), o nome do exame ou o nome do médico ou da médica? Se preferir falar com a nossa equipe, é só me pedir.'
+      : 'Não consegui identificar o serviço. Me diz o nome da especialidade ou do exame, por exemplo cardiologia, dermatologia ou ultrassom. Se preferir, pode me dizer o nome do médico ou da médica.'));
   }
   const sv = s.servico;
 
@@ -458,7 +472,8 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
   // 6) informa as unidades com agenda (e o médico de cada uma) antes de perguntar qualquer coisa
   if (!s.unidadesInformadas) {
     s.unidadesInformadas = true;
-    const medicos = (u: Unidade) => (u.profissionais?.length ? ` com ${u.profissionais.join(' e ')}` : '');
+    // com profissional pedido pelo nome, a frase do serviço já diz "com ela(e)": não repete
+    const medicos = (u: Unidade) => (!sv.profissional && u.profissionais?.length ? ` com ${u.profissionais.join(' e ')}` : '');
     const preco = sv.precoTexto ? ` ${sv.precoTexto}` : '';
     // uma unidade: frase corrida. Várias: uma por linha, para os médicos de cada unidade não se misturarem.
     partes.push(sv.unidades.length === 1

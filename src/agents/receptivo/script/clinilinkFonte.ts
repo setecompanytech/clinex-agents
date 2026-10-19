@@ -1,4 +1,4 @@
-import { criarAgendamento, criarPaciente, getPacientePorCpf, listAgenda, listAgendaFresca, listClinicas, listProcedimentos, type Clinica, type Horario, type Procedimento } from '../../../integrations/clinilink.js';
+import { criarAgendamento, criarPaciente, getPacientePorCpf, listAgenda, listAgendaFresca, listClinicas, listProcedimentos, listProfissionais, type Clinica, type Horario, type Procedimento } from '../../../integrations/clinilink.js';
 import { env } from '../../../lib/env.js';
 import { RAIZES, type PedidoReserva, type ResultadoReserva, type Descoberta, type Fonte, type Periodo, type Servico, type Slot, type Unidade } from './catalog.js';
 
@@ -38,14 +38,14 @@ function agrupar(horarios: Horario[]): Slot[] {
   return out;
 }
 
-async function montar(c: Cand): Promise<Descoberta> {
+async function montar(c: Cand, prof?: { id: string; nome: string }): Promise<Descoberta> {
   const ini = hojeYmd();
   const fim = somaDias(ini, 30);
   // unidade só conta como disponível com agenda confirmada nesta consulta
   const comAgenda: { u: Clinica; proc: Procedimento; medicos: string[] }[] = [];
   await Promise.all(c.clinicas.map(async (u) => {
-    const h = await listAgenda({ unidadeId: u.id, dataInicial: ini, dataFinal: fim, procedimentoId: c.proc.id });
-    if (h.length > 0) comAgenda.push({ u, proc: c.proc, medicos: [...new Set(h.map((x) => x.profissional?.nome).filter((x): x is string => Boolean(x)).map(titulo))].slice(0, 3) });
+    const h = await listAgenda({ unidadeId: u.id, dataInicial: ini, dataFinal: fim, procedimentoId: c.proc.id, profissionalId: prof?.id });
+    if (h.length > 0) comAgenda.push({ u, proc: c.proc, medicos: prof ? [titulo(prof.nome)] : [...new Set(h.map((x) => x.profissional?.nome).filter((x): x is string => Boolean(x)).map(titulo))].slice(0, 3) });
   }));
   const nome = titulo(c.proc.nome);
   if (comAgenda.length === 0) return { semAgenda: nome };
@@ -66,10 +66,109 @@ async function montar(c: Cand): Promise<Descoberta> {
 
   const servico: Servico = {
     id: c.proc.id, nome, tipo: consulta ? 'consulta' : 'exame',
-    frase: nome.replace(/^Consulta\b/, 'consulta'),
+    frase: `${nome.replace(/^Consulta\b/, 'consulta')}${prof ? ` com ${titulo(prof.nome)}` : ''}`,
+    profissional: prof ? { id: prof.id, nome: titulo(prof.nome) } : undefined,
     unidades: comAgenda.map(({ u, medicos, proc }): Unidade => ({ id: u.id, nome: nomeUnidade(u), profissionais: medicos, precoPix: proc.precoDinheiro ?? proc.preco ?? undefined })), precoTexto,
   };
   return { servico };
+}
+
+// ---------------- profissionais: "quero com a dra Rebecca" ----------------
+type ProfMerged = { id: string; nome: string; especialidade?: string; clinicas: Clinica[] };
+
+/** Todos os profissionais com agenda ativa, juntando as unidades em que cada um atende. */
+async function todosProfissionais(): Promise<ProfMerged[]> {
+  const clinicas = await listClinicas();
+  const mapa = new Map<string, ProfMerged>();
+  await Promise.all(clinicas.map(async (c) => {
+    for (const p of await listProfissionais(c.id).catch(() => [])) {
+      const x = mapa.get(p.id) ?? { id: p.id, nome: p.nome, especialidade: p.especialidade, clinicas: [] };
+      x.clinicas.push(c); mapa.set(p.id, x);
+    }
+  }));
+  return [...mapa.values()];
+}
+
+const TRATAMENTO = /^(dr|dra|doutor|doutora|medico|medica|profissional|prof|professor|professora)$/;
+const IGNORAR = new Set([...STOP, 'com', 'a', 'o', 'as', 'os', 'de', 'da', 'do', 'dos', 'das', 'um', 'pra', 'no', 'na', 'em', 'e', 'que', 'se', 'hora', 'horas', 'agenda', 'ver', 'vou', 'cedo', 'proxima', 'proximo', 'gostaria', 'atendimento']);
+
+/** Palavras que parecem o NOME de uma pessoa: depois de "dr/dra/doutor(a)/médico(a)" ou de "com". */
+function nomeCitado(t: string): { tokens: string[]; comTitulo: boolean } | undefined {
+  const w = t.split(/[^a-z]+/).filter(Boolean);
+  for (let i = 0; i < w.length; i++) {
+    const ehTitulo = TRATAMENTO.test(w[i]);
+    if (!ehTitulo && !(w[i] === 'com' && i + 1 < w.length)) continue;
+    const tokens: string[] = [];
+    for (let j = i + 1; j < w.length && tokens.length < 3; j++) {
+      if (TRATAMENTO.test(w[j]) || w[j] === 'a' || w[j] === 'o') continue; // "com a dra rebecca"
+      if (IGNORAR.has(w[j]) || w[j].length < 3 || RAIZES.some((r) => r.re.test(w[j]))) { if (tokens.length) break; continue; }
+      tokens.push(w[j]);
+    }
+    if (tokens.length) return { tokens, comTitulo: ehTitulo || w.slice(i, i + 4).some((x) => TRATAMENTO.test(x)) };
+  }
+  return undefined;
+}
+
+/** Distância de edição <= 1 ("rebeca" ~ "rebecca"). */
+function perto(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1) return false;
+  const [c, l] = a.length <= b.length ? [a, b] : [b, a];
+  let i = 0;
+  while (i < c.length && c[i] === l[i]) i++;
+  return c.length === l.length ? c.slice(i + 1) === l.slice(i + 1) : c.slice(i) === l.slice(i + 1);
+}
+
+/** Pontua quanto o nome da pessoa combina com o que o paciente escreveu: palavra igual = 2; parecida (erro de 1 letra ou começo) = 1. */
+function pontuarNome(nome: string, tokens: string[]): number {
+  const partes = norm(nome).split(/\s+/).filter((x) => x.length >= 2 && !/^(de|da|do|dos|das|e)$/.test(x));
+  let pts = 0;
+  for (const tk of tokens) {
+    if (partes.includes(tk)) pts += 2;
+    else if (tk.length >= 5 && partes.some((n) => (n.length >= 5 && perto(tk, n)) || n.startsWith(tk))) pts += 1;
+  }
+  return pts;
+}
+
+/** O atendimento da pessoa: pela especialidade dela acha a consulta e confirma que ela atende aquele procedimento. */
+async function servicoDaProfissional(p: ProfMerged): Promise<Descoberta> {
+  const esp = norm(p.especialidade ?? '');
+  const raiz = RAIZES.find((r) => r.re.test(esp));
+  // sem especialidade no cadastro: olha as consultas em geral e confere quais ela realmente atende
+  const termos = raiz ? [raiz.busca, ...(raiz.alt ?? [])] : esp ? [esp.split(/\s+/)[0]] : ['consulta'];
+  const cands = new Map<string, Procedimento>();
+  for (const c of p.clinicas) for (const termo of termos) for (const pr of await listProcedimentos(c.id, termo).catch(() => [])) cands.set(pr.id, pr);
+  const ordenados = [...cands.values()].sort((a, b) => pontuar(b) - pontuar(a)).slice(0, esp ? 4 : 12);
+  for (const proc of ordenados) {
+    // só conta o procedimento se a pessoa realmente atende ele em alguma unidade
+    const unidades: Clinica[] = [];
+    for (const c of p.clinicas) if ((await listProfissionais(c.id, proc.id).catch(() => [])).some((x) => x.id === p.id)) unidades.push(c);
+    if (unidades.length === 0) continue;
+    const cand: Cand = { proc, clinicas: unidades };
+    conhecidos.set(proc.id, cand);
+    const com = await montar(cand, { id: p.id, nome: p.nome });
+    if (com && 'servico' in com) return com;
+    // sem horários abertos para ela: oferece a mesma especialidade com outros profissionais
+    const geral = await montar(cand);
+    return { semAgendaProfissional: { nome: titulo(p.nome), alternativa: geral && 'servico' in geral ? geral.servico : undefined } };
+  }
+  return { semAgendaProfissional: { nome: titulo(p.nome) } };
+}
+
+/** Se a frase pede uma PESSOA pelo nome, acha quem é; senão devolve undefined e o fluxo normal (especialidade) segue. */
+async function descobrirProfissional(t: string): Promise<Descoberta> {
+  const citado = nomeCitado(t);
+  if (!citado) return undefined;
+  const pessoas = await todosProfissionais();
+  const pont = pessoas.map((p) => ({ p, pts: pontuarNome(p.nome, citado.tokens) })).filter((x) => x.pts > 0).sort((a, b) => b.pts - a.pts);
+  if (pont.length === 0) {
+    // só afirma "não achei" quando o paciente deixou claro que pediu uma pessoa (dr/dra/doutor/médico) e não citou especialidade
+    return citado.comTitulo && !RAIZES.some((r) => r.re.test(t)) ? { naoAchouProfissional: titulo(citado.tokens.join(' ')) } : undefined;
+  }
+  // empate no topo: pergunta qual
+  const empatados = pont.filter((x) => x.pts === pont[0].pts);
+  if (empatados.length > 1) return { opcoes: empatados.slice(0, 4).map(({ p }) => ({ id: `prof:${p.id}`, nome: `${titulo(p.nome)}${p.especialidade ? ` (${p.especialidade})` : ''}` })) };
+  return servicoDaProfissional(pont[0].p);
 }
 
 export const fonteClinilink: Fonte = {
@@ -77,8 +176,11 @@ export const fonteClinilink: Fonte = {
   async nomesUnidades() { return (await listClinicas()).map(nomeUnidade); },
 
   async descobrir(t, buscando) {
+    // pediu uma pessoa pelo nome ("com a dra Rebecca")? acha a pessoa e o atendimento dela com agenda
+    const pessoa = await descobrirProfissional(t);
+    if (pessoa) return pessoa;
     const raizes = RAIZES.filter((r) => r.re.test(t));
-    let termos = raizes.map((r) => r.busca);
+    let termos = raizes.flatMap((r) => [r.busca, ...(r.alt ?? [])]); // ex.: ultrassom -> usg -> ultrassonografia
     if (termos.length === 0 && buscando) termos = [...new Set(t.split(/[^a-z]+/).filter((w) => w.length >= 5 && !STOP.has(w)))].slice(0, 2);
     if (termos.length === 0) return undefined;
     const viaSintoma = raizes.some((r) => r.sintoma?.test(t));
@@ -104,25 +206,29 @@ export const fonteClinilink: Fonte = {
   },
 
   async resolver(id) {
+    if (id.startsWith('prof:')) {
+      const pessoa = (await todosProfissionais()).find((x) => x.id === id.slice(5));
+      return pessoa ? servicoDaProfissional(pessoa) : undefined;
+    }
     const c = conhecidos.get(id);
     return c ? montar(c) : undefined;
   },
 
   async periodos(sv, un, ymd) {
     if (!un.id) return [];
-    return agrupar(await listAgenda({ unidadeId: un.id, dataInicial: ymd, dataFinal: ymd, procedimentoId: sv.id }));
+    return agrupar(await listAgenda({ unidadeId: un.id, dataInicial: ymd, dataFinal: ymd, procedimentoId: sv.id, profissionalId: sv.profissional?.id }));
   },
 
   async proximas(sv, un, de, max) {
     if (!un.id) return [];
-    return agrupar(await listAgenda({ unidadeId: un.id, dataInicial: de, dataFinal: somaDias(de, 21), procedimentoId: sv.id })).slice(0, max);
+    return agrupar(await listAgenda({ unidadeId: un.id, dataInicial: de, dataFinal: somaDias(de, 21), procedimentoId: sv.id, profissionalId: sv.profissional?.id })).slice(0, max);
   },
 
   async reservar(p: PedidoReserva): Promise<ResultadoReserva> {
     const { unidade, slot, servico } = p;
     if (!unidade.id) return { ok: false, codigo: 'UNIDADE_SEM_ID', motivo: 'unidade sem id' };
     // 1) horário livre AGORA (sem cache): o primeiro do período escolhido, com o mesmo médico informado ao paciente
-    const livres = (await listAgendaFresca({ unidadeId: unidade.id, dataInicial: slot.ymd, dataFinal: slot.ymd, procedimentoId: servico.id }))
+    const livres = (await listAgendaFresca({ unidadeId: unidade.id, dataInicial: slot.ymd, dataFinal: slot.ymd, procedimentoId: servico.id, profissionalId: servico.profissional?.id }))
       .filter((h) => periodoDe(h.agendaHoraInicio ?? h.hora) === slot.turno && (!slot.profissionalId || h.profissional?.id === slot.profissionalId))
       .sort((a, b) => a.hora.localeCompare(b.hora));
     if (livres.length === 0) return { ok: false, codigo: 'SEM_VAGA_AGORA', motivo: 'a vaga escolhida acabou de ser preenchida' };

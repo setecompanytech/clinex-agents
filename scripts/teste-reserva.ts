@@ -13,17 +13,25 @@ const U_TELEGRAFO = '99999999-9999-4999-8999-999999999999';
 const PROC = '22222222-2222-4222-8222-222222222222';
 const PROC2 = '23232323-2323-4232-8232-232323232323';
 const MEDICO = '33333333-3333-4333-8333-333333333333';
+const P_REB = '51515151-5151-4515-8515-515151515151'; // REBECCA SILVA MOURA (Ginecologia, só no Guamá)
+const P_REBECA = '52525252-5252-4525-8525-525252525252'; // REBECA COSTA LIMA (Cardiologia, sem agenda aberta)
+const PROC3 = '24242424-2424-4242-8242-242424242424';
+const PROC_USG = '25252525-2525-4252-8252-252525252525';
 const AGENDA = '44444444-4444-4444-8444-444444444444';
 const dia = (n: number) => { const d = new Date(Date.now() + n * 86400000); return d.toISOString().slice(0, 10); };
-const mk = (data: string, hora: string, inicio: string) => ({
+const mk = (data: string, hora: string, inicio: string, prof = { id: MEDICO, nome: "MEDICA TESTE DA SILVA" }) => ({
   data, hora, dataHora: `${data}T${hora}:00-03:00`, agendaId: AGENDA, agendaNome: "Agenda Guamá", agendaHoraInicio: inicio, duracaoMinutos: 30,
-  profissional: { id: MEDICO, nome: "MEDICA TESTE DA SILVA" }, unidade: { id: U_GUAMA, nome: "CLINEX GUAMÁ" },
+  profissional: prof, unidade: { id: U_GUAMA, nome: "CLINEX GUAMÁ" },
 });
 /** amanhã de manhã (3 horários, os primeiros podem estar "ocupados") e depois de amanhã à tarde (2 horários) */
-const horarios = (ini: string, fim: string) => [
-  ...["08:00", "08:30", "09:00"].slice(modo.ocupados).map((h) => mk(dia(1), h, "08:00")),
-  ...["13:30", "14:00"].map((h) => mk(dia(2), h, "13:00")),
-].filter((h) => h.data >= ini && h.data <= fim);
+const horarios = (ini: string, fim: string, profId?: string, unidadeId?: string) => {
+  if (profId === P_REBECA) return []; // sem agenda aberta
+  if (profId === P_REB) return unidadeId === U_TELEGRAFO ? [] : [...["10:00", "10:30"].map((h) => mk(dia(3), h, "10:00", { id: P_REB, nome: "REBECCA SILVA MOURA" }))].filter((h) => h.data >= ini && h.data <= fim);
+  return [
+    ...["08:00", "08:30", "09:00"].slice(modo.ocupados).map((h) => mk(dia(1), h, "08:00")),
+    ...["13:30", "14:00"].map((h) => mk(dia(2), h, "13:00")),
+  ].filter((h) => h.data >= ini && h.data <= fim);
+};
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url!, 'http://x');
@@ -33,8 +41,26 @@ const server = http.createServer((req, res) => {
     const p = url.pathname;
     if (req.method === 'GET') {
       if (p.endsWith('/clinicas')) return j(200, { ok: true, clinicas: [{ id: U_GUAMA, nome: 'CLINEX GUAMÁ' }, { id: U_TELEGRAFO, nome: 'CLINEX TELEGRAFO' }] });
-      if (p.endsWith('/procedimentos')) return j(200, { ok: true, procedimentos: [/dermat/i.test(url.searchParams.get('busca') ?? '') ? { id: PROC2, nome: 'CONSULTA DERMATOLOGIA', categoria: 'Consulta', preco: 100, precoDinheiro: 100 } : { id: PROC, nome: 'CONSULTA GINECOLOGIA', categoria: 'Consulta', preco: 100, precoDinheiro: 100 }] });
-      if (p.endsWith('/agenda')) return j(200, { ok: true, horarios: horarios(url.searchParams.get('dataInicial') ?? '0000', url.searchParams.get('dataFinal') ?? '9999') });
+      if (p.endsWith('/procedimentos')) {
+        const b = url.searchParams.get('busca') ?? '';
+        const consulta = (id: string, nome: string) => ({ id, nome, categoria: 'Consulta', preco: 100, precoDinheiro: 100 });
+        const lista = /zzz|qqq|rebec|zuleide|xavier|silva|pix/i.test(b) || /^ultrassom$/i.test(b) ? []
+          : /usg|ultrassonografia/i.test(b) ? [{ id: PROC_USG, nome: 'USG ABDOME TOTAL', categoria: 'Exames', preco: 150, precoDinheiro: 150 }]
+          : /dermat/i.test(b) ? [consulta(PROC2, 'CONSULTA DERMATOLOGIA')]
+          : /cardio/i.test(b) ? [consulta(PROC3, 'CONSULTA CARDIOLOGIA')]
+          : [consulta(PROC, 'CONSULTA GINECOLOGIA')];
+        return j(200, { ok: true, procedimentos: lista });
+      }
+      if (p.endsWith('/profissionais')) {
+        const un = url.searchParams.get('unidadeId'); const proc = url.searchParams.get('procedimentoId');
+        const todos = [
+          { id: MEDICO, nome: 'MEDICA TESTE DA SILVA', especialidade: 'Ginecologia', un: [U_GUAMA, U_TELEGRAFO], procs: [PROC] },
+          { id: P_REB, nome: 'REBECCA SILVA MOURA', especialidade: 'Ginecologia', un: [U_GUAMA], procs: [PROC] },
+          { id: P_REBECA, nome: 'REBECA COSTA LIMA', especialidade: 'Cardiologia', un: [U_GUAMA, U_TELEGRAFO], procs: [PROC3] },
+        ].filter((x) => (!un || x.un.includes(un)) && (!proc || x.procs.includes(proc))).map(({ id, nome, especialidade }) => ({ id, nome, especialidade, conselho: 'CRM' }));
+        return j(200, { ok: true, profissionais: todos });
+      }
+      if (p.endsWith('/agenda')) return j(200, { ok: true, horarios: horarios(url.searchParams.get('dataInicial') ?? '0000', url.searchParams.get('dataFinal') ?? '9999', url.searchParams.get('profissionalId') ?? undefined, url.searchParams.get('unidadeId') ?? undefined) });
       if (p.endsWith('/pacientes')) return j(200, { ok: true, pacientes: url.searchParams.get('cpf') === '52998224725' ? [{ id: '55555555-5555-4555-8555-555555555555', nome: 'MARIA EXEMPLO' }] : [] });
     }
     if (req.method === 'POST') {
@@ -418,6 +444,57 @@ r = await resp([...base.map(um), um('111.111.111-11')]);
 confere('V2 CPF com todos os dígitos iguais: recusa', /não parece estar correto/.test(r.reply), r.reply.slice(0, 60));
 r = await resp([...base.map(um), um('11122233344'), um('52998224725')]);
 confere('V3 depois de corrigir, segue normalmente', /Encontrei o cadastro/.test(r.reply), r.reply);
+
+// ===================== profissional pelo nome, sinônimos, sem transferir sozinha =====================
+const dd = async (turnos: (string | string[])[]) => (await responder(turnos.map((x) => (Array.isArray(x) ? x : [x])), ctxPix, fonteClinilink)) as any;
+
+// D1) "quero agendar com a dra Rebecca": acha a profissional pelo nome e o serviço dela, em vez de procurar "rebecca" como exame
+reset({ ocupados: 0 });
+r = await dd(['Quero agendar uma consulta com a dra Rebecca']);
+confere('D1 acha a profissional pelo nome e confirma o atendimento dela', /consulta Ginecologia com Rebecca Silva Moura, é isso\?/.test(r.reply) && r.state.servico?.profissional?.id === P_REB && !r.handoff, r.reply.replace(/\n/g, ' | ').slice(0, 200));
+r = await dd(['Quero agendar uma consulta com a dra Rebecca amanhã de manhã']);
+confere('D1 nome seguido de dia/período: acha a pessoa e guarda o que ele adiantou', r.state.servico?.profissional?.id === P_REB && r.state.turno === 'manhã' && Boolean(r.state.data), JSON.stringify({ prof: r.state.servico?.profissional?.nome, turno: r.state.turno, data: r.state.data }));
+r = await dd(['quero consulta com o dr xavier']);
+confere('D1 doutor que não existe: diz que não achou e pede mais um dado (NÃO transfere)', /Não encontrei Xavier entre os nossos profissionais/.test(r.reply) && !r.handoff, r.reply);
+
+// D2) o atendimento inteiro com a profissional escolhida: só a agenda dela, e a reserva vai com o id dela
+posts.length = 0;
+r = await dd(['Quero agendar uma consulta com a dra Rebecca', 'sim']);
+confere('D2 depois do "sim": mostra só as unidades e os horários dela, sem repetir o nome', /tem agenda no Guamá\./.test(r.reply) && !/com Rebecca Silva Moura tem agenda no Guamá com/.test(r.reply) && /Tenho estas opções/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 260));
+confere('D2 os horários oferecidos são os dela (Rebecca) e o preço aparece', /A consulta custa R\$ 100,00/.test(r.reply), '');
+r = await dd(['Quero agendar uma consulta com a dra Rebecca', 'sim', '1', 'na recepção', '52998224725', 'sim']);
+const agD = posts.find((x) => x.rota.endsWith('/agendamentos'))?.corpo;
+confere('D2 reserva gravada com o id da profissional pedida', r.reply.startsWith(MARCA_AGENDADO) && agD?.profissionalId === P_REB && /Rebecca Silva Moura/.test(r.reply), `${agD?.profissionalId} | ${r.reply.slice(0, 120)}`);
+
+// D3) nome parecido (rebeca ~ rebecca) e quem não tem horário: oferece a especialidade com outros profissionais
+r = await dd(['quero uma consulta com a doutora rebeca']);
+confere('D3 profissional sem horários: avisa e oferece a especialidade com outros profissionais (NÃO transfere)', /não tem horários abertos/.test(r.reply) && /Cardiologia/.test(r.reply) && /é isso\?/.test(r.reply) && !r.handoff && !r.state.servico?.profissional, r.reply.replace(/\n/g, ' | ').slice(0, 240));
+
+// D4) vários parecidos: pergunta qual
+r = await dd(['quero agendar com a dra silva']);
+confere('D4 duas pessoas com o mesmo sobrenome: lista as opções com a especialidade', /Encontrei estas opções/.test(r.reply) && /Medica Teste da Silva \(Ginecologia\)/.test(r.reply) && /Rebecca Silva Moura \(Ginecologia\)/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 220));
+r = await dd(['quero agendar com a dra silva', '2']);
+confere('D4 escolhendo pelo número, segue com a pessoa escolhida', /consulta Ginecologia com Rebecca Silva Moura/.test(r.reply) && r.state.servico?.profissional?.id === P_REB, r.reply.slice(0, 120));
+
+// D5) falar "com cardiologista" não é nome de pessoa
+r = await dd(['quero uma consulta com cardiologista']);
+confere('D5 "com cardiologista" segue o fluxo de especialidade', /Você quer agendar consulta Cardiologia/.test(r.reply) && !r.state.servico?.profissional, r.reply.slice(0, 100));
+
+// D6) ultrassom -> USG -> ultrassonografia
+r = await dd(['quero fazer um ultrassom']);
+confere('D6 "ultrassom" acha o exame cadastrado como USG', /Usg Abdome Total/i.test(r.reply) && !/Não consegui/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 140));
+r = await dd(['preciso de uma ultrassonografia']);
+confere('D6 "ultrassonografia" também', /Usg Abdome Total/i.test(r.reply), r.reply.slice(0, 100));
+
+// D7) não transfere sozinha por não entender
+r = await dd(['zzzzz']);
+confere('D7 1ª vez sem entender: pede de novo e já sugere dizer o nome do médico', /Não consegui identificar o serviço/.test(r.reply) && /nome do médico ou da médica/.test(r.reply) && !r.handoff, r.reply);
+r = await dd(['zzzzz', 'qqqqq', 'zzzzz qqqqq', 'qqqqq']);
+confere('D7 mesmo depois de várias vezes: NÃO transfere, lembra que pode chamar a equipe', !r.handoff && /Ainda não consegui identificar/.test(r.reply) && /falar com a nossa equipe, é só me pedir/.test(r.reply), r.reply.slice(0, 160));
+r = await dd(['zzzzz', 'qqqqq', 'quero falar com a equipe']);
+confere('D7 e se ele pedir a equipe, transfere', Boolean(r.handoff), r.reply);
+r = await dd(['zzzzz', 'qqqqq', 'quero agendar ginecologista']);
+confere('D7 depois de não entender, consegue pedir de outro jeito e o fluxo segue', /Você quer agendar consulta Ginecologia/.test(r.reply), r.reply.slice(0, 100));
 
 server.close();
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTODOS OS CENÁRIOS PASSARAM');

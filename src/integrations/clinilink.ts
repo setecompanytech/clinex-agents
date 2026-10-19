@@ -72,8 +72,15 @@ export const listProcedimentos = (unidadeId: string, busca: string) =>
   memo(`proc:${unidadeId}:${busca}`, 10 * 60_000, async () =>
     (await get<{ procedimentos: Procedimento[] }>('/v1/agendamento/procedimentos', { unidadeId, busca })).procedimentos);
 
-export const listAgenda = (p: { unidadeId: string; dataInicial: string; dataFinal: string; procedimentoId?: string }) =>
-  memo(`agenda:${p.unidadeId}:${p.dataInicial}:${p.dataFinal}:${p.procedimentoId ?? ''}`, 2 * 60_000, async () =>
+export type Profissional = { id: string; nome: string; conselho?: string; especialidade?: string };
+
+/** Profissionais com agenda ativa na unidade; com `procedimentoId`, só quem atende aquele procedimento. */
+export const listProfissionais = (unidadeId: string, procedimentoId?: string) =>
+  memo(`prof:${unidadeId}:${procedimentoId ?? ''}`, 10 * 60_000, async () =>
+    (await get<{ profissionais: Profissional[] }>('/v1/agendamento/profissionais', { unidadeId, procedimentoId })).profissionais);
+
+export const listAgenda = (p: { unidadeId: string; dataInicial: string; dataFinal: string; procedimentoId?: string; profissionalId?: string }) =>
+  memo(`agenda:${p.unidadeId}:${p.dataInicial}:${p.dataFinal}:${p.procedimentoId ?? ''}:${p.profissionalId ?? ''}`, 2 * 60_000, async () =>
     (await get<{ horarios: Horario[] }>('/v1/agendamento/agenda', p)).horarios);
 
 export type Paciente = { id: string; nome: string; cpf?: string | null; dataNascimento?: string | null; telefone?: string | null };
@@ -117,6 +124,6 @@ export const criarAgendamento = (a: NovoAgendamento) =>
   });
 
 /** Agenda SEM cache: usada no momento de reservar, para pegar o horário livre de verdade. */
-export async function listAgendaFresca(p: { unidadeId: string; dataInicial: string; dataFinal: string; procedimentoId?: string }) {
+export async function listAgendaFresca(p: { unidadeId: string; dataInicial: string; dataFinal: string; procedimentoId?: string; profissionalId?: string }) {
   return (await get<{ horarios: Horario[] }>('/v1/agendamento/agenda', p)).horarios;
 }

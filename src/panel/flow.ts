@@ -116,6 +116,8 @@ export const flow = {
       'Reserva o horário livre no Clinilink e cadastra o paciente novo, de verdade',
       'Depois do agendamento: "obrigado" -> pergunta se pode ajudar em mais algo; "era só isso" -> agradece e deseja um ótimo dia; novo pedido -> atende',
       'Entende áudio: pede a transcrição à Inovstar e entende frases faladas',
+      'Procura profissional pelo nome: "quero com a dra Rebecca" -> acha a pessoa (aceita erro de uma letra), o atendimento dela e mostra só a agenda dela. Se há mais de uma parecida, pergunta qual; se ela não tem horário, oferece a especialidade com outros profissionais; se não existe, pede o sobrenome ou a especialidade',
+      'Entende os nomes do mesmo exame: ultrassom, USG e ultrassonografia',
       'Retoma sozinha: se ela transferiu (comprovante com problema, falha, vaga) e o paciente volta a escrever antes de um atendente assumir, a conversa volta para ela e continua de onde parou. Se o paciente pediu um humano ou foi urgência, ela não retoma',
       'Responde dúvidas no meio da conversa (horário de atendimento, valor, formas de pagamento, médicos e unidades) e volta para a pergunta em que estava. O que ela não sabe com segurança (endereço, convênio, preparo) ela deixa para a equipe, sem inventar',
       'Se o paciente muda de ideia antes de informar o CPF (outro dia, outra unidade, outro serviço), ela ajusta e segue, sem recomeçar',
@@ -355,12 +357,12 @@ export const flow = {
     {
       id: 'repete', kind: 'etapa', band: 'p3', x: rx(P3), y: row(2),
       title: 'Pede o serviço de novo',
-      subtitle: 'Não entendeu, ou o paciente disse "não". Na 2ª vez seguida, equipe',
+      subtitle: 'Não entendeu, ou o paciente disse "não". Ela insiste, sem transferir sozinha',
       detail: {
         oQueFaz: 'Quando o paciente escreve algo que não indica nenhum serviço conhecido, ou diz que o serviço sugerido não é o que quer, a Amanda pede de novo o nome da especialidade ou do exame.',
-        regra: 'Mensagem sem serviço reconhecido (e que não seja só um cumprimento): conta 1 falha e a Amanda diz "Não consegui identificar o serviço. Me diz o nome da especialidade ou do exame, por exemplo cardiologia, dermatologia ou ultrassom." Na segunda falha ela passa para a equipe. Cumprimentos simples (oi, bom dia, teste) não contam como falha. Se o paciente disse "não" à sugestão, ela diz "Sem problema. Qual consulta ou exame você precisa?" e recomeça esta fase.',
+        regra: 'Mensagem sem serviço reconhecido (e que não seja só um cumprimento): conta 1 falha e a Amanda diz "Não consegui identificar o serviço. Me diz o nome da especialidade ou do exame, por exemplo cardiologia, dermatologia ou ultrassom." Na segunda falha ela NÃO transfere: pede de outro jeito (especialidade, exame ou nome do médico) e lembra que, se preferir, é só pedir a equipe. Cumprimentos simples (oi, bom dia, teste) não contam como falha. Se o paciente disse "não" à sugestão, ela diz "Sem problema. Qual consulta ou exame você precisa?" e recomeça esta fase.',
         exemplo: 'Paciente: "blablabla"\nAmanda: "Bom dia! Sou a Amanda, da Clinex.\nNão consegui identificar o serviço. Me diz o nome da especialidade ou do exame, por exemplo cardiologia, dermatologia ou ultrassom."',
-        seFalhar: 'Na segunda tentativa sem sucesso: ramo de alerta "Não entendeu o serviço 2 vezes".',
+        seFalhar: 'Ela segue pedindo de outro jeito; só vai para a equipe se o paciente pedir.',
         tecnico: 'Contador s.falhas em step() de src/agents/receptivo/script/engine.ts.',
       },
     },
@@ -638,12 +640,12 @@ export const flow = {
     },
     {
       id: 'a_naoentendeu', kind: 'alerta', step: 'A4', band: 'alertas', x: AX[3], y: AY, w: AW,
-      title: 'Não entendeu o serviço 2 vezes',
-      subtitle: 'Passa para a equipe continuar',
+      title: 'Não entendeu o serviço (sem transferir)',
+      subtitle: 'Insiste e oferece a equipe, mas não transfere sozinha',
       detail: {
-        oQueFaz: 'Se, depois de pedir duas vezes, a Amanda ainda não entendeu qual serviço o paciente quer, ela passa a conversa para a equipe.',
-        regra: 'Cada mensagem sem serviço reconhecido (que não seja só um cumprimento) conta uma falha. Na segunda: "Vou passar você para alguém da nossa equipe continuar o atendimento. Só um instante." A equipe recebe o aviso "Não foi possível identificar o serviço pedido pelo paciente."',
-        exemplo: 'Paciente: "blablabla" (1ª falha: ela pede o nome da especialidade)\nPaciente: "xyz qualquer coisa" (2ª falha)\nAmanda: "Vou passar você para alguém da nossa equipe continuar o atendimento. Só um instante."',
+        oQueFaz: 'Se, depois de pedir duas vezes, a Amanda ainda não entendeu qual serviço o paciente quer, ela continua ajudando: sugere dizer a especialidade, o exame ou o nome do médico, e lembra que a equipe está a um pedido de distância. Ela não transfere sozinha.',
+        regra: 'Cada mensagem sem serviço reconhecido (que não seja só um cumprimento) conta uma falha. Na segunda: "Ainda não consegui identificar o que você precisa. Pode me dizer a especialidade, o nome do exame ou o nome do médico ou da médica? Se preferir falar com a nossa equipe, é só me pedir." Se o paciente pedir a equipe, aí sim ela transfere.',
+        exemplo: 'Paciente: "blablabla" (1ª falha: ela pede o nome da especialidade)\nPaciente: "xyz qualquer coisa" (2ª falha)\nAmanda: "Ainda não consegui identificar o que você precisa. Pode me dizer a especialidade, o nome do exame ou o nome do médico ou da médica? Se preferir falar com a nossa equipe, é só me pedir."',
         seFalhar: 'Sem falha técnica.',
         tecnico: 'Contador s.falhas em step() (engine.ts).',
       },
@@ -915,12 +917,12 @@ export const flow = {
     {
       id: 'naoentendeu',
       titulo: 'Não entendeu o serviço (2 vezes)',
-      descricao: 'Na primeira vez a Amanda orienta; na segunda, passa para a equipe.',
+      descricao: 'Na primeira vez a Amanda orienta; na segunda, insiste e lembra que pode chamar a equipe (não transfere sozinha).',
       mensagens: [
         { de: 'paciente', texto: 'blablabla', etapa: 'entende' },
         { de: 'amanda', texto: 'Bom dia! Sou a Amanda, da Clinex.\nNão consegui identificar o serviço. Me diz o nome da especialidade ou do exame, por exemplo cardiologia, dermatologia ou ultrassom.', etapa: 'repete' },
         { de: 'paciente', texto: 'xyz qualquer coisa', etapa: 'entende' },
-        { de: 'amanda', texto: 'Vou passar você para alguém da nossa equipe continuar o atendimento. Só um instante.', etapa: 'a_naoentendeu' },
+        { de: 'amanda', texto: 'Ainda não consegui identificar o que você precisa. Pode me dizer a especialidade, o nome do exame ou o nome do médico ou da médica? Se preferir falar com a nossa equipe, é só me pedir.', etapa: 'a_naoentendeu' },
       ],
     },
     {
