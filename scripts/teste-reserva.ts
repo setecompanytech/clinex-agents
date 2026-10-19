@@ -26,6 +26,7 @@ const mk = (data: string, hora: string, inicio: string, prof = { id: MEDICO, nom
 /** amanhã de manhã (3 horários, os primeiros podem estar "ocupados") e depois de amanhã à tarde (2 horários) */
 const horarios = (ini: string, fim: string, profId?: string, unidadeId?: string) => {
   if (profId === P_REBECA) return []; // sem agenda aberta
+  if ((globalThis as any).__procAgenda?.startsWith('40000000-')) return []; // teste rápido de laboratório: sem agenda
   if (profId === P_REB) return unidadeId === U_TELEGRAFO ? [] : [...["10:00", "10:30"].map((h) => mk(dia(3), h, "10:00", { id: P_REB, nome: "REBECCA SILVA MOURA" }))].filter((h) => h.data >= ini && h.data <= fim);
   return [
     ...["08:00", "08:30", "09:00"].slice(modo.ocupados).map((h) => mk(dia(1), h, "08:00")),
@@ -50,6 +51,7 @@ const server = http.createServer((req, res) => {
             c(PROC, 'CONSULTA GINECOLOGIA'), c(PROC2, 'CONSULTA DERMATOLOGIA'), c(PROC3, 'CONSULTA CARDIOLOGIA'), c(PROC_USG, 'USG ABDOME TOTAL', 'Exames', 150),
             c('26262626-2626-4262-8262-262626262626', 'ERGOMETRIA', 'Exames', 120), c('27272727-2727-4272-8272-272727272727', 'CONSULTA FONOAUDIOLOGIA'),
             c('28282828-2828-4282-8282-282828282828', 'TESTE DE ESFORCO COM ECG', 'Exames', 120), c('29292929-2929-4292-8292-292929292929', 'CONSULTA SEMVALOR', 'Consulta', 0),
+            ...['DENGUE IGG', 'DENGUE IGM', 'DENGUE ANTIGENO', 'COVID', 'HIV', 'SIFILIS', 'HEPATITE B', 'HEPATITE C', 'H PYLORI', 'INFLUENZA', 'ZIKA', 'CHIKUNGUNYA', 'MALARIA', 'TOXOPLASMOSE', 'ROTAVIRUS', 'STREPTOCOCO', 'LATEX', 'COOMBS', 'HCG', 'TROPONINA'].map((n, i) => c(`40000000-0000-4000-8000-0000000000${String(i).padStart(2, '0')}`, `TESTE RAPIDO ${n}`, 'Laboratório', 30)),
             c('31313131-3131-4313-8313-313131313131', 'TESTE ERGOMETRICO', 'Exames', 140), c('32323232-3232-4323-8323-323232323232', 'TESTE RAPIDO DE GRAVIDEZ', 'Exames', 40), c('33333333-3434-4343-8343-343434343434', 'TESTE DE ALERGIA', 'Exames', 90),
           ] });
         }
@@ -77,6 +79,7 @@ const server = http.createServer((req, res) => {
         ].filter((x) => (!un || x.un.includes(un)) && (!proc || x.procs.includes(proc))).map(({ id, nome, especialidade }) => ({ id, nome, especialidade, conselho: 'CRM' }));
         return j(200, { ok: true, profissionais: todos });
       }
+      if (p.endsWith('/agenda')) { (globalThis as any).__procAgenda = url.searchParams.get('procedimentoId') ?? ''; }
       if (p.endsWith('/agenda')) return j(200, { ok: true, horarios: horarios(url.searchParams.get('dataInicial') ?? '0000', url.searchParams.get('dataFinal') ?? '9999', url.searchParams.get('profissionalId') ?? undefined, url.searchParams.get('unidadeId') ?? undefined) });
       if (p.endsWith('/pacientes')) return j(200, { ok: true, pacientes: url.searchParams.get('cpf') === '52998224725' ? [{ id: '55555555-5555-4555-8555-555555555555', nome: 'MARIA EXEMPLO' }] : [] });
     }
@@ -559,9 +562,9 @@ confere('$3 preço zero + comprovante de pix: não confere valor sozinha, passa 
 r = await dd(['Quero agendar um teste ergo']);
 confere('S1 "teste ergo" (abreviado): acha "Teste Ergometrico" e confirma', /Você quer agendar Teste Ergometrico, é isso\?/.test(r.reply) && !/Não consegui|Não encontrei/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 170));
 r = await dd(['teste']);
-confere('S2 só "teste": mostra as sugestões de qual serviço', /Encontrei estas opções/.test(r.reply) && /Teste Ergometrico/.test(r.reply) && /Teste Rapido de Gravidez/i.test(r.reply) && /Teste de Alergia/i.test(r.reply) && !r.handoff, r.reply.replace(/\n/g, ' | ').slice(0, 260));
+confere('S2 só "teste": sugere os serviços PRINCIPAIS com agenda (ergométrico entre eles), sem os testes rápidos de laboratório', /Encontrei estas opções/.test(r.reply) && /Teste Ergometrico/.test(r.reply) && /Teste de Esforco/i.test(r.reply) && !/Dengue|Rapido (Dengue|Covid|Hiv)|Coombs|Troponina/i.test(r.reply) && !r.handoff, r.reply.replace(/\n/g, ' | ').slice(0, 260));
 r = await dd(['teste', '2']);
-confere('S2 escolhendo uma das sugestões pelo número, segue o fluxo', /Você quer agendar (Teste Ergometrico|Teste Rapido de Gravidez|Teste de Alergia|Teste de Esforco Com Ecg)/i.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 130));
+confere('S2 escolhendo uma das sugestões pelo número, segue o fluxo', /Você quer agendar (Teste Ergometrico|Teste Rapido de Gravidez|Teste de Alergia|Teste de Esforco Com Ecg)/i.test(r.reply) && !/Dengue/i.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 130));
 r = await dd(['quero um teste ergometrio']);
 confere('S3 erro de digitação ("ergometrio"): acha Teste Ergometrico', /Você quer agendar Teste Ergometrico/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 150));
 r = await dd(['preciso fazer um teste alergia']);
@@ -572,6 +575,22 @@ r = await dd(['oi']);
 confere('S5 "oi" continua sendo só um cumprimento (não dispara busca)', /Como posso te ajudar/.test(r.reply) && !/Encontrei|Você quer agendar/.test(r.reply), r.reply);
 r = await dd(['quero agendar zzzzz']);
 confere('S6 nada parecido: diz que não encontrou e oferece a equipe', /Não encontrei zzzzz/.test(r.reply) && /Posso chamar alguém/.test(r.reply) && !r.handoff, r.reply.replace(/\n/g, ' | ').slice(0, 160));
+
+// ===================== busca inteligente (catálogo grande, troca de letras, opções pendentes) =====================
+r = await dd(['teste ergoemtrico']);
+confere('I1 letras trocadas ("ergoemtrico"): acha Teste Ergometrico, não um teste qualquer', /Você quer agendar Teste Ergometrico/.test(r.reply) && !/Dengue/i.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(-110));
+r = await dd(['teste ergonmetrico']);
+confere('I1 letra a mais ("ergonmetrico"): acha Teste Ergometrico', /Você quer agendar Teste Ergometrico/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(-110));
+r = await dd(['Quero agendar teste']);
+confere('I2 "Quero agendar teste": as 5 sugestões incluem o ergométrico e NENHUM teste rápido de laboratório sem agenda', /Teste Ergometrico/.test(r.reply) && !/Dengue|Hiv|Sifilis|Covid|Troponina|Coombs/i.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 300));
+r = await dd(['Quero agendar teste', 'Teste ergométrico']);
+confere('I3 com opções na tela, um pedido NOVO ("Teste ergométrico") não vira "a primeira opção"', /Você quer agendar Teste Ergometrico/.test(r.reply) && !/Dengue/i.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 140));
+r = await dd(['Quero agendar teste', 'o segundo']);
+confere('I3 escolher pela posição ("o segundo") continua funcionando', /Você quer agendar/.test(r.reply) && !/Encontrei estas opções/.test(r.reply), r.reply.slice(0, 120));
+r = await dd(['Quero agendar teste', 'esforço']);
+confere('I3 escolher pelo nome de uma das opções ("esforço") também', /Você quer agendar Teste de Esforco/i.test(r.reply), r.reply.slice(0, 120));
+r = await dd(['Quero agendar teste', 'nao, quero consulta de dermatologia']);
+confere('I3 e trocar de assunto com opções pendentes ("quero dermatologia") funciona', /Você quer agendar consulta Dermatologia/i.test(r.reply), r.reply.slice(0, 120));
 
 server.close();
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTODOS OS CENÁRIOS PASSARAM');

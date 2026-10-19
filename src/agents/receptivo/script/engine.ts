@@ -160,7 +160,7 @@ function lerEscolha(t: string, total: number): number {
   const dig = t.match(new RegExp(`^\\s*${FILL}(\\d)\\b(?![/.-]\\d)`));
   if (dig) return Number(dig[1]) - 1;
   if (/\bultim[oa]\b/.test(t)) return total - 1;
-  const ord: [RegExp, number][] = [[/\bprimeir[oa]\b/, 0], [/\bterceir[oa]\b/, 2], [/\bquint[oa]\b/, 4]];
+  const ord: [RegExp, number][] = [[/\bprimeir[oa]\b/, 0], [/\bterceir[oa]\b/, 2], [/\bquint[oa]\b/, 4], [/\bsegundo\b/, 1], [/\bquarto\b/, 3]]; // "segundo" e "quarto" (masculino) não são dias da semana
   // "segunda" e "quarta" também são dias da semana: só valem como posição quando vêm com "opção/número"
   if (porOpcao) ord.push([/\bsegund[oa]\b/, 1], [/\bquart[oa]\b/, 3]);
   for (const [re, i] of ord) if (re.test(t)) return i;
@@ -408,7 +408,18 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
   if (!s.slot) {
     if (s.opcoes && !s.servico) {
       const idx = lerEscolha(t, s.opcoes.length);
-      const escolhida = s.opcoes[idx] ?? s.opcoes.find((o) => norm(o.nome).split(/\s+/).filter((w) => w.length > 3).some((w) => t.includes(w)));
+      let escolhida: { id: string; nome: string } | undefined = s.opcoes[idx];
+      if (!escolhida) {
+        // não foi "1", "2"...: pode ser um pedido NOVO ("teste ergométrico") ou o nome de uma das opções. Pedido novo primeiro:
+        // senão a palavra genérica "teste" casaria com a primeira opção ("Dengue Igg, Teste Rápido").
+        const novo = await fonte.descobrir(t, !faq && !(SO_CUMPRIMENTO.test(t) && !/\bteste\b/.test(t)));
+        if (novo && ('servico' in novo || 'opcoes' in novo || 'semAgendaProfissional' in novo)) { const r = aplicar(novo); if (r) return r; }
+        else {
+          const GENERICAS = new Set(['teste', 'exame', 'consulta', 'rapido', 'total']);
+          escolhida = s.opcoes.find((o) => norm(o.nome).split(/[^a-z]+/).filter((w) => w.length > 3 && !GENERICAS.has(w)).some((w) => t.includes(w)));
+          if (!escolhida && novo) { const r = aplicar(novo); if (r) return r; }
+        }
+      }
       if (escolhida) { const r = aplicar(await fonte.resolver(escolhida.id)); if (r) return r; }
     } else {
       // dúvida ("funciona sábado?", "qual o horário de atendimento?"): sem busca solta por palavras, para não "achar" um serviço sem querer
@@ -422,7 +433,7 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
   if (!s.servico) {
     if (s.opcoes) {
       const lista = s.opcoes.map((o, i) => `${i + 1}. ${o.nome}`).join('\n');
-      return out(comAbertura(`Encontrei estas opções:\n${lista}\nQual delas você precisa?`));
+      return out(comAbertura(`Encontrei estas opções:\n${lista}\nQual delas você precisa?${s.opcoes.length >= 5 ? ' Se não for nenhuma dessas, me diz o nome completo.' : ''}`));
     }
     // ela ofereceu chamar a equipe para um serviço que não achou: "sim" transfere; "não" volta ao começo
     if (s.ofereceuEquipe) {

@@ -114,14 +114,9 @@ function nomeCitado(t: string): { tokens: string[]; comTitulo: boolean } | undef
   return undefined;
 }
 
-/** Distância de edição <= 1 ("rebeca" ~ "rebecca"). */
+/** Uma letra a mais, a menos, trocada ou duas vizinhas invertidas ("rebeca" ~ "rebecca", "ergoemtrico" ~ "ergometrico"). */
 function perto(a: string, b: string): boolean {
-  if (a === b) return true;
-  if (Math.abs(a.length - b.length) > 1) return false;
-  const [c, l] = a.length <= b.length ? [a, b] : [b, a];
-  let i = 0;
-  while (i < c.length && c[i] === l[i]) i++;
-  return c.length === l.length ? c.slice(i + 1) === l.slice(i + 1) : c.slice(i) === l.slice(i + 1);
+  return Math.abs(a.length - b.length) <= 1 && distancia(a, b) <= 1;
 }
 
 /** Pontua quanto o nome da pessoa combina com o que o paciente escreveu: palavra igual = 2; parecida (erro de 1 letra ou começo) = 1. */
@@ -184,11 +179,14 @@ const SEM_VALOR = new Set([...STOP].filter((w) => w !== 'teste').concat(['ola', 
 const palavrasDoPedido = (t: string) => [...new Set(t.split(/[^a-z]+/).filter((w) => w.length >= 4 && !SEM_VALOR.has(w)))].slice(0, 4);
 
 const prefixoComum = (a: string, b: string) => { let i = 0; while (i < a.length && i < b.length && a[i] === b[i]) i++; return i; };
-/** Distância de edição entre palavras curtas (<= 2 basta). */
+/** Distância de edição entre palavras curtas, contando a troca de duas letras vizinhas como UM erro. */
 function distancia(a: string, b: string): number {
   const d: number[][] = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
   for (let j = 1; j <= b.length; j++) d[0][j] = j;
-  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) {
+    d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+  }
   return d[a.length][b.length];
 }
 /** Quanto uma palavra do pedido (q) combina com uma palavra do nome do serviço (n): igual 3; começo do nome ("ergo" -> "ergometrico") 2,5; parecida 2; erro de digitação 1,5-2. */
@@ -227,7 +225,20 @@ function ranquear(cands: Cand[], palavras: string[], t: string) {
   }).sort((x, y) => y.hits - x.hits || y.score - x.score || pontuar(y.cand.proc, t) - pontuar(x.cand.proc, t));
 }
 
-/** Um vencedor claro vira o serviço; vários parecidos (ex.: só "teste") viram opções para o paciente escolher. */
+/** Serviços que a clínica mais agenda: na hora de sugerir, passam na frente dos exames raros. */
+const PRINCIPAIS = /ergometr|esforco|eletrocardio|\becg\b|ecocardio|holter|\bmapa\b|ultrassom|\busg\b|ultrassonograf|raio ?x|radiograf|tomograf|resson|mamograf|densitom|endosc|colonosc|espirom|audiom|papanicolau|preventivo|\bconsulta\b/;
+
+/** O serviço tem horário aberto nos próximos 30 dias em alguma unidade? (compartilha o cache da agenda com o resto do fluxo) */
+async function temAgenda(c: Cand): Promise<boolean> {
+  const ini = hojeYmd(); const fim = somaDias(ini, 30);
+  const r = await Promise.all(c.clinicas.map((u) => listAgenda({ unidadeId: u.id, dataInicial: ini, dataFinal: fim, procedimentoId: c.proc.id }).then((h) => h.length > 0).catch(() => false)));
+  return r.some(Boolean);
+}
+
+/**
+ * Um vencedor claro vira o serviço; vários parecidos (ex.: só "teste") viram até 5 sugestões, escolhidas com inteligência:
+ * só o que tem agenda aberta (se houver), os serviços principais primeiro (ergométrico antes de teste rápido de laboratório).
+ */
 async function decidir(pont: ReturnType<typeof ranquear>, viaSintoma: boolean): Promise<Descoberta> {
   const topo = pont[0]; const seg = pont[1];
   for (const x of pont.slice(0, 8)) conhecidos.set(x.cand.proc.id, x.cand);
@@ -235,8 +246,25 @@ async function decidir(pont: ReturnType<typeof ranquear>, viaSintoma: boolean): 
     const d = await montar(topo.cand);
     return d && 'servico' in d ? { servico: { ...d.servico, viaSintoma } } : d;
   }
-  const opcoes = pont.filter((x) => x.hits === topo.hits && topo.score - x.score < 1.5).slice(0, 5);
-  return { opcoes: opcoes.map((x) => ({ id: x.cand.proc.id, nome: titulo(x.cand.proc.nome) })) };
+  const parecidos = pont.filter((x) => x.hits === topo.hits && topo.score - x.score < 1.5);
+  const principal = (x: (typeof parecidos)[number]) => (PRINCIPAIS.test(norm(x.cand.proc.nome)) ? 1 : 0);
+  // olha a agenda em blocos de 12 (os principais primeiro) até juntar sugestões com horário aberto: no catálogo real há dezenas de
+  // testes rápidos de laboratório sem agenda e eles não podem esconder os serviços agendáveis
+  const fila = [...parecidos].sort((a, b) => principal(b) - principal(a) || b.score - a.score);
+  const itens: { x: (typeof parecidos)[number]; ag: boolean }[] = [];
+  for (let i = 0; i < fila.length && i < 36; i += 12) {
+    const bloco = fila.slice(i, i + 12);
+    const ag = await Promise.all(bloco.map((x) => temAgenda(x.cand)));
+    bloco.forEach((x, k) => itens.push({ x, ag: ag[k] }));
+    if (itens.filter((it) => it.ag).length >= 5) break;
+  }
+  const visiveis = itens.some((i) => i.ag) ? itens.filter((i) => i.ag) : itens;
+  const top = visiveis.sort((a, b) => principal(b.x) - principal(a.x) || b.x.score - a.x.score || pontuar(b.x.cand.proc) - pontuar(a.x.cand.proc)).slice(0, 5);
+  if (top.length === 1) {
+    const d = await montar(top[0].x.cand);
+    return d && 'servico' in d ? { servico: { ...d.servico, viaSintoma } } : d;
+  }
+  return { opcoes: top.map((i) => ({ id: i.x.cand.proc.id, nome: titulo(i.x.cand.proc.nome) })) };
 }
 
 /**
