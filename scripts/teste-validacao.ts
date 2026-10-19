@@ -44,5 +44,13 @@ for (const [txt, esperado] of [
   console.log(`${ok ? 'OK  ' : 'FALHOU'} trava de preço zero: "${txt}" -> ${temPrecoZero(txt) ? 'BLOQUEIA' : 'deixa passar'}`);
 }
 
+// urgência não espera a janela de 30 s
+const { ehUrgencia } = await import('../src/agents/receptivo/script/engine.js');
+for (const [txt, esperado] of [['estou com dor no peito', true], ['to com falta de ar', true], ['quero me matar', true], ['Quero agendar uma consulta', false], ['quinta 22', false]] as [string, boolean][]) {
+  const ok = ehUrgencia(txt) === esperado;
+  if (!ok) falhas++;
+  console.log(`${ok ? 'OK  ' : 'FALHOU'} urgência: "${txt}" -> ${ehUrgencia(txt) ? 'responde na hora' : 'espera a janela'}`);
+}
+
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTODAS AS PROTEÇÕES FUNCIONAM');
 process.exit(falhas ? 1 : 0);

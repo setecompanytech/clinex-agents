@@ -2,10 +2,11 @@ import { env } from '../../lib/env.js';
 import { describe, getHistory, ilegivel, sendText, textoRoteiro, transcribeMessage, transferToSector, type InovstarMessage, type MessageReceivedEvent } from '../../integrations/inovstar.js';
 import { analisarComprovante, type Comprovante } from '../../lib/comprovante.js';
 import { buildSystemPrompt } from './prompt.js';
-import { MARCAS_FIM, MARCA_ADEUS, MARCA_AGENDADO, MARCA_MAIS, SEM_GPT, etapa, responder, type Pos, type Result } from './script/engine.js';
+import { MARCAS_FIM, MARCA_ADEUS, MARCA_AGENDADO, MARCA_MAIS, SEM_GPT, ehUrgencia, etapa, responder, type Pos, type Result } from './script/engine.js';
 import { fonteSimulada } from './script/catalog.js';
 import { fonteClinilink } from './script/clinilinkFonte.js';
 import { amigavelDetalhado, temPrecoZero } from '../../lib/humanizer.js';
+import { interpretarEscolha } from '../../lib/interpretar.js';
 import { comAtendimento, evt } from '../../lib/log.js';
 import { firstName, followUpMessage, greeting, nowParts, welcomeMessage } from '../../lib/humanize.js';
 
@@ -118,7 +119,8 @@ async function processar(ev: MessageReceivedEvent) {
   if (env.agentSectorId && ev.sectorId !== env.agentSectorId && !naFilaDaEquipe) return skip(`setor ${ev.sectorId} != setor da IA`);
 
   // Debounce: espera o paciente terminar de digitar e só a última mensagem dispara a resposta.
-  await sleep(env.debounceMs);
+  // (emergência e crise não esperam: respondem em poucos segundos)
+  await sleep(ehUrgencia(ev.text ?? '') ? Math.min(env.debounceMs, 3000) : env.debounceMs);
   const { messages: history } = await getHistory(ev.attendanceId);
   const lastIn = [...history].reverse().find((m) => m.direction === 'in' && m.type !== 'system');
   if (lastIn && lastIn._id !== ev.messageId) return skip(`chegou mensagem mais nova (${lastIn._id} != ${ev.messageId}); o webhook dela responde`);
@@ -196,7 +198,7 @@ async function processar(ev: MessageReceivedEvent) {
     if (ilg) {
       r = { state: undefined as never, reply: ilg === 'audio' ? 'Não consegui ouvir esse áudio. Pode escrever a sua mensagem ou enviar o áudio de novo?' : 'Por aqui consigo ler texto e ouvir áudio. Pode escrever o que você precisa?', handoff: undefined };
     } else try {
-      r = await responder(turnos, { now: new Date(), nome, tz: env.timezone, telefone: ev.to, pos, lerComprovante: lerComprovanteDe(history) }, fonte);
+      r = await responder(turnos, { now: new Date(), nome, tz: env.timezone, telefone: ev.to, pos, lerComprovante: lerComprovanteDe(history), interpretar: interpretarEscolha }, fonte);
     } catch (e) {
       // Clinilink fora do ar / lento: não inventa dado, devolve para a equipe
       console.error(`${tag} falha ao consultar a fonte (${fonte.tipo}):`, (e as Error).message);

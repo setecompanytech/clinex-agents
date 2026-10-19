@@ -32,6 +32,8 @@ const horarios = (ini: string, fim: string, profId?: string, unidadeId?: string)
   return [
     ...["08:00", "08:30", "09:00"].slice(modo.ocupados).map((h) => mk(dia(1), h, "08:00")),
     ...["13:30", "14:00"].map((h) => mk(dia(2), h, "13:00", { id: P_LIDUINA, nome: "LIDUINA COSTA PINTO" })),
+    ...["08:00"].map((h) => mk(dia(5), h, "08:00")), ...["13:30"].map((h) => mk(dia(8), h, "13:00", { id: P_LIDUINA, nome: "LIDUINA COSTA PINTO" })),
+    ...["08:00"].map((h) => mk(dia(12), h, "08:00")), ...["13:30"].map((h) => mk(dia(15), h, "13:00", { id: P_LIDUINA, nome: "LIDUINA COSTA PINTO" })),
   ].filter((h) => h.data >= ini && h.data <= fim);
 };
 
@@ -619,13 +621,125 @@ confere('K1 "dia da semana + número" ("quinta 22") escolhe aquele dia', /anteci
 r = await dd([...ateLista, `${nomeSemana(dia(2))} ${diaDoMes} com o armando`]);
 confere('K1 e com um nome que não é de nenhum médico ("com o armando") a data vale e a conversa segue', /antecipar o pagamento/.test(r.reply) && !/Tenho estas opções/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(-190));
 r = await dd([...ateLista, 'quero com a liduina']);
-confere('K2 citar a médica da lista escolhe o horário dela', /Liduina Costa Pinto/.test(r.reply) && /antecipar o pagamento/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(-230));
+confere('K2 citar a médica da lista: fica só com os horários dela (um só escolhe; vários mostra os dela)', /Liduina Costa Pinto/.test(r.reply) && (/antecipar o pagamento/.test(r.reply) || (/Com Liduina Costa Pinto, tenho/.test(r.reply) && !/Medica Teste da Silva/.test(r.reply))), r.reply.replace(/\n/g, ' | ').slice(-230));
 r = await dd([...ateLista, 'o primeiro']);
 confere('K2 "o primeiro" continua escolhendo a posição 1', /antecipar o pagamento/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(-120));
 // o mesmo pedido 3 vezes não pode dar a mesma resposta 3 vezes: depois de entender, a conversa AVANÇA
 const resp1 = (await dd([...ateLista, `${nomeSemana(dia(2))} ${diaDoMes}`])).reply;
 const resp2 = (await dd([...ateLista, `${nomeSemana(dia(2))} ${diaDoMes}`, 'pode agendar'])).reply;
 confere('K3 depois de escolher o dia, a pergunta seguinte é DIFERENTE (não fica repetindo a lista)', !/Tenho estas opções/.test(resp1) && !/Tenho estas opções/.test(resp2), resp2.replace(/\n/g, ' | ').slice(0, 140));
+
+// ===================== escolha do horário: "o mais rápido possível", "a próxima", só o dia... =====================
+const { lerIntencao } = await import('../src/agents/receptivo/script/engine.js');
+const sem = (x: string) => x.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const seg19 = { now: new Date('2026-10-19T15:00:00Z'), nome: '', tz: 'America/Sao_Paulo' }; // segunda-feira, 19/10/2026
+
+const casos: [string, number, Record<string, unknown>][] = [
+  ['o mais rápido possível', 3, { primeiro: true }], ['a próxima', 3, { primeiro: true }], ['o próximo', 3, { primeiro: true }],
+  ['o primeiro disponível', 3, { primeiro: true }], ['qualquer um', 3, { primeiro: true }], ['qualquer', 3, { primeiro: true }], ['tanto faz', 3, { primeiro: true }],
+  ['o que tiver', 3, { primeiro: true }], ['o que você tiver', 3, { primeiro: true }], ['o mais cedo', 3, { primeiro: true }], ['pode ser o mais próximo', 3, { primeiro: true }],
+  ['quanto antes', 3, { primeiro: true }], ['assim que possível', 3, { primeiro: true }], ['o mais breve', 3, { primeiro: true }], ['urgente', 3, { primeiro: true }],
+  ['o último', 3, { ultimo: true }], ['o mais tarde', 3, { ultimo: true }], ['o mais longe', 3, { ultimo: true }],
+  ['semana que vem', 3, { apartir: '2026-10-26' }], ['a próxima semana', 3, { apartir: '2026-10-26' }], ['mês que vem', 3, { apartir: '2026-11-01' }],
+  ['depois do dia 25', 3, { apartir: '2026-10-26' }], ['a partir do dia 25', 3, { apartir: '2026-10-25' }], ['a partir de quinta', 3, { apartir: '2026-10-22' }], ['depois de quinta', 3, { apartir: '2026-10-23' }],
+  ['até dia 25', 3, { ate: '2026-10-25' }], ['antes do dia 25', 3, { ate: '2026-10-24' }], ['essa semana', 3, { ate: '2026-10-25' }], ['até amanhã', 3, { ate: '2026-10-20' }],
+  ['daqui a 2 dias', 3, { apartir: '2026-10-21' }], ['daqui a uma semana', 3, { apartir: '2026-10-26' }], ['em 3 dias', 3, { apartir: '2026-10-22' }],
+  ['outro dia', 2, { mais: true }], ['tem outras datas?', 2, { mais: true }], ['nenhum desses', 2, { mais: true }], ['mais opções', 2, { mais: true }], ['não posso nesses dias', 2, { mais: true }],
+  ['às 15h', 3, { hora: 15 }], ['as 8', 3, { hora: 8 }], ['15:00', 3, { hora: 15 }], ['o das 8h', 3, { hora: 8 }],
+  ['sim', 1, { sim: true }],
+];
+for (const [txt, tam, esp] of casos) {
+  const got: any = lerIntencao(sem(txt), seg19, tam) ?? {};
+  const ok = Object.entries(esp).every(([k, v]) => got[k] === v) && (esp.primeiro === true || !got.primeiro);
+  confere(`H0 "${txt}" -> ${JSON.stringify(esp)}`, ok, JSON.stringify(got));
+}
+confere('H0 "outro dia" sem lista na tela não é "mais opções"', !(lerIntencao('outro dia', seg19, 0) as any)?.mais, '');
+confere('H0 "sim" com 3 opções na tela não escolhe sozinho', !(lerIntencao('sim', seg19, 3) as any)?.sim, '');
+confere('H0 "a próxima semana" NÃO vira "o mais rápido"', !(lerIntencao('a proxima semana', seg19, 3) as any)?.primeiro, JSON.stringify(lerIntencao('a proxima semana', seg19, 3)));
+
+// conversa: a lista na tela e o jeito de responder
+reset({ ocupados: 0 });
+const ateLista2 = ['oi', 'quero agendar ginecologista', 'sim', 'guama'];
+r = await dd(ateLista2);
+confere('H1 ponto de partida: a lista tem 4 opções', (r.state.lista?.length ?? 0) >= 3, String(r.state.lista?.length));
+const primeiroSlot = r.state.lista?.[0];
+const ultimoSlot = r.state.lista?.[r.state.lista.length - 1];
+for (const frase of ['o mais rápido possível', 'a próxima', 'o próximo', 'qualquer um', 'tanto faz', 'o que tiver', 'o primeiro disponível', 'o mais cedo', 'quanto antes', 'pode ser o mais rápido']) {
+  const x = await dd([...ateLista2, frase]);
+  confere(`H1 "${frase}" escolhe o primeiro horário e a conversa AVANÇA`, x.state.slot?.ymd === primeiroSlot?.ymd && x.state.slot?.turno === primeiroSlot?.turno && /antecipar o pagamento/.test(x.reply) && !/Tenho estas opções/.test(x.reply), `${x.state.slot?.ymd} | ${x.reply.replace(/\n/g, ' | ').slice(-70)}`);
+}
+for (const frase of ['o último', 'o mais tarde', 'o mais longe']) {
+  const x = await dd([...ateLista2, frase]);
+  confere(`H1 "${frase}" escolhe o último da lista`, x.state.slot?.ymd === ultimoSlot?.ymd && /antecipar o pagamento/.test(x.reply), `${x.state.slot?.ymd} vs ${ultimoSlot?.ymd}`);
+}
+// só o dia (número solto, "dia N", "N de outubro")
+const diaN = Number(String(r.state.lista?.[2]?.ymd).slice(8)); // 3ª opção
+for (const frase of [String(diaN), `dia ${diaN}`, `o dia ${diaN}`, `${diaN} de outubro`]) {
+  const x = await dd([...ateLista2, frase]);
+  confere(`H2 só o dia: "${frase}" escolhe aquele dia`, x.state.slot?.ymd === r.state.lista?.[2]?.ymd && /antecipar o pagamento/.test(x.reply), `${x.state.slot?.ymd}`);
+}
+// outro dia: mostra opções DEPOIS das que estavam na tela (não repete a lista)
+let x = await dd([...ateLista2, 'outro dia']);
+confere('H3 "outro dia": mostra datas DEPOIS das que estavam na tela (não repete)', /Sem problema, tenho também/.test(x.reply) && (x.state.lista?.[0]?.ymd ?? '') > (ultimoSlot?.ymd ?? '9'), `${x.state.lista?.[0]?.ymd} > ${ultimoSlot?.ymd} | ${x.reply.replace(/\n/g, ' | ').slice(0, 120)}`);
+x = await dd([...ateLista2, 'tem mais opções?']);
+confere('H3 "tem mais opções?" também', /Sem problema, tenho também/.test(x.reply), x.reply.slice(0, 80));
+x = await dd([...ateLista2, 'nenhum desses serve']);
+confere('H3 "nenhum desses serve" também', /Sem problema, tenho também/.test(x.reply), x.reply.slice(0, 80));
+// a partir de uma data / semana que vem
+x = await dd([...ateLista2, `depois do dia ${Number(String(r.state.lista?.[0]?.ymd).slice(8))}`]);
+confere('H4 "depois do dia N": só horários depois dessa data', /A partir de/.test(x.reply) && (x.state.lista ?? []).every((l: any) => l.ymd > (r.state.lista?.[0]?.ymd ?? '')), JSON.stringify((x.state.lista ?? []).map((l: any) => l.ymd)));
+x = await dd([...ateLista2, 'semana que vem']);
+confere('H4 "semana que vem": lista a partir da próxima segunda', /A partir de/.test(x.reply) || x.state.slot, x.reply.replace(/\n/g, ' | ').slice(0, 100));
+x = await dd([...ateLista2, 'semana que vem o mais rápido']);
+confere('H4 "semana que vem, o mais rápido" já escolhe o primeiro horário daquela semana', Boolean(x.state.slot) && /antecipar o pagamento/.test(x.reply), x.reply.replace(/\n/g, ' | ').slice(-90));
+// período junto
+x = await dd([...ateLista2, 'o mais rápido de manhã']);
+confere('H5 "o mais rápido de manhã" escolhe o primeiro horário da MANHÃ', x.state.slot?.turno === 'manhã' && /antecipar o pagamento/.test(x.reply), `${x.state.slot?.turno}`);
+x = await dd([...ateLista2, 'o mais rápido à tarde']);
+confere('H5 "o mais rápido à tarde" escolhe o primeiro horário da TARDE', x.state.slot?.turno === 'tarde' && /antecipar o pagamento/.test(x.reply), `${x.state.slot?.turno}`);
+// hora
+x = await dd([...ateLista2, 'às 13h']);
+confere('H5 "às 13h": só os horários que começam às 13h (um só escolhe; vários mostra esses)', x.state.slot ? x.state.slot.inicio.startsWith('13') : ((x.state.lista ?? []).length > 0 && (x.state.lista ?? []).every((l: any) => l.inicio.startsWith('13'))), `${x.state.slot?.inicio} | ${JSON.stringify((x.state.lista ?? []).map((l: any) => l.inicio))}`);
+x = await dd([...ateLista2, 'às 4h da madrugada']);
+confere('H5 hora que não existe: diz que não tem e mostra o que existe (sem repetir em silêncio)', /Não tenho horário às 4h/.test(x.reply) && /Tenho estas opções/.test(x.reply), x.reply.replace(/\n/g, ' | ').slice(0, 120));
+x = await dd([...ateLista2, 'até amanhã']);
+confere('H5 "até amanhã": só o que existe até amanhã', (x.state.slot ? x.state.slot.ymd <= dia(1) : (x.state.lista ?? []).every((l: any) => l.ymd <= dia(1))) && !/Não consegui entender/.test(x.reply), x.reply.replace(/\n/g, ' | ').slice(0, 120));
+// antes da lista: "o mais rápido" já na hora da unidade ou do pedido
+x = await dd(['oi', 'quero agendar ginecologista', 'sim', 'guama o mais rápido possível']);
+confere('H6 "guamá, o mais rápido possível" na mesma frase: unidade e primeiro horário, direto para o pagamento', x.state.unidade?.nome === 'Guamá' && Boolean(x.state.slot) && /antecipar o pagamento/.test(x.reply), x.reply.replace(/\n/g, ' | ').slice(-90));
+x = await dd(['oi', 'quero agendar ginecologista', 'sim', 'o mais rápido possível']);
+confere('H6 só "o mais rápido possível" na pergunta da unidade: escolhe a unidade com o horário mais cedo e já o horário', Boolean(x.state.unidade) && Boolean(x.state.slot) && /antecipar o pagamento/.test(x.reply), x.reply.replace(/\n/g, ' | ').slice(-90));
+x = await dd(['oi', 'quero agendar ginecologista', 'sim', 'tanto faz']);
+confere('H6 "tanto faz" na pergunta da unidade também', Boolean(x.state.unidade) && Boolean(x.state.slot), x.reply.replace(/\n/g, ' | ').slice(-90));
+x = await dd(['quero agendar ginecologista o mais rápido possível', 'sim']);
+confere('H6 o pedido "o mais rápido" feito junto com o serviço NÃO se perde até a hora dos horários', x.state.rapido === true, String(x.state.rapido));
+x = await dd(['quero agendar ginecologista o mais rápido possível', 'sim', 'guama']);
+confere('H6 e na hora dos horários já escolhe o primeiro', Boolean(x.state.slot) && /antecipar o pagamento/.test(x.reply), x.reply.replace(/\n/g, ' | ').slice(-90));
+
+// não entendeu: NUNCA repete a lista em silêncio; pergunta de outro jeito, e o intérprete de apoio (IA) pode entender
+x = await dd([...ateLista2, 'hmm deixa eu pensar']);
+confere('H7 resposta que as regras não entendem: pede esclarecimento (não repete a lista em silêncio)', /Não consegui entender qual horário você prefere/.test(x.reply) && /1\./.test(x.reply), x.reply.replace(/\n/g, ' | ').slice(0, 150));
+const comIA = (resposta: any) => ({ ...ctxPix, interpretar: async () => resposta });
+x = (await responder([...ateLista2, 'aquele do meio'].map((z) => [z]), comIA({ indice: 1 }), fonteClinilink)) as any;
+confere('H7 intérprete de apoio ("aquele do meio" -> opção 2): escolhe a opção certa', x.state.slot?.ymd === r.state.lista?.[1]?.ymd && /antecipar o pagamento/.test(x.reply), `${x.state.slot?.ymd}`);
+x = (await responder([...ateLista2, 'prefiro o final do mês'].map((z) => [z]), comIA({ ultimo: true }), fonteClinilink)) as any;
+confere('H7 intérprete devolvendo "último": usa o último da lista', x.state.slot?.ymd === ultimoSlot?.ymd, `${x.state.slot?.ymd}`);
+x = (await responder([...ateLista2, 'sei lá'].map((z) => [z]), comIA({ indice: 99 }), fonteClinilink)) as any;
+confere('H7 intérprete com índice inválido (99) é ignorado: não escolhe nada e pede esclarecimento', !x.state.slot && /Não consegui entender/.test(x.reply), x.reply.slice(0, 70));
+x = (await responder([...ateLista2, 'sei lá'].map((z) => [z]), comIA({ apartir: '1999-01-01' }), fonteClinilink)) as any;
+confere('H7 intérprete com data passada é ignorado', !x.state.slot, '');
+x = (await responder([...ateLista2, 'sei lá'].map((z) => [z]), comIA(null), fonteClinilink)) as any;
+confere('H7 sem resposta do intérprete: pede esclarecimento', /Não consegui entender/.test(x.reply), x.reply.slice(0, 70));
+
+// sim / não no jeito de falar (confirmação do serviço)
+for (const frase of ['pode agendar', 'isso aí', 'isso ai', 'beleza', 'uhum', 'aham', 'fechou', 'com certeza', 'siiim', 'positivo', 'exatamente', 'pode marcar', 'é isso mesmo', 'tá certo', 'blz', 'demorou']) {
+  const y = await dd(['oi', 'quero agendar ginecologista', frase]);
+  confere(`H8 confirmar o serviço com "${frase}"`, y.state.servicoConfirmado === true, `${y.state.servicoConfirmado}`);
+}
+for (const frase of ['negativo', 'nada disso', 'nope', 'não é isso', 'errado', 'não era isso', 'incorreto']) {
+  const y = await dd(['oi', 'quero agendar ginecologista', frase]);
+  confere(`H8 recusar o serviço com "${frase}"`, y.state.servicoConfirmado !== true && /Sem problema/.test(y.reply), y.reply.slice(0, 60));
+}
 
 server.close();
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTODOS OS CENÁRIOS PASSARAM');
