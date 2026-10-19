@@ -33,5 +33,16 @@ confere('nome de médico alterado', /nome alterado/, bom.replace('Ebenezaide Nas
 confere('pergunta a mais', /criou pergunta/, 'Vou passar para a equipe. Pode aguardar?', 'Vou passar para a equipe. Só um instante.');
 confere('frase de assistente automático', /assistente automático/, `Estou aqui para ajudar. ${bom}`);
 
+// trava final: preço zerado nunca sai
+const { temPrecoZero } = await import('../src/lib/humanizer.js');
+for (const [txt, esperado] of [
+  ['A consulta custa R$ 0,00.', true], ['O exame custa R$ 0.', true], ['custa R$0,00', true], ['No Guamá, o exame custa R$ 0,00, no dinheiro ou Pix', true],
+  ['A consulta custa R$ 140,00.', false], ['A consulta custa R$ 100,00.', false], ['R$ 0,50 de taxa', false], ['R$ 1.200,00', false],
+] as [string, boolean][]) {
+  const ok = temPrecoZero(txt) === esperado;
+  if (!ok) falhas++;
+  console.log(`${ok ? 'OK  ' : 'FALHOU'} trava de preço zero: "${txt}" -> ${temPrecoZero(txt) ? 'BLOQUEIA' : 'deixa passar'}`);
+}
+
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTODAS AS PROTEÇÕES FUNCIONAM');
 process.exit(falhas ? 1 : 0);

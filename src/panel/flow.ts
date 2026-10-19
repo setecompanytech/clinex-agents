@@ -387,10 +387,10 @@ export const flow = {
       subtitle: 'Se não houver valor, a Amanda não cita preço',
       detail: {
         oQueFaz: 'O valor da consulta ou do exame vem do cadastro do Clinilink; nunca é escrito à mão no roteiro (na versão real).',
-        regra: 'Valor igual em todas as unidades com agenda: uma frase só ("A consulta custa R$ 200,00."). Valor diferente entre unidades: uma frase por unidade ("No Guamá, a consulta custa ..."). Quando existe valor no dinheiro diferente do valor normal, aparece "no dinheiro ou Pix". Procedimento sem valor cadastrado: a Amanda não fala em preço. Para exame, a frase começa com "O exame custa".',
+        regra: 'Valor igual em todas as unidades com agenda: uma frase só ("A consulta custa R$ 200,00."). Valor diferente entre unidades: uma frase por unidade ("No Guamá, a consulta custa ..."). O valor é SEMPRE o campo "preço" do Clinilink; o campo "preço no dinheiro" não é usado. Preço zero ou vazio é tratado como "sem valor": a Amanda nunca escreve "R$ 0,00", não cita preço, e se o paciente perguntar diz que a equipe confirma o valor. Para exame, a frase começa com "O exame custa".',
         exemplo: '"A consulta custa R$ 200,00."',
         seFalhar: 'Sem valor no cadastro, o preço simplesmente não é citado. Nunca se inventa um valor.',
-        tecnico: 'Bloco de preço em montar(), src/agents/receptivo/script/clinilinkFonte.ts (campos preco e precoDinheiro).',
+        tecnico: 'Bloco de preço em montar(), src/agents/receptivo/script/clinilinkFonte.ts (usa só o campo preco; zero ou vazio = sem valor).',
       },
     },
     {

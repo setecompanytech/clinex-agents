@@ -43,13 +43,15 @@ const server = http.createServer((req, res) => {
       if (p.endsWith('/clinicas')) return j(200, { ok: true, clinicas: [{ id: U_GUAMA, nome: 'CLINEX GUAMÁ' }, { id: U_TELEGRAFO, nome: 'CLINEX TELEGRAFO' }] });
       if (p.endsWith('/procedimentos')) {
         const b = url.searchParams.get('busca') ?? '';
+        const un = url.searchParams.get('unidadeId');
         // procedimentos "estranhos" do cadastro: a busca real é por pedaço do nome, sem acento
         const sem = (x: string) => x.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
         const extras = [{ id: '26262626-2626-4262-8262-262626262626', nome: 'ERGOMETRIA', categoria: 'Exames' }, { id: '27272727-2727-4272-8272-272727272727', nome: 'CONSULTA FONOAUDIOLOGIA', categoria: 'Consulta' }, { id: '28282828-2828-4282-8282-282828282828', nome: 'TESTE DE ESFORCO COM ECG', categoria: 'Exames' }]
-          .filter((x) => b.length >= 4 && sem(x.nome).includes(sem(b))).map((x) => ({ ...x, preco: 120, precoDinheiro: 120 }));
+          .filter((x) => b.length >= 4 && sem(x.nome).includes(sem(b))).map((x) => ({ ...x, preco: 120, precoDinheiro: un === U_GUAMA ? 0 : 999 })); // precoDinheiro ZERADO no Guamá e 999 no outro: nunca pode aparecer
         if (extras.length) return j(200, { ok: true, procedimentos: extras });
         if (/ergometrico|fonoaudiologo|audiom|hemoglob|glicada/i.test(b)) return j(200, { ok: true, procedimentos: [] });
-        const consulta = (id: string, nome: string) => ({ id, nome, categoria: 'Consulta', preco: 100, precoDinheiro: 100 });
+        if (/semvalor/i.test(b)) return j(200, { ok: true, procedimentos: [{ id: '29292929-2929-4292-8292-292929292929', nome: 'CONSULTA SEMVALOR', categoria: 'Consulta', preco: 0, precoDinheiro: 0 }] });
+        const consulta = (id: string, nome: string) => ({ id, nome, categoria: 'Consulta', preco: 100, precoDinheiro: un === U_GUAMA ? 0 : 100 });
         const lista = /zzz|qqq|rebec|zuleide|xavier|silva|pix/i.test(b) || /^ultrassom$/i.test(b) ? []
           : /usg|ultrassonografia/i.test(b) ? [{ id: PROC_USG, nome: 'USG ABDOME TOTAL', categoria: 'Exames', preco: 150, precoDinheiro: 150 }]
           : /dermat/i.test(b) ? [consulta(PROC2, 'CONSULTA DERMATOLOGIA')]
@@ -524,6 +526,25 @@ r = await dd(['quero fazer um exame de hemoglobina glicada']);
 confere('N3 exame fora das raízes conhecidas também recebe o aviso com o nome que ele disse', /Não encontrei hemoglobina glicada/.test(r.reply) && !r.handoff, r.reply.slice(0, 120));
 r = await dd(['preciso de uma informação']);
 confere('N3 pedido de informação não vira "serviço não encontrado"', !/Não encontrei/.test(r.reply), r.reply.slice(0, 120));
+
+// ===================== PREÇO: sempre `preco`, nunca `precoDinheiro`, nunca "R$ 0,00" =====================
+const todasAsRespostas = async (turnos: string[]) => { const rs: string[] = []; for (let i = 1; i <= turnos.length; i++) rs.push(((await responder(turnos.slice(0, i).map((x) => [x]), ctxPix, fonteClinilink)) as any).reply); return rs.join('\n---\n'); };
+// $1) o caso real: preco 140 / precoDinheiro 0 em uma unidade e 999 na outra -> tem que dizer R$ 100,00 (o preco), sempre
+reset({ ocupados: 0 });
+let txt = await todasAsRespostas(['oi', 'quero agendar ginecologista', 'sim']);
+confere('$1 preço dito = campo preco (R$ 100,00), ignorando precoDinheiro zerado', /A consulta custa R\$ 100,00\./.test(txt) && !/R\$ 0,00|R\$ 999,00/.test(txt), txt.replace(/\n/g, ' | ').slice(-200));
+txt = await todasAsRespostas(['quero fazer um teste de esforço', 'sim']);
+confere('$1 exame com precoDinheiro 0 no Guamá e 999 no outro: fala o preço (R$ 120,00) e NUNCA R$ 0,00 nem R$ 999,00', /O exame custa R\$ 120,00\./.test(txt) && !/R\$ 0,00|R\$ 999,00/.test(txt), txt.replace(/\n/g, ' | ').slice(-230));
+// $2) o pix usa o preco
+r = await dd(['oi', 'quero agendar ginecologista', 'sim', 'guama amanhã', 'pix']);
+confere('$2 valor do pix = preco (R$ 100,00)', /pagamento de R\$ 100,00/.test(r.reply) && !/R\$ 0,00/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 120));
+// $3) sem preço cadastrado (zero): não cita valor, não inventa; se perguntarem, a equipe confirma; pix não confere sozinho
+txt = await todasAsRespostas(['quero agendar consulta semvalor', 'sim']);
+confere('$3 preço zero: a resposta NÃO tem valor nenhum nem "R$ 0,00"', !/R\$/.test(txt), txt.replace(/\n/g, ' | ').slice(-160));
+r = await dd(['quero agendar consulta semvalor', 'sim', 'qual o valor?']);
+confere('$3 preço zero e o paciente pergunta o valor: diz que a equipe confirma (sem "zero")', /equipe confirme certinho/.test(r.reply) && !/R\$/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 200));
+r = await dd(['quero agendar consulta semvalor', 'sim', 'guama', '1', 'pix', img('img-ok')]);
+confere('$3 preço zero + comprovante de pix: não confere valor sozinha, passa para a equipe conferir', Boolean(r.handoff) && /valor do serviço não está definido/.test(r.handoff.motivo), r.handoff?.motivo.slice(0, 110));
 
 server.close();
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTODOS OS CENÁRIOS PASSARAM');

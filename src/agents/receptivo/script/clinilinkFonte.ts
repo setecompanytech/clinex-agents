@@ -39,6 +39,9 @@ function agrupar(horarios: Horario[]): Slot[] {
   return out;
 }
 
+/** Preço do procedimento = SEMPRE o campo `preco` do Clinilink (nunca `precoDinheiro`). Só vale número maior que zero; senão, não há preço para citar. */
+export const precoDe = (p: Pick<Procedimento, 'preco'>): number | undefined => (typeof p.preco === 'number' && Number.isFinite(p.preco) && p.preco > 0 ? p.preco : undefined);
+
 async function montar(c: Cand, prof?: { id: string; nome: string }): Promise<Descoberta> {
   const ini = hojeYmd();
   const fim = somaDias(ini, 30);
@@ -53,12 +56,13 @@ async function montar(c: Cand, prof?: { id: string; nome: string }): Promise<Des
   comAgenda.sort((a, b) => a.u.nome.localeCompare(b.u.nome));
   comAgenda.forEach(({ u }) => unidadesPorId.set(u.id, u));
 
-  // preço: um valor se for igual nas unidades, senão por unidade. Sem valor, não cita.
+  // preço: SEMPRE o campo preco do Clinilink (o campo `precoDinheiro` não é usado em nada). Zero ou ausente = não definido: nunca vira "R$ 0,00".
+  // Um valor se for igual nas unidades, senão por unidade. Sem valor, não cita.
   const porUnidade = new Map<string, string>();
   for (const { u, proc } of comAgenda) {
-    const base = proc.precoDinheiro ?? proc.preco;
-    const dif = proc.precoDinheiro !== undefined && proc.preco !== undefined && proc.precoDinheiro !== proc.preco;
-    if (base !== undefined && base !== null) porUnidade.set(nomeUnidade(u), `${reais(base)}${dif ? ', no dinheiro ou Pix' : ''}`);
+    const valor = precoDe(proc);
+    if (valor === undefined) evt('preco_invalido', { procedimento: proc.nome, unidade: nomeUnidade(u), preco: proc.preco ?? null });
+    else porUnidade.set(nomeUnidade(u), reais(valor));
   }
   const valores = [...new Set(porUnidade.values())];
   const consulta = /consulta/i.test(c.proc.nome) || /consulta/i.test(c.proc.categoria ?? '');
@@ -69,7 +73,7 @@ async function montar(c: Cand, prof?: { id: string; nome: string }): Promise<Des
     id: c.proc.id, nome, tipo: consulta ? 'consulta' : 'exame',
     frase: `${nome.replace(/^Consulta\b/, 'consulta')}${prof ? ` com ${titulo(prof.nome)}` : ''}`,
     profissional: prof ? { id: prof.id, nome: titulo(prof.nome) } : undefined,
-    unidades: comAgenda.map(({ u, medicos, proc }): Unidade => ({ id: u.id, nome: nomeUnidade(u), profissionais: medicos, precoPix: proc.precoDinheiro ?? proc.preco ?? undefined })), precoTexto,
+    unidades: comAgenda.map(({ u, medicos, proc }): Unidade => ({ id: u.id, nome: nomeUnidade(u), profissionais: medicos, precoPix: precoDe(proc) })), precoTexto,
   };
   return { servico };
 }

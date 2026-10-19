@@ -12,7 +12,7 @@ import { evt } from '../lib/log.js';
  */
 
 export type Clinica = { id: string; nome: string; horarioFuncionamento?: string };
-export type Procedimento = { id: string; nome: string; categoria?: string; preco?: number; precoDinheiro?: number; preparo?: string | null };
+export type Procedimento = { id: string; nome: string; categoria?: string; preco?: number; /* precoDinheiro: de propósito NÃO usado, o preço é sempre `preco` */ preparo?: string | null };
 export type Horario = { data: string; hora: string; dataHora?: string; agendaId: string; agendaNome?: string; agendaHoraInicio?: string; profissional?: { id: string; nome: string }; unidade?: { id: string; nome: string } };
 
 export class ClinilinkError extends Error {

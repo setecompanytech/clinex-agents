@@ -286,7 +286,11 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
     switch (faq) {
       case 'ping': return s.saudou ? 'Estou aqui, sim!' : '';
       case 'horario': return env.clinicHorario;
-      case 'preco': return !sv?.precoTexto || esperandoPix() || reply.includes(sv.precoTexto) ? '' : sv.precoTexto;
+      case 'preco':
+        if (!sv || esperandoPix()) return '';
+        // sem preço cadastrado: não inventa nem fala "zero"; a equipe confirma
+        if (!sv.precoTexto) return `O valor desse atendimento eu prefiro que a nossa equipe confirme certinho para você.${EQUIPE}`;
+        return reply.includes(sv.precoTexto) ? '' : sv.precoTexto;
       case 'pagto': return esperandoPix() || reply.includes(MARCA_PAGAMENTO) ? '' : 'Você pode antecipar o pagamento por pix (eu te envio a chave) ou link de crédito, ou pagar na recepção, no dia do atendimento.';
       case 'medicos':
       case 'unidades': {
@@ -578,6 +582,8 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
         if (!c.data) return nova('Não consegui ver a data no comprovante. Pode enviar o print completo, com valor e data?', 'sem data');
         if (c.data < addDias(h.ymd, -1) || c.data > h.ymd) return nova(`Esse comprovante é de ${fmtData(c.data)}. Preciso do comprovante do pagamento de hoje. Pode enviar o correto?`, `comprovante de ${c.data}`);
         if (c.valor == null) return nova('Não consegui ver o valor no comprovante. Pode enviar o print completo, com valor e data?', 'sem valor');
+        // sem preço cadastrado no Clinilink não há como conferir o valor pago: a equipe confere
+        if (!valorPix) return aEquipeComp('Recebi o seu comprovante.', `Comprovante de ${reais(c.valor)} recebido, mas o valor do serviço não está definido no Clinilink: conferir o valor pago.`);
         const alvo = norm(`${c.destinatario ?? ''} ${c.chave ?? ''}`);
         if (alvo.trim() && ![...env.pixRecebedor.split(','), env.pixKey].some((k) => k.trim() && alvo.includes(norm(k)))) return aEquipeComp('O comprovante mostra um recebedor diferente do nosso.', `ATENÇÃO: comprovante com recebedor "${c.destinatario ?? c.chave}", diferente da chave ${env.pixKey}.`);
         // o mesmo comprovante não conta duas vezes

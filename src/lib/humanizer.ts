@@ -152,3 +152,6 @@ export async function amigavelDetalhado(texto: string, protegidos: string[] = []
 export async function amigavel(texto: string, _opts: { tag?: string } = {}): Promise<string> {
   return (await amigavelDetalhado(texto)).texto;
 }
+
+/** Última trava antes de enviar: "R$ 0", "R$ 0,00" ou "R$ 0.00" indicam preço zerado (erro de dados) e nunca podem chegar ao paciente. */
+export const temPrecoZero = (texto: string) => /R\$\s*0(?:[.,]0+)?(?!\d|[.,]\d)/.test(texto);

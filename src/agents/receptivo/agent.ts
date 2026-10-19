@@ -2,10 +2,10 @@ import { env } from '../../lib/env.js';
 import { describe, getHistory, ilegivel, sendText, textoRoteiro, transcribeMessage, transferToSector, type InovstarMessage, type MessageReceivedEvent } from '../../integrations/inovstar.js';
 import { analisarComprovante, type Comprovante } from '../../lib/comprovante.js';
 import { buildSystemPrompt } from './prompt.js';
-import { MARCAS_FIM, MARCA_ADEUS, MARCA_AGENDADO, MARCA_MAIS, SEM_GPT, etapa, responder, type Pos } from './script/engine.js';
+import { MARCAS_FIM, MARCA_ADEUS, MARCA_AGENDADO, MARCA_MAIS, SEM_GPT, etapa, responder, type Pos, type Result } from './script/engine.js';
 import { fonteSimulada } from './script/catalog.js';
 import { fonteClinilink } from './script/clinilinkFonte.js';
-import { amigavelDetalhado } from '../../lib/humanizer.js';
+import { amigavelDetalhado, temPrecoZero } from '../../lib/humanizer.js';
 import { comAtendimento, evt } from '../../lib/log.js';
 import { firstName, followUpMessage, greeting, nowParts, welcomeMessage } from '../../lib/humanize.js';
 
@@ -192,7 +192,7 @@ async function processar(ev: MessageReceivedEvent) {
     if (textos.length === 0 && !ilg) return skip('sem mensagens do paciente na jornada atual');
     const fonte = env.clinilinkKey ? fonteClinilink : fonteSimulada;
     const tag = `[${ev.attendanceId}]`;
-    let r;
+    let r: Result | undefined;
     if (ilg) {
       r = { state: undefined as never, reply: ilg === 'audio' ? 'Não consegui ouvir esse áudio. Pode escrever a sua mensagem ou enviar o áudio de novo?' : 'Por aqui consigo ler texto e ouvir áudio. Pode escrever o que você precisa?', handoff: undefined };
     } else try {
@@ -206,9 +206,17 @@ async function processar(ev: MessageReceivedEvent) {
     if (r.silencio) return skip('agradecimento depois da despedida: sem resposta');
     // o paciente pediu um humano (ou foi urgência) e voltou a escrever: a equipe segue, a Amanda não retoma
     if (naFilaDaEquipe && r.aposHandoffDuro) return skip('conversa transferida a pedido do paciente (ou urgência): a Amanda não retoma');
+    const replyTxt = r.reply;
     // o GPT só reescreve o tom; emergência/crise nunca passam por ele
-    const gpt = ilg ? { texto: r.reply, status: 'desligado' as const, motivo: 'mensagem fixa (áudio/arquivo ilegível)' } : r.handoff?.urgente ? { texto: r.reply, status: 'desligado' as const, motivo: 'mensagem de segurança' } : SEM_GPT.some((x) => r.reply.includes(x)) ? { texto: r.reply, status: 'desligado' as const, motivo: 'texto exato (valores, chave pix, confirmação)' } : await amigavelDetalhado(r.reply, nomesProtegidos(r), { nome: textos.length % 3 === 0 ? nome : '', anteriores }); // o nome só em 1 a cada 3 mensagens, para não cansar
-    const texto = gpt.texto;
+    const gpt = ilg ? { texto: r.reply, status: 'desligado' as const, motivo: 'mensagem fixa (áudio/arquivo ilegível)' } : r.handoff?.urgente ? { texto: r.reply, status: 'desligado' as const, motivo: 'mensagem de segurança' } : SEM_GPT.some((x) => replyTxt.includes(x)) ? { texto: r.reply, status: 'desligado' as const, motivo: 'texto exato (valores, chave pix, confirmação)' } : await amigavelDetalhado(r.reply, nomesProtegidos(r), { nome: textos.length % 3 === 0 ? nome : '', anteriores }); // o nome só em 1 a cada 3 mensagens, para não cansar
+    let texto = gpt.texto;
+    // TRAVA FINAL: preço zerado ("R$ 0,00") nunca chega ao paciente, venha de onde vier (dado errado no Clinilink, texto do roteiro, GPT).
+    // A mensagem é trocada, a conversa vai para a equipe e o log registra o erro com o texto bloqueado.
+    if (temPrecoZero(r.reply) || temPrecoZero(texto)) {
+      evt('erro', { mensagem: 'preço zero bloqueado antes do envio', roteiro: r.reply.slice(0, 300), reescrito: texto.slice(0, 300) });
+      texto = 'Preciso conferir uma informação antes de continuar. Vou chamar alguém da nossa equipe para te ajudar, só um instante.';
+      r = { ...r, handoff: { motivo: 'BLOQUEIO DE SEGURANÇA: a resposta continha preço "R$ 0,00". Conferir o preço do procedimento no Clinilink e responder ao paciente.' } };
+    }
     const msg = withTitle(texto);
     evt('resposta', {
       fonte: fonte.tipo,
