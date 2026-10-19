@@ -43,6 +43,12 @@ const server = http.createServer((req, res) => {
       if (p.endsWith('/clinicas')) return j(200, { ok: true, clinicas: [{ id: U_GUAMA, nome: 'CLINEX GUAMÁ' }, { id: U_TELEGRAFO, nome: 'CLINEX TELEGRAFO' }] });
       if (p.endsWith('/procedimentos')) {
         const b = url.searchParams.get('busca') ?? '';
+        // procedimentos "estranhos" do cadastro: a busca real é por pedaço do nome, sem acento
+        const sem = (x: string) => x.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+        const extras = [{ id: '26262626-2626-4262-8262-262626262626', nome: 'ERGOMETRIA', categoria: 'Exames' }, { id: '27272727-2727-4272-8272-272727272727', nome: 'CONSULTA FONOAUDIOLOGIA', categoria: 'Consulta' }, { id: '28282828-2828-4282-8282-282828282828', nome: 'TESTE DE ESFORCO COM ECG', categoria: 'Exames' }]
+          .filter((x) => b.length >= 4 && sem(x.nome).includes(sem(b))).map((x) => ({ ...x, preco: 120, precoDinheiro: 120 }));
+        if (extras.length) return j(200, { ok: true, procedimentos: extras });
+        if (/ergometrico|fonoaudiologo|audiom|hemoglob|glicada/i.test(b)) return j(200, { ok: true, procedimentos: [] });
         const consulta = (id: string, nome: string) => ({ id, nome, categoria: 'Consulta', preco: 100, precoDinheiro: 100 });
         const lista = /zzz|qqq|rebec|zuleide|xavier|silva|pix/i.test(b) || /^ultrassom$/i.test(b) ? []
           : /usg|ultrassonografia/i.test(b) ? [{ id: PROC_USG, nome: 'USG ABDOME TOTAL', categoria: 'Exames', preco: 150, precoDinheiro: 150 }]
@@ -495,6 +501,29 @@ r = await dd(['zzzzz', 'qqqqq', 'quero falar com a equipe']);
 confere('D7 e se ele pedir a equipe, transfere', Boolean(r.handoff), r.reply);
 r = await dd(['zzzzz', 'qqqqq', 'quero agendar ginecologista']);
 confere('D7 depois de não entender, consegue pedir de outro jeito e o fluxo segue', /Você quer agendar consulta Ginecologia/.test(r.reply), r.reply.slice(0, 100));
+
+// ===================== serviços com nome parecido / não encontrados =====================
+// N1) "teste ergométrico" mas o cadastro chama de ERGOMETRIA: acha pelo radical
+r = await dd(['Quero fazer um teste ergométrico']);
+confere('N1 "teste ergométrico" acha ERGOMETRIA (nome parecido)', /Você quer agendar Ergometria, é isso\?/.test(r.reply) && !/Não encontrei|Não consegui/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 170));
+r = await dd(['queria um teste de esforço']);
+confere('N1 "teste de esforço" também chega ao exame', /Ergometria|Teste De Esforco Com Ecg|Encontrei estas opções/.test(r.reply) && !/Não encontrei/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 200));
+// N2) palavra solta que não é uma raiz conhecida: tenta o radical ("fonoaudiologo" -> "fonoaudiol")
+r = await dd(['quero marcar com fonoaudiologo']);
+confere('N2 palavra parecida: "fonoaudiologo" acha Fonoaudiologia pelo radical', /Fonoaudiologia/.test(r.reply) && !/Não encontrei/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 150));
+// N3) não existe de jeito nenhum: diz com franqueza, oferece a equipe e só transfere se ele aceitar
+r = await dd(['Quero fazer uma audiometria']);
+confere('N3 serviço não encontrado: avisa e OFERECE a equipe (não transfere sozinha)', /Não encontrei audiometria disponível para agendamento por aqui/.test(r.reply) && /Posso chamar alguém da nossa equipe/.test(r.reply) && !r.handoff && r.state.ofereceuEquipe === 'audiometria', r.reply.replace(/\n/g, ' | ').slice(0, 220));
+r = await dd(['Quero fazer uma audiometria', 'sim']);
+confere('N3 "sim": transfere com o motivo certo para a equipe conferir o cadastro', Boolean(r.handoff) && /audiometria/.test(r.handoff.motivo) && /Agendamento via chatbot/.test(r.handoff.motivo), r.handoff?.motivo.slice(0, 120));
+r = await dd(['Quero fazer uma audiometria', 'não']);
+confere('N3 "não": volta a perguntar o que ele precisa', !r.handoff && /Qual outra consulta ou exame/.test(r.reply), r.reply);
+r = await dd(['Quero fazer uma audiometria', 'então quero ginecologista']);
+confere('N3 muda de pedido depois do aviso: o fluxo segue normalmente', /Você quer agendar consulta Ginecologia/.test(r.reply) && !r.handoff && !r.state.ofereceuEquipe, r.reply.slice(0, 100));
+r = await dd(['quero fazer um exame de hemoglobina glicada']);
+confere('N3 exame fora das raízes conhecidas também recebe o aviso com o nome que ele disse', /Não encontrei hemoglobina glicada/.test(r.reply) && !r.handoff, r.reply.slice(0, 120));
+r = await dd(['preciso de uma informação']);
+confere('N3 pedido de informação não vira "serviço não encontrado"', !/Não encontrei/.test(r.reply), r.reply.slice(0, 120));
 
 server.close();
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTODOS OS CENÁRIOS PASSARAM');

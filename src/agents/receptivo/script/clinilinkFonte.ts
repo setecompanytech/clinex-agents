@@ -1,5 +1,6 @@
 import { criarAgendamento, criarPaciente, getPacientePorCpf, listAgenda, listAgendaFresca, listClinicas, listProcedimentos, listProfissionais, type Clinica, type Horario, type Procedimento } from '../../../integrations/clinilink.js';
 import { env } from '../../../lib/env.js';
+import { evt } from '../../../lib/log.js';
 import { RAIZES, type PedidoReserva, type ResultadoReserva, type Descoberta, type Fonte, type Periodo, type Servico, type Slot, type Unidade } from './catalog.js';
 
 /** Fonte REAL: unidades, médicos, preços, agenda e pacientes vêm do Clinilink. Reservar/cadastrar só com credencial rw. */
@@ -9,7 +10,7 @@ const titulo = (s: string) => s.toLocaleLowerCase('pt-BR').replace(/(^|[\s-])(\p
 const reais = (n: number) => `R$ ${n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 /** "CLINEX GUAMÁ" -> "Guamá" */
 const nomeUnidade = (c: Clinica) => { const n = titulo(c.nome.replace(/^clinex\s+/i, '')); return /^telegrafo$/i.test(n) ? 'Telégrafo' : n; };
-const STOP = new Set(['quero', 'preciso', 'gostaria', 'marcar', 'agendar', 'consulta', 'exame', 'fazer', 'saber', 'sobre', 'para', 'com', 'uma', 'umas', 'amanha', 'hoje', 'tarde', 'manha', 'noite', 'valor', 'preco', 'quanto', 'custa', 'tenho', 'horario', 'vaga', 'dia', 'semana', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo', 'obrigado', 'obrigada', 'por', 'favor', 'voces', 'tem', 'teste']);
+const STOP = new Set(['quero', 'preciso', 'gostaria', 'marcar', 'agendar', 'consulta', 'exame', 'fazer', 'saber', 'sobre', 'para', 'com', 'uma', 'umas', 'amanha', 'hoje', 'tarde', 'manha', 'noite', 'valor', 'preco', 'quanto', 'custa', 'tenho', 'horario', 'vaga', 'dia', 'semana', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo', 'obrigado', 'obrigada', 'por', 'favor', 'voces', 'tem', 'teste', 'informacao', 'informacoes', 'duvida', 'duvidas', 'ajuda', 'atendimento', 'pergunta', 'gostaria', 'queria']);
 
 const hojeYmd = (d = new Date()) => new Intl.DateTimeFormat('en-CA', { timeZone: env.timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
 const somaDias = (ymd: string, n: number) => { const [y, m, d] = ymd.split('-').map(Number); const dt = new Date(Date.UTC(y, m - 1, d)); dt.setUTCDate(dt.getUTCDate() + n); return dt.toISOString().slice(0, 10); };
@@ -181,8 +182,12 @@ export const fonteClinilink: Fonte = {
     if (pessoa) return pessoa;
     const raizes = RAIZES.filter((r) => r.re.test(t));
     let termos = raizes.flatMap((r) => [r.busca, ...(r.alt ?? [])]); // ex.: ultrassom -> usg -> ultrassonografia
-    if (termos.length === 0 && buscando) termos = [...new Set(t.split(/[^a-z]+/).filter((w) => w.length >= 5 && !STOP.has(w)))].slice(0, 2);
+    const solto = [...new Set(t.split(/[^a-z]+/).filter((w) => w.length >= 5 && !STOP.has(w)))].slice(0, 2);
+    // palavra solta: tenta inteira e depois só o radical ("ergometrico" -> "ergometr" acha "ergometria"), para pegar nome igual ou parecido
+    if (termos.length === 0 && buscando) termos = solto.flatMap((w) => (w.length >= 8 ? [w, w.slice(0, w.length - 3)] : [w]));
     if (termos.length === 0) return undefined;
+    const pediu = /\b(quero|queria|preciso|gostaria|marcar|agendar|fazer|realizar|consulta|exame)\b/.test(t);
+    const rotulo = raizes[0]?.nome ?? (pediu && buscando ? solto.join(' ') : '');
     const viaSintoma = raizes.some((r) => r.sintoma?.test(t));
 
     const clinicas = await listClinicas();
@@ -202,7 +207,9 @@ export const fonteClinilink: Fonte = {
       const d = await montar(cands[0]);
       return d && 'servico' in d ? { servico: { ...d.servico, viaSintoma } } : d;
     }
-    return undefined;
+    // nada com esse nome nem parecido (ou não está liberado para agendamento pelo chatbot): o paciente fica sabendo
+    evt('servico_nao_encontrado', { termo: rotulo || solto.join(' '), tentativas: termos });
+    return rotulo ? { naoAchouServico: rotulo } : undefined;
   },
 
   async resolver(id) {

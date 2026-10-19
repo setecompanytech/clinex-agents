@@ -21,6 +21,7 @@ export type Descoberta =
   | { servico: Servico }
   | { opcoes: { id: string; nome: string }[] } // mais de um procedimento parecido: perguntar qual
   | { semAgenda: string } // existe, mas sem vaga aberta
+  | { naoAchouServico: string } // o paciente pediu um serviço conhecido/claro e ele não está liberado para agendamento (ou tem outro nome no cadastro)
   | { naoAchouProfissional: string } // o paciente pediu uma pessoa pelo nome e não há ninguém assim com agenda
   | { semAgendaProfissional: { nome: string; alternativa?: Servico } } // a pessoa existe, mas sem horários abertos (alternativa = mesma especialidade, outros profissionais)
   | undefined; // não achou
@@ -57,15 +58,44 @@ export interface Fonte {
 
 /** Raízes de busca: nome popular OU sintoma -> termo no catálogo. */
 // `alt`: outros nomes com que o mesmo serviço aparece no cadastro (ex.: ultrassom -> USG -> ultrassonografia)
-export const RAIZES: { re: RegExp; busca: string; alt?: string[]; sintoma?: RegExp }[] = [
+// `nome`: como falar do serviço quando ele não é encontrado
+export const RAIZES: { re: RegExp; busca: string; alt?: string[]; sintoma?: RegExp; nome?: string }[] = [
   { re: /endocrin|diabetes|tireoide|hormonio/, busca: 'endocrin' },
   { re: /cardio|coracao|palpita|arritmia|pressao alta/, busca: 'cardio', sintoma: /dor|sinto|palpita|aperto|pressao|arritmia/ },
   { re: /derma|pele|acne|mancha|coceira/, busca: 'dermato' },
   { re: /gineco|menstrua|preventivo|gravid/, busca: 'gineco' },
   { re: /ortoped|osso|joelho|coluna|fratura|dor nas costas/, busca: 'ortoped' },
   { re: /pediatr|crianca|meu filho|minha filha|bebe/, busca: 'pediatr' },
-  { re: /ultrassom|ultrasson|usg|ecografia/, busca: 'ultrassom', alt: ['usg', 'ultrassonografia'] },
-  { re: /clinic[oa] geral|clinico|medic[oa] geral|generalista/, busca: 'clinico geral' },
+  { re: /ultrassom|ultrasson|usg|ecografia/, busca: 'ultrassom', alt: ['usg', 'ultrassonografia'], nome: 'ultrassom' },
+  { re: /clinic[oa] geral|clinico|medic[oa] geral|generalista/, busca: 'clinico geral', nome: 'consulta com clínico geral' },
+  // exames e especialidades: o cadastro pode chamar de outro jeito (o radical e os nomes alternativos cobrem)
+  { re: /ergometr|teste de esforco|esteira/, busca: 'ergometr', alt: ['esforco'], nome: 'teste ergométrico' },
+  { re: /eletrocardio|\becg\b|\beletro\b/, busca: 'eletrocardio', alt: ['ecg'], nome: 'eletrocardiograma' },
+  { re: /ecocardio|eco cardio|ecodoppler/, busca: 'ecocardio', alt: ['eco'], nome: 'ecocardiograma' },
+  { re: /holter/, busca: 'holter', nome: 'holter' },
+  { re: /\bmapa\b|pressao 24/, busca: 'mapa', nome: 'MAPA' },
+  { re: /raio ?x|\brx\b|radiograf/, busca: 'raio', alt: ['rx', 'radiograf'], nome: 'raio-x' },
+  { re: /tomograf/, busca: 'tomograf', nome: 'tomografia' },
+  { re: /resson/, busca: 'resson', nome: 'ressonância' },
+  { re: /mamograf/, busca: 'mamograf', nome: 'mamografia' },
+  { re: /densitom/, busca: 'densitom', nome: 'densitometria' },
+  { re: /endoscop/, busca: 'endosc', nome: 'endoscopia' },
+  { re: /colonoscop/, busca: 'colonosc', nome: 'colonoscopia' },
+  { re: /audiom/, busca: 'audiom', nome: 'audiometria' },
+  { re: /espirom/, busca: 'espirom', nome: 'espirometria' },
+  { re: /neurolog/, busca: 'neurolog', nome: 'neurologia' },
+  { re: /oftalm|oculista|exame de vista/, busca: 'oftalm', nome: 'oftalmologia' },
+  { re: /otorrino/, busca: 'otorrino', nome: 'otorrinolaringologia' },
+  { re: /urolog/, busca: 'urolog', nome: 'urologia' },
+  { re: /psiquiatr/, busca: 'psiquiatr', nome: 'psiquiatria' },
+  { re: /psicolog/, busca: 'psicolog', nome: 'psicologia' },
+  { re: /nutri/, busca: 'nutri', nome: 'nutrição' },
+  { re: /fisioterap/, busca: 'fisioterap', nome: 'fisioterapia' },
+  { re: /gastroenter|\bgastro\b/, busca: 'gastro', nome: 'gastroenterologia' },
+  { re: /reumatolog/, busca: 'reumato', nome: 'reumatologia' },
+  { re: /pneumolog/, busca: 'pneumo', nome: 'pneumologia' },
+  { re: /geriatr/, busca: 'geriatr', nome: 'geriatria' },
+  { re: /vascular|angiolog/, busca: 'vascular', nome: 'cirurgia vascular' },
 ];
 
 // ------------------------- FONTE SIMULADA -------------------------

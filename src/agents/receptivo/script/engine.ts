@@ -41,6 +41,7 @@ export type State = {
   pagFinal: boolean; // forma de pagamento resolvida (comprovante conferido, pagamento na recepção ou desistência do pix)
   compTent: number; // respostas/comprovantes que não serviram
   comprovante?: { valor: number; data: string; nota: string };
+  ofereceuEquipe?: string; // serviço pedido que não foi encontrado: ela ofereceu chamar a equipe e espera a resposta
   pagoPix?: number; // soma dos comprovantes já conferidos (o paciente pode pagar em mais de um pix)
   transacoes?: string[]; // ids de transação já contados, para o mesmo comprovante não valer duas vezes
   pos?: Pos; // logo depois de um agendamento concluído
@@ -355,6 +356,12 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
   const aplicar = (d: Awaited<ReturnType<Fonte['descobrir']>>): Result | undefined => {
     if (!d) return undefined;
     if ('semAgenda' in d) return out(comAbertura(`No momento não há vagas abertas para ${d.semAgenda}. Vou pedir para a equipe conferir e te retornar.`), { motivo: `Sem vagas abertas na agenda para ${d.semAgenda}.` });
+    // serviço pedido e não encontrado: diz com franqueza e oferece a equipe (só transfere se ele aceitar)
+    if ('naoAchouServico' in d) {
+      if (s.servico) return undefined; // já está em um atendimento: ignora a menção
+      s.ofereceuEquipe = d.naoAchouServico;
+      return out(comAbertura(`Não encontrei ${d.naoAchouServico} disponível para agendamento por aqui. Posso chamar alguém da nossa equipe para te ajudar com isso?`));
+    }
     // pediu uma pessoa pelo nome ("com a dra Rebecca") e não há ninguém assim com agenda: não transfere, pede mais um dado
     if ('naoAchouProfissional' in d) return out(comAbertura(`Não encontrei ${d.naoAchouProfissional} entre os nossos profissionais com agenda aberta. Pode me dizer o sobrenome, ou a especialidade ou o exame que você precisa?`));
     if ('semAgendaProfissional' in d) {
@@ -368,7 +375,8 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
       return out(comAbertura(`${x.nome} não tem horários abertos nos próximos dias. Me diz a especialidade ou o exame que você precisa, que eu vejo as outras opções.`));
     }
     if ('opcoes' in d) { s.opcoes = d.opcoes; s.servico = undefined; return undefined; }
-    if (d.servico.id !== s.servico?.id || d.servico.profissional?.id !== s.servico?.profissional?.id) { s.servico = d.servico; s.opcoes = undefined; reiniciaDepoisDoServico(); mudouServico = true; }
+    if (d.servico.id !== s.servico?.id || d.servico.profissional?.id !== s.servico?.profissional?.id) {
+      s.ofereceuEquipe = undefined; s.servico = d.servico; s.opcoes = undefined; reiniciaDepoisDoServico(); mudouServico = true; }
     return undefined;
   };
   // 2b) mudou de ideia antes de informar o CPF: outro serviço, outra unidade ou outro dia/horário. Ajusta e segue, sem recomeçar.
@@ -410,6 +418,13 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
     if (s.opcoes) {
       const lista = s.opcoes.map((o, i) => `${i + 1}. ${o.nome}`).join('\n');
       return out(comAbertura(`Encontrei estas opções:\n${lista}\nQual delas você precisa?`));
+    }
+    // ela ofereceu chamar a equipe para um serviço que não achou: "sim" transfere; "não" volta ao começo
+    if (s.ofereceuEquipe) {
+      const termo = s.ofereceuEquipe;
+      if (SIM.test(t)) return out('Combinado! Vou chamar a nossa equipe para te ajudar com isso, já com tudo anotado. Só um instante.', { motivo: `Paciente quer agendar "${termo}", que não aparece como disponível para agendamento pelo chatbot. Conferir no Clinilink se o procedimento está liberado ("Agendamento via chatbot") ou agendar manualmente.` });
+      s.ofereceuEquipe = undefined;
+      if (NAO.test(t)) return out('Sem problema. Qual outra consulta ou exame você precisa?');
     }
     // dúvida ou "??" antes de ter serviço: responde (a resposta entra pelo out) e pergunta o que ele precisa, sem contar como "não entendi"
     if (faq) return out(comAbertura(faq === 'preco' ? 'Para te passar o valor certinho, me diz qual consulta ou exame você precisa.' : faq === 'ping' ? 'Qual consulta ou exame você precisa?' : 'Posso te ajudar com um agendamento? Me diz qual consulta ou exame você precisa.'));
