@@ -26,6 +26,8 @@ function memo<T>(key: string, ttlMs: number, fn: () => Promise<T>): Promise<T> {
   const val = fn();
   cache.set(key, { exp: Date.now() + ttlMs, val });
   val.catch(() => cache.delete(key)); // não guarda falha
+  // resultado vazio vale só 20 s: quem acabou de liberar um serviço/agenda no Clinilink não espera 10 minutos para a Amanda enxergar
+  val.then((v) => { if (Array.isArray(v) && v.length === 0) cache.set(key, { exp: Date.now() + 20_000, val }); }).catch(() => {});
   return val;
 }
 
