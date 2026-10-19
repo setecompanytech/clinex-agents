@@ -29,7 +29,17 @@ confere('emoji', /emoji/, `${bom.replace('?', '')} 😊?`);
 confere('travessão', /travessão/, bom.replace('Fechado,', 'Fechado —'));
 confere('exclamações demais', /exclamações/, `Que bom! Que alegria! Que dia lindo! ${bom}`);
 confere('abertura "Perfeito"', /abertura proibida/, `Perfeito, ${bom}`);
-confere('nome de médico alterado', /nome alterado/, bom.replace('Ebenezaide Nascimento Perdigão', 'Ebenezaide Perdigão'), orig, ['Ebenezaide Nascimento Perdigão']);
+// voz nova: abertura do próprio roteiro mantida; título Dr./Dra. do original preservado; serviço e especialidade protegidos
+const novo1 = 'Beleza, então fica consulta Cardiologista no Guamá na quinta (22) de manhã a partir das 8h por ordem de chegada com a Dra. Fernanda. Pra agilizar o seu atendimento na recepção, você quer antecipar o pagamento por pix ou link de crédito?';
+confere('o roteiro abre com "Beleza": o GPT mantendo a abertura é aceito', 'ACEITA', novo1.replace('Beleza, então fica', 'Beleza, então ficou'), novo1);
+confere('o GPT ACRESCENTANDO "Beleza" é barrado', /abertura proibida/, `Beleza, ${novo1}`, novo1.replace('Beleza, então fica', 'Então fica'));
+confere('título "a Dra." mantido é aceito', 'ACEITA', novo1.replace('com a Dra. Fernanda', 'com a Dra. Fernanda mesmo'), novo1, ['Dra. Fernanda']);
+confere('título "Dra." removido do nome protegido é barrado', /nome alterado/, novo1.replace('a Dra. Fernanda', 'a Fernanda'), novo1, ['Dra. Fernanda']);
+confere('o GPT trocando o médico para "Dr." é barrado', /nome alterado/, novo1.replace('a Dra. Fernanda', 'o Dr. Fernanda'), novo1, ['Dra. Fernanda']);
+confere('serviço encurtado ("consulta Cardiologista" -> "consulta") é barrado', /nome alterado/, novo1.replace('consulta Cardiologista', 'consulta'), novo1, ['consulta Cardiologista']);
+confere('dia da semana curto trocado ("quinta" -> "sexta") é barrado', /fato ausente|fato inventado/, novo1.replace('quinta (22)', 'sexta (22)'), novo1);
+confere('dia da semana curto sumiu é barrado', /fato ausente/, novo1.replace('na quinta (22) de manhã', 'de manhã (22)'), novo1);
+confere('nome de médico alterado',/nome alterado/, bom.replace('Ebenezaide Nascimento Perdigão', 'Ebenezaide Perdigão'), orig, ['Ebenezaide Nascimento Perdigão']);
 confere('pergunta a mais', /criou pergunta/, 'Vou passar para a equipe. Pode aguardar?', 'Vou passar para a equipe. Só um instante.');
 confere('frase de assistente automático', /assistente automático/, `Estou aqui para ajudar. ${bom}`);
 

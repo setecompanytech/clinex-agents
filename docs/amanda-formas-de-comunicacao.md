@@ -436,3 +436,14 @@ Responda com as letras, por exemplo: "voz B em tudo, menos a 11 e a 12, que quer
 8. **A pergunta do pagamento** (etapa 5): manter exatamente como você escreveu, ou posso soltar um pouco o tom?
 
 Com as suas respostas eu aplico no sistema e deixo testado antes de publicar.
+
+---
+
+## Decisões aplicadas (voz escolhida)
+
+Voz **C (natural) com um pouco de A (acolhedora)**, aplicada em todas as etapas:
+
+- Sem emoji. Poucas vírgulas, como uma pessoa digitando no WhatsApp ("pra", "tá", "né").
+- Médicos sempre com título: "a Dra. Fernanda", "o Dr. Armando". O gênero sai do primeiro nome (lista de nomes e terminação; nomes raros são confirmados por um modelo de linguagem). Em dúvida, só o nome, sem título.
+- Textos aprovados palavra por palavra e que não passam pelo GPT: "Tenho sim!" (unidades), "Consegui estes aqui:" (horários), "O mais rápido que tenho é ... Já separo esse pra você.", resumo com a pergunta do pagamento, chave pix, "Recebi o seu comprovante, muito obrigada! Agora pra eu fazer a reserva pode me passar o CPF do paciente?", "Não to conseguindo ler esse comprovante, pode me mandar de novo?", pagamento parcial e aviso de segurança do sintoma.
+- Ordem livre: o paciente pode dizer dia, período, unidade, forma de pagamento, CPF ou o nome do médico em qualquer momento (até antes do serviço). A Amanda guarda e não pergunta de novo.

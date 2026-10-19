@@ -55,7 +55,7 @@ const confere = (nome: string, ok: boolean, detalhe = '') => { if (!ok) falhas++
 // conversa até o pagamento (fonte simulada): serviço, unidade, vaga nº 1 e pergunta de pagamento
 const ate_o_pagamento = () => [
   eu('oi'), amanda('Boa tarde! Sou a Amanda, da Clinex.'),
-  eu('quero agendar cardiologia'), amanda('Você quer agendar consulta de Cardiologia, é isso?'),
+  eu('quero agendar cardiologia'), amanda('(?:Ah, então é|Entendi, você quer|Só pra confirmar: é|Então é) consulta de Cardiologia, é isso?'),
   eu('sim'), amanda('Consulta de Cardiologia tem agenda nestas unidades...'),
   eu('guama'), amanda('Tenho estas opções: 1. ...'),
   eu('1'), amanda('Fechado, é consulta ... Para agilizar o seu atendimento na recepção, gostaria de antecipar o pagamento por pix ou link de crédito?'),
@@ -101,7 +101,7 @@ confere('A5 com atendente humano atribuído: não mexe', c.length === 0, `chamad
 // A6) o aviso de "Transferido para o setor Agente IA" por uma PESSOA reinicia a jornada (falhas antigas não contam)
 n = 0;
 c = await roda([eu('boa tarde, quero uma consulta'), amanda('Não consegui identificar o serviço.'), eu('ola, quero marcar uma consulta'), sistema('Transferido para o setor Agente IA por ARMANDO'), eu('Olá')]);
-confere('A6 depois de uma transferência feita por pessoa, "Olá" só cumprimenta', textos(c).length === 1 && transfs(c).length === 0 && /Como posso te ajudar|Qual consulta/.test(textos(c)[0]), textos(c)[0]);
+confere('A6 depois de uma transferência feita por pessoa, "Olá" só cumprimenta', textos(c).length === 1 && transfs(c).length === 0 && /Me conta o que você precisa|Qual consulta/.test(textos(c)[0]), textos(c)[0]);
 
 // A7) uma mensagem de SISTEMA depois da mensagem do paciente não impede a resposta
 n = 0;

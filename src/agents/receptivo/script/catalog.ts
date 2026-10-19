@@ -124,8 +124,8 @@ const simServico = (x: Sim): Servico => ({
   frase: x.tipo === 'consulta' ? `consulta de ${x.nome}` : `exame de ${x.nome}`,
   unidades: x.unidades.map((nome) => ({ nome, profissionais: [PROF[nome]], precoPix: Number(x.preco.replace(/[^\d,]/g, '').replace(',', '.')) })),
   precoTexto: x.tipo === 'consulta'
-    ? `A consulta custa ${x.preco}, no dinheiro ou Pix${x.retornoDias ? `, e dá direito a retorno em até ${x.retornoDias} dias` : ''}.`
-    : `O exame custa ${x.preco}, no dinheiro ou Pix.`,
+    ? `A consulta é ${x.preco}, no dinheiro ou Pix${x.retornoDias ? ` e dá direito a retorno em até ${x.retornoDias} dias` : ''}.`
+    : `O exame é ${x.preco}, no dinheiro ou Pix.`,
 });
 
 function slotsDoDia(un: Unidade, ymd: string): Slot[] {

@@ -7,6 +7,7 @@ import { fonteSimulada } from './script/catalog.js';
 import { fonteClinilink } from './script/clinilinkFonte.js';
 import { amigavelDetalhado, temPrecoZero } from '../../lib/humanizer.js';
 import { interpretarEscolha } from '../../lib/interpretar.js';
+import { exibir } from '../../lib/genero.js';
 import { comAtendimento, evt } from '../../lib/log.js';
 import { firstName, followUpMessage, greeting, nowParts, welcomeMessage } from '../../lib/humanize.js';
 
@@ -48,10 +49,13 @@ const phoneKey = (v: string) => {
 function nomesProtegidos(r: { state?: any; reply: string }): string[] {
   const st = r.state;
   if (!st) return [];
-  const nomes: string[] = [
+  // médicos: a forma que aparece na conversa ("Dra. Fernanda", "Dr. Armando"); pacientes: o nome como está no cadastro
+  const medicos: string[] = [
     ...(st.servico?.unidades ?? []).flatMap((u: any) => u.profissionais ?? []),
-    st.slot?.profissional, st.paciente?.nome, st.cad?.nome,
-  ].filter(Boolean);
+    st.slot?.profissional, st.servico?.profissional?.nome,
+  ].filter(Boolean).map((n: string) => exibir(n));
+  // o nome do serviço ("consulta Cardiologista com a Dra. Fernanda", "Teste Ergometrico") também não pode ser trocado nem encurtado
+  const nomes: string[] = [...medicos, st.paciente?.nome, st.cad?.nome, st.servico?.frase].filter(Boolean);
   return [...new Set(nomes)].filter((n) => r.reply.toLocaleLowerCase('pt-BR').includes(String(n).toLocaleLowerCase('pt-BR')));
 }
 
@@ -196,13 +200,13 @@ async function processar(ev: MessageReceivedEvent) {
     const tag = `[${ev.attendanceId}]`;
     let r: Result | undefined;
     if (ilg) {
-      r = { state: undefined as never, reply: ilg === 'audio' ? 'Não consegui ouvir esse áudio. Pode escrever a sua mensagem ou enviar o áudio de novo?' : 'Por aqui consigo ler texto e ouvir áudio. Pode escrever o que você precisa?', handoff: undefined };
+      r = { state: undefined as never, reply: ilg === 'audio' ? 'Não consegui ouvir esse áudio. Escreve pra mim ou manda de novo?' : 'Recebi o arquivo, mas só leio texto e áudio por aqui. Pode me escrever?', handoff: undefined };
     } else try {
       r = await responder(turnos, { now: new Date(), nome, tz: env.timezone, telefone: ev.to, pos, lerComprovante: lerComprovanteDe(history), interpretar: interpretarEscolha }, fonte);
     } catch (e) {
       // Clinilink fora do ar / lento: não inventa dado, devolve para a equipe
       console.error(`${tag} falha ao consultar a fonte (${fonte.tipo}):`, (e as Error).message);
-      r = { state: undefined as never, reply: 'Estou com dificuldade para consultar a agenda agora. Vou pedir para a equipe te ajudar, só um instante.', handoff: { motivo: `Falha ao consultar o Clinilink: ${(e as Error).message}` } };
+      r = { state: undefined as never, reply: 'Tô com dificuldade pra consultar a agenda agora. Vou chamar alguém da equipe pra te ajudar. Só um instante.', handoff: { motivo: `Falha ao consultar o Clinilink: ${(e as Error).message}` } };
     }
     if (!r) return skip('roteiro sem resposta');
     if (r.silencio) return skip('agradecimento depois da despedida: sem resposta');
@@ -216,7 +220,7 @@ async function processar(ev: MessageReceivedEvent) {
     // A mensagem é trocada, a conversa vai para a equipe e o log registra o erro com o texto bloqueado.
     if (temPrecoZero(r.reply) || temPrecoZero(texto)) {
       evt('erro', { mensagem: 'preço zero bloqueado antes do envio', roteiro: r.reply.slice(0, 300), reescrito: texto.slice(0, 300) });
-      texto = 'Preciso conferir uma informação antes de continuar. Vou chamar alguém da nossa equipe para te ajudar, só um instante.';
+      texto = 'Preciso conferir uma informação antes de continuar. Vou chamar alguém da equipe pra te ajudar. Só um instante.';
       r = { ...r, handoff: { motivo: 'BLOQUEIO DE SEGURANÇA: a resposta continha preço "R$ 0,00". Conferir o preço do procedimento no Clinilink e responder ao paciente.' } };
     }
     const msg = withTitle(texto);

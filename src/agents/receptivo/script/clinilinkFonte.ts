@@ -1,5 +1,6 @@
 import { criarAgendamento, criarPaciente, getPacientePorCpf, listAgenda, listAgendaFresca, listClinicas, listProcedimentos, listProfissionais, type Clinica, type Horario, type Procedimento } from '../../../integrations/clinilink.js';
 import { env } from '../../../lib/env.js';
+import { exibir, prepararGeneros } from '../../../lib/genero.js';
 import { evt } from '../../../lib/log.js';
 import { RAIZES, type PedidoReserva, type ResultadoReserva, type Descoberta, type Fonte, type Periodo, type Servico, type Slot, type Unidade } from './catalog.js';
 
@@ -53,6 +54,7 @@ async function montar(c: Cand, prof?: { id: string; nome: string }): Promise<Des
   }));
   const nome = titulo(c.proc.nome);
   if (comAgenda.length === 0) return { semAgenda: nome };
+  await prepararGeneros([prof?.nome, ...comAgenda.flatMap((x) => x.medicos)]); // Dr./Dra. nas frases
   comAgenda.sort((a, b) => a.u.nome.localeCompare(b.u.nome));
   comAgenda.forEach(({ u }) => unidadesPorId.set(u.id, u));
 
@@ -67,11 +69,11 @@ async function montar(c: Cand, prof?: { id: string; nome: string }): Promise<Des
   const valores = [...new Set(porUnidade.values())];
   const consulta = /consulta/i.test(c.proc.nome) || /consulta/i.test(c.proc.categoria ?? '');
   const sujeito = consulta ? 'A consulta' : 'O exame';
-  const precoTexto = valores.length === 0 ? '' : valores.length === 1 ? `${sujeito} custa ${valores[0]}.` : `${[...porUnidade].map(([u, v]) => `No ${u}, ${sujeito.toLowerCase()} custa ${v}`).join('. ')}.`;
+  const precoTexto = valores.length === 0 ? '' : valores.length === 1 ? `${sujeito} é ${valores[0]}.` : `${[...porUnidade].map(([u, v]) => `No ${u} ${sujeito.toLowerCase()} é ${v}`).join('. ')}.`;
 
   const servico: Servico = {
     id: c.proc.id, nome, tipo: consulta ? 'consulta' : 'exame',
-    frase: `${nome.replace(/^Consulta\b/, 'consulta')}${prof ? ` com ${titulo(prof.nome)}` : ''}`,
+    frase: `${nome.replace(/^Consulta\b/, 'consulta')}${prof ? ` com ${exibir(prof.nome, { artigo: true })}` : ''}`,
     profissional: prof ? { id: prof.id, nome: titulo(prof.nome) } : undefined,
     unidades: comAgenda.map(({ u, medicos, proc }): Unidade => ({ id: u.id, nome: nomeUnidade(u), profissionais: medicos, precoPix: precoDe(proc) })), precoTexto,
   };
@@ -167,7 +169,10 @@ async function descobrirProfissional(t: string): Promise<Descoberta> {
   }
   // empate no topo: pergunta qual
   const empatados = pont.filter((x) => x.pts === pont[0].pts);
-  if (empatados.length > 1) return { opcoes: empatados.slice(0, 4).map(({ p }) => ({ id: `prof:${p.id}`, nome: `${titulo(p.nome)}${p.especialidade ? ` (${p.especialidade})` : ''}` })) };
+  if (empatados.length > 1) {
+    await prepararGeneros(empatados.slice(0, 4).map(({ p }) => p.nome));
+    return { opcoes: empatados.slice(0, 4).map(({ p }) => ({ id: `prof:${p.id}`, nome: `${exibir(titulo(p.nome))}${p.especialidade ? ` (${p.especialidade})` : ''}` })) };
+  }
   return servicoDaProfissional(pont[0].p);
 }
 
