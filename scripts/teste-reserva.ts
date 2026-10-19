@@ -11,6 +11,7 @@ let modo: { ocupados: number; agendamento?: 'ok' | 'duplicado' | '500' | 'ocupad
 const U_GUAMA = '11111111-1111-4111-8111-111111111111';
 const U_TELEGRAFO = '99999999-9999-4999-8999-999999999999';
 const PROC = '22222222-2222-4222-8222-222222222222';
+const PROC2 = '23232323-2323-4232-8232-232323232323';
 const MEDICO = '33333333-3333-4333-8333-333333333333';
 const AGENDA = '44444444-4444-4444-8444-444444444444';
 const dia = (n: number) => { const d = new Date(Date.now() + n * 86400000); return d.toISOString().slice(0, 10); };
@@ -32,9 +33,9 @@ const server = http.createServer((req, res) => {
     const p = url.pathname;
     if (req.method === 'GET') {
       if (p.endsWith('/clinicas')) return j(200, { ok: true, clinicas: [{ id: U_GUAMA, nome: 'CLINEX GUAMÁ' }, { id: U_TELEGRAFO, nome: 'CLINEX TELEGRAFO' }] });
-      if (p.endsWith('/procedimentos')) return j(200, { ok: true, procedimentos: [{ id: PROC, nome: 'CONSULTA GINECOLOGIA', categoria: 'Consulta', preco: 100, precoDinheiro: 100 }] });
+      if (p.endsWith('/procedimentos')) return j(200, { ok: true, procedimentos: [/dermat/i.test(url.searchParams.get('busca') ?? '') ? { id: PROC2, nome: 'CONSULTA DERMATOLOGIA', categoria: 'Consulta', preco: 100, precoDinheiro: 100 } : { id: PROC, nome: 'CONSULTA GINECOLOGIA', categoria: 'Consulta', preco: 100, precoDinheiro: 100 }] });
       if (p.endsWith('/agenda')) return j(200, { ok: true, horarios: horarios(url.searchParams.get('dataInicial') ?? '0000', url.searchParams.get('dataFinal') ?? '9999') });
-      if (p.endsWith('/pacientes')) return j(200, { ok: true, pacientes: url.searchParams.get('cpf') === '11122233344' ? [{ id: '55555555-5555-4555-8555-555555555555', nome: 'MARIA EXEMPLO' }] : [] });
+      if (p.endsWith('/pacientes')) return j(200, { ok: true, pacientes: url.searchParams.get('cpf') === '52998224725' ? [{ id: '55555555-5555-4555-8555-555555555555', nome: 'MARIA EXEMPLO' }] : [] });
     }
     if (req.method === 'POST') {
       posts.push({ rota: p, corpo });
@@ -79,7 +80,7 @@ const base = ['oi', 'quero agendar ginecologista', 'sim', 'guama amanhã', 'na r
 
 // 1) paciente NOVO, jornada completa, com reprocessamento a cada mensagem
 reset({ ocupados: 0 });
-let r = await conversa([...base, '99988877766', 'Joana Teste Souza', '10/05/1990', 'feminino', 'sim']);
+let r = await conversa([...base, '12345678909', 'Joana Teste Souza', '10/05/1990', 'feminino', 'sim']);
 confere('1 paciente novo: confirma o agendamento', r.reply.startsWith(MARCA_AGENDADO) && !r.handoff, r.reply.replace(/\n/g, ' | '));
 confere('1 cadastrou UMA vez', nPost('/pacientes') === 1, `POST pacientes = ${nPost('/pacientes')}`);
 confere('1 agendou UMA vez (sem duplicar no reprocessamento)', nPost('/agendamentos') === 1, `POST agendamentos = ${nPost('/agendamentos')}`);
@@ -87,26 +88,26 @@ const ag = posts.find((x) => x.rota.endsWith('/agendamentos'))!.corpo;
 confere('1 pegou o PRIMEIRO horário livre real (08:00)', ag.dataHora.includes('T08:00'), ag.dataHora);
 confere('1 mandou ids reais e o procedimento', ag.agendaId === AGENDA && ag.profissionalId === MEDICO && ag.unidadeId === U_GUAMA && ag.procedimentos[0] === PROC && ag.pacienteId === '77777777-7777-4777-8777-777777777777');
 const cad = posts.find((x) => x.rota.endsWith('/pacientes'))!.corpo;
-confere('1 cadastro com nascimento ISO, sexo e CPF', cad.dataNascimento === '1990-05-10' && cad.sexo === 'feminino' && cad.cpf === '99988877766' && cad.nome === 'Joana Teste Souza', JSON.stringify({ ...cad, cpf: '***', nome: '***' }));
+confere('1 cadastro com nascimento ISO, sexo e CPF', cad.dataNascimento === '1990-05-10' && cad.sexo === 'feminino' && cad.cpf === '12345678909' && cad.nome === 'Joana Teste Souza', JSON.stringify({ ...cad, cpf: '***', nome: '***' }));
 
 // 2) paciente que JÁ EXISTE: não cadastra
 reset({ ocupados: 0 });
-r = await conversa([...base, '11122233344', 'sim']);
+r = await conversa([...base, '52998224725', 'sim']);
 confere('2 paciente existente: agendou sem cadastrar', r.reply.startsWith(MARCA_AGENDADO) && nPost('/pacientes') === 0 && nPost('/agendamentos') === 1, `pacientes=${nPost('/pacientes')} agendamentos=${nPost('/agendamentos')}`);
 
 // 3) NÃO grava antes do fim: parado no CPF e na confirmação do paciente
 reset({ ocupados: 0 });
-await conversa([...base, '11122233344']);
+await conversa([...base, '52998224725']);
 confere('3 antes de confirmar o paciente: nenhuma gravação', posts.length === 0, `POSTs = ${posts.length}`);
 
 // 4) primeiro horário ocupado: tenta o próximo
 reset({ ocupados: 0 }); (globalThis as any).__ocupaPrimeiro = true;
-r = await conversa([...base, '11122233344', 'sim']);
+r = await conversa([...base, '52998224725', 'sim']);
 confere('4 horário ocupado: tentou o seguinte e confirmou', r.reply.startsWith(MARCA_AGENDADO) && nPost('/agendamentos') === 2, `tentativas=${nPost('/agendamentos')}`);
 
 // 5) todos ocupados: passa para a equipe, sem inventar confirmação
 reset({ ocupados: 0, agendamento: 'ocupado-sempre' });
-r = await conversa([...base, '11122233344', 'sim']);
+r = await conversa([...base, '52998224725', 'sim']);
 confere('5 vaga perdida: transfere e NÃO diz que agendou', Boolean(r.handoff) && !r.reply.includes(MARCA_AGENDADO) && /preenchida/.test(r.reply), r.reply);
 confere('5 no máximo 3 tentativas', nPost('/agendamentos') <= 3, `tentativas=${nPost('/agendamentos')}`);
 
@@ -115,36 +116,36 @@ reset({ ocupados: 0 });
 {
   const antes = fonteClinilink.reservar!;
   modo.ocupados = 3; // agenda "fresca" sem horários
-  r = await conversa([...base.slice(0, 3), 'amanhã no guama'].length ? [...base, '11122233344', 'sim'] : []);
+  r = await conversa([...base.slice(0, 3), 'amanhã no guama'].length ? [...base, '52998224725', 'sim'] : []);
   void antes;
   confere('6 sem horário livre no momento de reservar: transfere', Boolean(r.handoff) || /não há vaga|não encontrei/.test(r.reply), r.reply.replace(/\n/g, ' | '));
 }
 
 // 7) erro 500 na reserva: resultado incerto, NÃO repete o POST
 reset({ ocupados: 0, agendamento: '500' });
-r = await conversa([...base, '11122233344', 'sim']);
+r = await conversa([...base, '52998224725', 'sim']);
 confere('7 erro 500: transfere com aviso de conferir', Boolean(r.handoff) && /CONFERIR/.test(r.handoff!.motivo) && !r.reply.includes(MARCA_AGENDADO), r.handoff?.motivo.slice(0, 90));
 confere('7 não repetiu o POST', nPost('/agendamentos') === 1, `tentativas=${nPost('/agendamentos')}`);
 
 // 8) mesmo serviço no mesmo dia
 reset({ ocupados: 0, agendamento: 'duplicado' });
-r = await conversa([...base, '11122233344', 'sim']);
+r = await conversa([...base, '52998224725', 'sim']);
 confere('8 serviço duplicado no dia: transfere', Boolean(r.handoff) && /já tem esse atendimento/.test(r.reply), r.reply);
 
 // 9) CPF já existe no cadastro na hora de cadastrar (corrida): usa o existente
 reset({ ocupados: 0, cpfDuplicado: true });
-r = await conversa([...base, '99988877766', 'Joana Teste Souza', '10/05/1990', 'feminino', 'sim']);
+r = await conversa([...base, '12345678909', 'Joana Teste Souza', '10/05/1990', 'feminino', 'sim']);
 confere('9 CPF_DUPLICADO: usa o paciente existente', r.reply.startsWith(MARCA_AGENDADO) && posts.find((x) => x.rota.endsWith('/agendamentos'))!.corpo.pacienteId === '66666666-6666-4666-8666-666666666666');
 
 // 10) credencial somente leitura: o Clinilink recusa, a Amanda NÃO diz que agendou e passa para a equipe
 reset({ ocupados: 0, somenteLeitura: true });
-r = await conversa([...base, '11122233344', 'sim']);
+r = await conversa([...base, '52998224725', 'sim']);
 confere('10 chave somente leitura: transfere e NÃO confirma', Boolean(r.handoff) && !r.reply.includes(MARCA_AGENDADO) && /SOMENTE_LEITURA/.test(r.handoff!.motivo), r.handoff?.motivo.slice(0, 80));
 confere('10 só uma tentativa de gravar', posts.length === 1, `POSTs=${posts.length}`);
 
 // 11) depois de agendar, uma mensagem nova abre jornada nova (não regrava)
 reset({ ocupados: 0 });
-r = await conversa([...base, '11122233344', 'sim', 'obrigada']);
+r = await conversa([...base, '52998224725', 'sim', 'obrigada']);
 confere('11 mensagem depois do fim não regrava', nPost('/agendamentos') === 1, `agendamentos=${nPost('/agendamentos')} | ${r.reply.replace(/\n/g, ' | ').slice(0, 80)}`);
 
 // 12) o paciente manda "isso" e "pra amanhã" quase juntos: o resumo de unidades e médicos NÃO pode sumir
@@ -160,12 +161,12 @@ confere('13 "oi" + pedido juntos: ainda cumprimenta', /^(Bom dia|Boa tarde|Boa n
 
 // 14) CPF + "sim" juntos: o "sim" não confirma um nome que ele nunca viu (e nada é gravado)
 reset({ ocupados: 0 });
-r = await responder([...base.map((x) => [x]), ['11122233344', 'sim']], ctx, fonteClinilink) as any;
+r = await responder([...base.map((x) => [x]), ['52998224725', 'sim']], ctx, fonteClinilink) as any;
 confere('14 CPF + sim juntos: mostra o nome para confirmar e NÃO reserva', /Encontrei o cadastro/.test(r.reply) && posts.length === 0, `${r.reply.replace(/\n/g, ' | ')} | POSTs=${posts.length}`);
 
 // 15) "sim" e "obrigada" juntos na confirmação do paciente: a reserva acontece (uma vez)
 reset({ ocupados: 0 });
-r = await responder([...base.map((x) => [x]), ['11122233344'], ['sim', 'obrigada']], ctx, fonteClinilink) as any;
+r = await responder([...base.map((x) => [x]), ['52998224725'], ['sim', 'obrigada']], ctx, fonteClinilink) as any;
 confere('15 "sim" + "obrigada" juntos: reservou uma vez', nPost('/agendamentos') === 1, `agendamentos=${nPost('/agendamentos')}`);
 
 // 16) falhas ANTES de uma transferência não contaminam a conversa nova (bug: "Olá" já era transferido)
@@ -182,10 +183,10 @@ confere('17 áudio: pedido longo, confirmação e unidade falados', /Tenho estas
 r = await responder([['Oi, bom dia! Eu queria marcar uma consulta com a ginecologista, por favor.'], ['Isso mesmo.'], ['Guamá.'], ['Pode ser a segunda opção.']], ctx, fonteClinilink) as any;
 confere('17 áudio: "a segunda opção" escolhe a 2ª da lista (não é segunda-feira)', /pagamento/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 120));
 reset({ ocupados: 0 });
-r = await responder([...base.map((x) => [x]), ['O meu CPF é 999 888 777 66.'], ['Meu nome é Joana Teste Souza.'], ['Nasci em 10 de maio de 1990.'], ['Sou mulher.'], ['Pode sim.']], ctx, fonteClinilink) as any;
+r = await responder([...base.map((x) => [x]), ['O meu CPF é 123 456 789 09.'], ['Meu nome é Joana Teste Souza.'], ['Nasci em 10 de maio de 1990.'], ['Sou mulher.'], ['Pode sim.']], ctx, fonteClinilink) as any;
 confere('17 áudio: CPF espaçado, nome com "meu nome é", nascimento por extenso, "sou mulher" -> agenda', r.reply.startsWith(MARCA_AGENDADO) && nPost('/agendamentos') === 1, r.reply.replace(/\n/g, ' | ').slice(0, 100));
 const cad17 = posts.find((x) => x.rota.endsWith('/pacientes'))?.corpo;
-confere('17 cadastro certo: nome limpo, 1990-05-10, feminino', cad17?.nome === 'Joana Teste Souza' && cad17?.dataNascimento === '1990-05-10' && cad17?.sexo === 'feminino' && cad17?.cpf === '99988877766', JSON.stringify({ nome: cad17?.nome, nasc: cad17?.dataNascimento, sexo: cad17?.sexo }));
+confere('17 cadastro certo: nome limpo, 1990-05-10, feminino', cad17?.nome === 'Joana Teste Souza' && cad17?.dataNascimento === '1990-05-10' && cad17?.sexo === 'feminino' && cad17?.cpf === '12345678909', JSON.stringify({ nome: cad17?.nome, nasc: cad17?.dataNascimento, sexo: cad17?.sexo }));
 
 // ===================== pagamento (pix / link / recepção) =====================
 const hojeSP = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
@@ -212,7 +213,7 @@ confere('P1 depois do horário vem a pergunta de pagamento (pix ou link de créd
 reset({ ocupados: 0 });
 r = await resp([...base0, 'vou pagar na recepção'].map((x) => [x]));
 confere('P2 "na recepção" segue para o CPF (não transfere)', !r.handoff && /CPF/.test(r.reply) && /recepção/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 110));
-r = await resp([...base0, 'na recepção', '11122233344', 'sim'].map((x) => [x]));
+r = await resp([...base0, 'na recepção', '52998224725', 'sim'].map((x) => [x]));
 confere('P2 agendou e a observação diz "Pagamento na recepção"', r.reply.startsWith(MARCA_AGENDADO) && /Pagamento na recepção/.test(posts.find((x) => x.rota.endsWith('/agendamentos'))!.corpo.observacao), posts.find((x) => x.rota.endsWith('/agendamentos'))?.corpo.observacao);
 
 // P3) pix: manda a chave e o valor, e ESPERA o comprovante (nada de CPF nem reserva)
@@ -230,7 +231,7 @@ confere('P3 pediu a chave de novo: reenvia', /Chave pix: clinicaclinex@gmail\.co
 reset({ ocupados: 0 });
 r = await resp([...base0, 'pix', img('img-ok')].map((x) => [x]));
 confere('P4 comprovante certo: confirma o pagamento e pede o CPF', /Pagamento confirmado/.test(r.reply) && /CPF/.test(r.reply) && posts.length === 0, r.reply.replace(/\n/g, ' | '));
-r = await resp([...base0, 'pix', img('img-ok'), '11122233344', 'sim'].map((x) => [x]));
+r = await resp([...base0, 'pix', img('img-ok'), '52998224725', 'sim'].map((x) => [x]));
 confere('P4 agenda depois do pix e registra o comprovante na observação', r.reply.startsWith(MARCA_AGENDADO) && /Pix antecipado: R\$ 100,00/.test(posts.find((x) => x.rota.endsWith('/agendamentos'))!.corpo.observacao), posts.find((x) => x.rota.endsWith('/agendamentos'))?.corpo.observacao);
 reset({ ocupados: 0 });
 r = await resp([...base0, 'pix', img('img-maior')].map((x) => [x]));
@@ -258,7 +259,7 @@ confere('P5 sem leitura automática: transfere para conferir a imagem', Boolean(
 reset({ ocupados: 0 });
 r = await resp([...base0, 'pix', 'não vou pagar no pix, só quero agendar'].map((x) => [x]));
 confere('P6 desistiu do pix: segue para o CPF', !r.handoff && /CPF/.test(r.reply) && /recepção/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 110));
-r = await resp([...base0, 'pix', 'não vou pagar no pix, só quero agendar', '11122233344', 'sim'].map((x) => [x]));
+r = await resp([...base0, 'pix', 'não vou pagar no pix, só quero agendar', '52998224725', 'sim'].map((x) => [x]));
 confere('P6 desistiu do pix: agenda sem comprovante', r.reply.startsWith(MARCA_AGENDADO), r.reply.slice(0, 50));
 
 // P7) link de crédito vai para a equipe; "não" a antecipar vai para a recepção; resposta solta pergunta de novo
@@ -321,7 +322,7 @@ r = await resp([...base0, 'pix', img('img-meio')].map((x) => [x]));
 confere('R1 valor menor: reconhece o que pagou, diz quanto falta e oferece escolher', !r.handoff && /Recebi o seu comprovante de R\$ 50,00/.test(r.reply) && /faltam R\$ 50,00/.test(r.reply) && /restante agora por pix ou deixar para pagar na recepção/.test(r.reply) && posts.length === 0, r.reply);
 r = await resp([...base0, 'pix', img('img-meio'), 'deixa o resto para pagar na recepção'].map((x) => [x]));
 confere('R1 resto na recepção: segue para o CPF', !r.handoff && /o restante, R\$ 50,00, fica para a recepção/.test(r.reply) && /CPF/.test(r.reply), r.reply);
-r = await resp([...base0, 'pix', img('img-meio'), 'deixa o resto para pagar na recepção', '11122233344', 'sim'].map((x) => [x]));
+r = await resp([...base0, 'pix', img('img-meio'), 'deixa o resto para pagar na recepção', '52998224725', 'sim'].map((x) => [x]));
 const obsParcial = posts.find((x) => x.rota.endsWith('/agendamentos'))?.corpo.observacao ?? '';
 confere('R1 agenda e a observação avisa: pix parcial + saldo na recepção', r.reply.startsWith(MARCA_AGENDADO) && /PARCIAL de R\$ 50,00/.test(obsParcial) && /Saldo de R\$ 50,00 a pagar na recepção/.test(obsParcial), obsParcial);
 
@@ -331,7 +332,7 @@ r = await resp([...base0, 'pix', img('img-meio'), 'vou pagar o resto agora no pi
 confere('R2 resto por pix: manda a chave com o valor que falta', /Chave pix:/.test(r.reply) && /Valor que falta: R\$ 50,00/.test(r.reply), r.reply.replace(/\n/g, ' | '));
 r = await resp([...base0, 'pix', img('img-meio'), 'pix', img('img-resto')].map((x) => [x]));
 confere('R2 segundo comprovante completa o valor: confirma o pagamento', /Pagamento confirmado/.test(r.reply) && /CPF/.test(r.reply), r.reply);
-r = await resp([...base0, 'pix', img('img-meio'), 'pix', img('img-resto'), '11122233344', 'sim'].map((x) => [x]));
+r = await resp([...base0, 'pix', img('img-meio'), 'pix', img('img-resto'), '52998224725', 'sim'].map((x) => [x]));
 confere('R2 observação registra o total e que foram dois comprovantes', /Pix antecipado: R\$ 100,00 .*mais de um comprovante/.test(posts.find((x) => x.rota.endsWith('/agendamentos'))?.corpo.observacao ?? ''), posts.find((x) => x.rota.endsWith('/agendamentos'))?.corpo.observacao);
 
 // R3) o mesmo comprovante não conta duas vezes
@@ -364,6 +365,59 @@ confere('T2 urgência: a Amanda não retoma', r.aposHandoffDuro === true, String
 // T3) quer retomar um atendimento antigo
 r = await resp([['Voltei, quero retomar meu agendamento']]);
 confere('T3 "quero retomar meu agendamento": acolhe e pergunta o que precisa', !r.handoff && /retomar o seu agendamento/.test(r.reply) && /Qual consulta ou exame/.test(r.reply), r.reply);
+
+// ===================== dúvidas no meio do fluxo =====================
+const um = (txt: string) => [txt];
+const ate3 = ['oi', 'quero agendar ginecologista', 'sim']; // parou na pergunta da unidade
+reset({ ocupados: 0 });
+r = await resp([['qual o horário de atendimento de vocês?']]);
+confere('F1 sem serviço: responde o horário e pergunta o que ele precisa (sem contar como "não entendi")', /segunda a sexta, das 7h às 17h/.test(r.reply) && /Posso te ajudar com um agendamento/.test(r.reply) && !r.handoff && r.state.falhas === 0, r.reply.replace(/\n/g, ' | ').slice(0, 170));
+r = await resp([['quanto custa a consulta de ginecologia?']]);
+confere('F2 valor + serviço na mesma frase: informa o valor e confirma o serviço', /A consulta custa R\$ 100,00/.test(r.reply) && /Você quer agendar consulta Ginecologia/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 170));
+r = await resp([...ate3.map(um), um('qual o endereço de vocês?')]);
+confere('F3 endereço no meio do fluxo: não inventa, oferece a equipe e RETOMA a pergunta da unidade', /equipe te passe certinho/.test(r.reply) && /qual unidade você prefere/.test(r.reply) && !r.handoff, r.reply.replace(/\n/g, ' | ').slice(0, 220));
+r = await resp([...base0.map(um), um('qual o valor?')]);
+confere('F4 valor na pergunta de pagamento: informa e volta a perguntar a forma de pagamento', /A consulta custa R\$ 100,00/.test(r.reply) && /Prefere pagar por pix, por link de crédito ou na recepção/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 200));
+r = await resp([...base0, 'pix', 'qual o valor?'].map(um));
+confere('F5 valor esperando o comprovante: reenvia a chave com o valor (sem duplicar resposta)', /^Aqui está!/.test(r.reply) && /Chave pix:/.test(r.reply), r.reply.replace(/\n/g, ' | '));
+r = await resp([...ate3.map(um), um('??')]);
+confere('F6 "??" no meio do fluxo: "Estou aqui" e repete a pergunta pendente', /^Estou aqui, sim!/.test(r.reply) && /qual unidade você prefere/.test(r.reply), r.reply.replace(/\n/g, ' | '));
+r = await resp([...base.map(um), um('qual o endereço?')]);
+confere('F7 dúvida no pedido do CPF: responde e volta a pedir o CPF', /equipe/.test(r.reply) && /CPF do paciente/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 200));
+r = await resp([...base.map(um), um('12345678909'), um('qual o endereço de vocês')]);
+confere('F8 dúvida (sem "?") na hora do nome: NÃO vira o nome do paciente', r.state.cad?.nome === undefined && /nome completo/.test(r.reply) && /equipe/.test(r.reply), `${r.state.cad?.nome} | ${r.reply.replace(/\n/g, ' | ').slice(0, 150)}`);
+r = await resp([...ate3.map(um), um('qual o endereço?'), um('pode chamar alguém da equipe')]);
+confere('F9 depois da dúvida que ela não sabe, "pode chamar alguém da equipe" transfere', Boolean(r.handoff), r.reply);
+r = await resp([...ate3.map(um), um('quais médicos atendem?')]);
+confere('F10 "quais médicos atendem?": mostra os médicos de cada unidade e volta à pergunta', /Medica Teste da Silva/.test(r.reply) && /qual unidade você prefere/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 220));
+r = await resp([...base0.map(um), um('aceita cartão de crédito?')]);
+confere('F11 "aceita cartão?": explica as formas de pagamento e volta a perguntar (não conta como escolha nem transfere)', !r.handoff && /pix \(eu te envio a chave\) ou link de crédito, ou pagar na recepção/.test(r.reply) && /Prefere pagar por pix/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 220));
+r = await resp([['funciona sábado?'], ['quero agendar ginecologista']]);
+confere('F12 dúvida e depois o pedido: o fluxo segue normalmente', /Você quer agendar consulta Ginecologia/.test(r.reply) && !r.handoff, r.reply.slice(0, 100));
+
+// ===================== mudou de ideia =====================
+r = await resp([...base0.map(um), um('prefiro o Telégrafo')]);
+confere('C1 trocou de unidade depois de escolher o horário: ajusta e mostra novas opções', /Sem problema, vamos ajustar/.test(r.reply) && r.state.unidade?.nome === 'Telégrafo' && !r.state.slot && !r.handoff, r.reply.replace(/\n/g, ' | ').slice(0, 160));
+r = await resp([...base0.map(um), um('prefiro o Telégrafo'), um('1')]);
+confere('C1 e ao escolher o novo horário, pergunta o pagamento de novo (já com o novo horário)', /Telégrafo/.test(r.reply) && /antecipar o pagamento por pix ou link de crédito\?/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(-170));
+r = await resp([...base0.map(um), um('queria outro dia')]);
+confere('C2 "queria outro dia": volta a oferecer datas', /Sem problema, vamos ajustar/.test(r.reply) && /Tenho estas opções|tenho/.test(r.reply) && !r.state.slot, r.reply.replace(/\n/g, ' | ').slice(0, 140));
+r = await resp([...base0, 'pix', 'outro dia eu pago'].map(um));
+confere('C3 esperando o pix, "outro dia eu pago" NÃO troca o horário', !/vamos ajustar/.test(r.reply) && Boolean(r.state.slot), r.reply.slice(0, 110));
+r = await resp([...base0.map(um), um('na verdade quero dermatologia')]);
+confere('C4 trocou de serviço depois de escolher o horário: recomeça pelo novo serviço', /consulta Dermatologia/i.test(r.reply) && !r.state.slot && !r.handoff, r.reply.slice(0, 120));
+r = await resp([...base.map(um), um('52998224725'), um('prefiro outro dia')]);
+confere('C5 depois do CPF, "prefiro outro dia" não bagunça o fluxo', !/vamos ajustar/.test(r.reply) && Boolean(r.state.slot), r.reply.slice(0, 110));
+
+// ===================== CPF =====================
+const { cpfValido } = await import('../src/agents/receptivo/script/engine.js');
+confere('V0 cpfValido: aceita os válidos e recusa os errados', cpfValido('03185344286') && cpfValido('529.982.247-25') && !cpfValido('11122233344') && !cpfValido('11111111111') && !cpfValido('123'), '');
+r = await resp([...base.map(um), um('11122233344')]);
+confere('V1 CPF com dígito errado: pede para conferir e não consulta o paciente', /não parece estar correto/.test(r.reply) && !r.state.cpf, r.reply);
+r = await resp([...base.map(um), um('111.111.111-11')]);
+confere('V2 CPF com todos os dígitos iguais: recusa', /não parece estar correto/.test(r.reply), r.reply.slice(0, 60));
+r = await resp([...base.map(um), um('11122233344'), um('52998224725')]);
+confere('V3 depois de corrigir, segue normalmente', /Encontrei o cadastro/.test(r.reply), r.reply);
 
 server.close();
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTODOS OS CENÁRIOS PASSARAM');

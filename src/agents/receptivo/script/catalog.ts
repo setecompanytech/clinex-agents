@@ -79,7 +79,7 @@ const PROF: Record<string, string> = { 'Guamá': 'Carlos Almeida', 'Telégrafo':
 const DIAS: Record<string, number[]> = { 'Guamá': [1, 2, 3, 4, 5, 6], 'Telégrafo': [2, 4, 6] };
 const INICIO_SIM: Record<Periodo, string> = { manhã: '07:00', tarde: '13:00' };
 /** CPF de exemplo que "existe" no cadastro simulado. */
-const PACIENTES_SIM: Record<string, string> = { '11122233344': 'Maria da Silva Exemplo' };
+const PACIENTES_SIM: Record<string, string> = { '52998224725': 'Maria da Silva Exemplo' };
 
 const addDias = (ymd: string, n: number) => { const [y, m, d] = ymd.split('-').map(Number); const dt = new Date(Date.UTC(y, m - 1, d)); dt.setUTCDate(dt.getUTCDate() + n); return dt.toISOString().slice(0, 10); };
 const dow = (ymd: string) => new Date(`${ymd}T12:00:00Z`).getUTCDay();

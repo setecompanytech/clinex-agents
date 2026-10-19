@@ -139,7 +139,7 @@ const lerTurno = (t: string): Periodo | 'noite' | undefined => (/(^|[^a-z])(manh
 // ---------- detectores ----------
 const EMERGENCIA = /dor (forte )?no peito|falta de ar|nao consigo respirar|desmai|convuls|sangramento (intenso|forte)|avc|infarto|rigidez (de|na) nuca|fraqueza (subita|de um lado)|fala (travada|enrolada)/;
 const CRISE = /suicid|me matar|tirar minha vida|acabar com minha vida|nao quero mais viver|me machucar|autolesao/;
-const HUMANO = /atendente|humano|pessoa de verdade|falar com alguem|falar com uma pessoa|(falar|conversar|chamar|passar).{0,15}(recepcao|recepcionista)/;
+const HUMANO = /atendente|humano|pessoa de verdade|falar com alguem|falar com uma pessoa|(falar|conversar|chamar|chama|passar|passa|pedir|quero|pode chamar).{0,20}(recepcao|recepcionista|equipe)/;
 const SIM = /^(sim|s|pode|pode sim|pode reservar|quero|quero sim|ok|isso|isso mesmo|e isso|e isso mesmo|exato|confirmo|confirma|fechado|combinado|bora|claro|por favor|pode ser|ta bom|tudo bem|correto|certo|esse mesmo|sou eu)\b/;
 const RETOMAR = /\b(retom\w*|continu\w*|dar continuidade|voltei|ainda quero|onde (a gente )?parou|de onde paramos|seguir com (o|meu) agendamento)\b/;
 const NAO = /^(nao|n|nao quero|nao obrigad|nao e|outro|outra|prefiro outro|prefiro outra|errado)\b/;
@@ -233,6 +233,36 @@ function posAgendamento(pos: Pos, t: string): { reply: string; pos?: Pos } | 'se
   return 'seguir';
 }
 
+// ---------- dúvidas no meio do fluxo ----------
+export type Faq = 'horario' | 'preco' | 'pagto' | 'medicos' | 'unidades' | 'endereco' | 'convenio' | 'preparo' | 'ping';
+const FAQ: [Faq, RegExp][] = [
+  ['horario', /horario de (atendimento|funcionamento)|\b(qual|quais|que)\b.{0,12}\bhorarios?\b.{0,10}\b(atendimento|funcionamento)\b|que horas?.{0,12}\b(abre|abrem|fecha|fecham|funciona|funcionam|atende|atendem)\b|ate que horas|\b(abre|abrem|funciona|funcionam|atende|atendem)\b.{0,12}\b(sabado|domingo|feriado|sabados)\b/],
+  ['preco', /\b(quanto (custa|fica|sai|e)|qual (e )?o (valor|preco)|valor da|preco da|qual (e )?a (valor|taxa))\b/],
+  ['pagto', /formas? de pagamento|\baceita(m)? (cartao|pix|dinheiro|debito|credito)\b|\b(posso|da pra|da para) (pagar|parcelar)\b|\bparcel/],
+  ['medicos', /\b(quais|que|quem)\b.{0,15}\b(medicos?|medicas?|profissionais|doutor\w*|especialistas?)\b|\bquem atende\b/],
+  ['unidades', /\b(quais|que|onde)\b.{0,15}\b(unidades?|clinicas?)\b|\bunidades? (voces )?(tem|possuem)\b/],
+  ['endereco', /\b(endereco|localizacao|ponto de referencia|como (eu )?(chego|chegar)|onde (fica|ficam|e a|e o|voces ficam))\b/],
+  ['convenio', /\b(convenio|convenios|plano de saude|unimed|amil|hapvida|bradesco saude|sulamerica|cassi)\b/],
+  ['preparo', /\b(jejum|preparo|o que levar|preciso levar|levar (algum |algum outro )?(exame|documento|documentos)|que documentos?)\b/],
+];
+/** "??", "tá aí?", "tem alguém?": o paciente só está chamando. */
+const PING = /^(\?+|oi+\s*\?+|ola\s*\?+|alo\s*\??|ta ai\s*\??|tem alguem( ai)?\s*\??|cade\s*\??|voce (esta|ta) ai\s*\??|e entao\s*\??|ei\s*\??|hello\s*\??)[\s!.?]*$/;
+const PING_SAUDACAO = /^(oi+|ola|bom dia|boa tarde|boa noite)[\s!.?]*$/;
+function detectaFaq(t: string, emAtendimento: boolean): Faq | undefined {
+  if (PING.test(t) || (emAtendimento && PING_SAUDACAO.test(t))) return 'ping';
+  return FAQ.find(([, re]) => re.test(t))?.[0];
+}
+/** Ordem de prioridade já vem da lista acima. */
+const TROCA_DIA = /\b(outro|outra|mudar|trocar|alterar)\s+(o\s+|a\s+)?(dia|data|horario|turno|periodo)\b|\bnao (posso|consigo|da)\s+(nesse|neste|nessa|nesta|no)\s+(dia|data|horario)\b/;
+
+/** CPF com os dois dígitos verificadores corretos (e não todos iguais). */
+export function cpfValido(cpf: string): boolean {
+  const d = cpf.replace(/\D/g, '');
+  if (d.length !== 11 || /^(\d)\1{10}$/.test(d)) return false;
+  const dv = (n: number) => { let soma = 0; for (let i = 0; i < n; i++) soma += Number(d[i]) * (n + 1 - i); const r = (soma * 10) % 11; return r === 10 ? 0 : r; };
+  return dv(9) === Number(d[9]) && dv(10) === Number(d[10]);
+}
+
 // ---------- núcleo ----------
 export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 0): Promise<Result> {
   // depois de uma jornada concluída, uma nova mensagem abre outra jornada (mantém a saudação já feita)
@@ -243,7 +273,44 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
   const nome = ctx.nome;
   const nomeOk = /^[\p{L}]{2,20}$/u.test(nome ?? '') ? nome : '';
   const abertura = s.saudou ? '' : `${SAUDACAO(h.hora)}${nomeOk ? `, ${nomeOk}` : ''}! Sou a Amanda, da Clinex. Que bom ter você por aqui!`;
-  const out = (reply: string, handoff?: Handoff): Result => { s.saudou = true; return { state: s, reply, handoff }; };
+  // Dúvida no meio do fluxo (horário, valor, médicos...): a resposta vem ANTES da pergunta que o fluxo já ia fazer,
+  // então o paciente tem a informação e a conversa segue do mesmo ponto, sem se perder.
+  const faq = detectaFaq(t, Boolean(s.servico));
+  const nomesUnFaq = faq === 'unidades' ? await fonte.nomesUnidades() : [];
+  const esperandoPix = () => s.pagamento === 'pix' && s.pixEnviado && !s.pagFinal && Boolean(s.slot);
+  const prefixoFaq = (reply: string): string => {
+    if (!faq) return '';
+    const sv = s.servico;
+    const EQUIPE = ' Se quiser, é só me pedir que eu chamo alguém da equipe.';
+    switch (faq) {
+      case 'ping': return s.saudou ? 'Estou aqui, sim!' : '';
+      case 'horario': return env.clinicHorario;
+      case 'preco': return !sv?.precoTexto || esperandoPix() || reply.includes(sv.precoTexto) ? '' : sv.precoTexto;
+      case 'pagto': return esperandoPix() || reply.includes(MARCA_PAGAMENTO) ? '' : 'Você pode antecipar o pagamento por pix (eu te envio a chave) ou link de crédito, ou pagar na recepção, no dia do atendimento.';
+      case 'medicos':
+      case 'unidades': {
+        if (!sv) return faq === 'unidades' && nomesUnFaq.length ? `Temos as unidades ${nomesUnFaq.join(' e ')}.` : '';
+        if (reply.includes('tem agenda')) return '';
+        const linha = (u: Unidade) => `${u.nome}${u.profissionais?.length ? ` com ${u.profissionais.join(' e ')}` : ''}`;
+        return sv.unidades.length === 1 ? `${cap(sv.frase)} tem agenda no ${linha(sv.unidades[0])}.` : [`${cap(sv.frase)} tem agenda nestas unidades:`, ...sv.unidades.map(linha)].join('\n');
+      }
+      // o que eu não sei com segurança, não invento: a equipe confirma
+      case 'endereco': return `Para endereço e como chegar, prefiro que a nossa equipe te passe certinho, para não te informar nada errado.${EQUIPE}`;
+      case 'convenio': return `Sobre convênios, a nossa equipe confirma direitinho para você, assim ninguém te passa informação errada.${EQUIPE}`;
+      case 'preparo': return `Sobre preparo e o que levar, a nossa equipe te orienta certinho para o seu atendimento.${EQUIPE}`;
+    }
+  };
+  /** Põe a resposta da dúvida depois da saudação de abertura (se houver) e antes do resto. */
+  const comFaq = (reply: string): string => {
+    const pre = prefixoFaq(reply);
+    if (!pre) return reply;
+    if (abertura && reply.startsWith(abertura)) {
+      const resto = reply.slice(abertura.length);
+      return `${abertura}${resto.startsWith('\n') ? '\n' : ' '}${pre}\n\n${resto.trimStart()}`;
+    }
+    return `${pre}\n\n${reply}`;
+  };
+  const out = (reply: string, handoff?: Handoff): Result => { s.saudou = true; return { state: s, reply: handoff ? reply : comFaq(reply), handoff }; };
   const comAbertura = (txt: string) => (abertura ? `${abertura}\n${txt}` : txt);
   const partes: string[] = [];
   if (abertura) partes.push(abertura);
@@ -292,13 +359,36 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
     if (d.servico.id !== s.servico?.id) { s.servico = d.servico; s.opcoes = undefined; reiniciaDepoisDoServico(); mudouServico = true; }
     return undefined;
   };
+  // 2b) mudou de ideia antes de informar o CPF: outro serviço, outra unidade ou outro dia/horário. Ajusta e segue, sem recomeçar.
+  if (s.servico && s.slot && !s.cpf) {
+    let trocou = false;
+    if (RAIZES.some((x) => x.re.test(t))) {
+      const d = await fonte.descobrir(t, false);
+      if (d && 'servico' in d && d.servico.id !== s.servico.id) { const r = aplicar(d); if (r) return r; trocou = true; }
+    }
+    if (!trocou) {
+      const outra = (await fonte.nomesUnidades()).find((u) => t.includes(norm(u)) && norm(u) !== norm(s.unidade?.nome ?? ''));
+      const outraUn = outra ? s.servico.unidades.find((u) => norm(u.nome) === norm(outra)) : undefined;
+      const outroDia = !esperandoPix() && TROCA_DIA.test(t);
+      if (outraUn || outroDia) {
+        if (outraUn) {
+          s.unidade = outraUn;
+          if (!s.pagFinal) { s.pagamento = undefined; s.pixEnviado = false; s.pagoPix = undefined; s.transacoes = undefined; s.comprovante = undefined; } // o valor pode ser outro na outra unidade
+        }
+        s.slot = undefined; s.lista = undefined; s.data = undefined; s.turno = undefined;
+        if (!s.pagFinal && !s.pagamento) s.pagPerguntado = false; // pergunta o pagamento de novo, já com o novo horário
+        partes.push('Sem problema, vamos ajustar.');
+      }
+    }
+  }
   if (!s.slot) {
     if (s.opcoes && !s.servico) {
       const idx = lerEscolha(t, s.opcoes.length);
       const escolhida = s.opcoes[idx] ?? s.opcoes.find((o) => norm(o.nome).split(/\s+/).filter((w) => w.length > 3).some((w) => t.includes(w)));
       if (escolhida) { const r = aplicar(await fonte.resolver(escolhida.id)); if (r) return r; }
     } else {
-      const r = aplicar(await fonte.descobrir(t, !s.servico));
+      // dúvida ("funciona sábado?", "qual o horário de atendimento?"): sem busca solta por palavras, para não "achar" um serviço sem querer
+      const r = aplicar(await fonte.descobrir(t, !s.servico && !faq));
       if (r) return r;
     }
   }
@@ -309,6 +399,8 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
       const lista = s.opcoes.map((o, i) => `${i + 1}. ${o.nome}`).join('\n');
       return out(comAbertura(`Encontrei estas opções:\n${lista}\nQual delas você precisa?`));
     }
+    // dúvida ou "??" antes de ter serviço: responde (a resposta entra pelo out) e pergunta o que ele precisa, sem contar como "não entendi"
+    if (faq) return out(comAbertura(faq === 'preco' ? 'Para te passar o valor certinho, me diz qual consulta ou exame você precisa.' : faq === 'ping' ? 'Qual consulta ou exame você precisa?' : 'Posso te ajudar com um agendamento? Me diz qual consulta ou exame você precisa.'));
     // o paciente voltou para retomar um atendimento que ficou pela metade
     if (RETOMAR.test(t)) return out(comAbertura('Que bom que você voltou! Vamos retomar o seu agendamento. Qual consulta ou exame você precisa?'));
     const cumprimento = SO_CUMPRIMENTO.test(t);
@@ -425,10 +517,10 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
   if (!s.pagFinal) {
     if (!s.pagPerguntado) {
       s.pagPerguntado = true;
-      s.pagamento = lerPagamento(t); // se ele já adiantou a forma de pagamento, não pergunta de novo
+      s.pagamento = faq === 'pagto' ? undefined : lerPagamento(t); // se ele já adiantou a forma de pagamento, não pergunta de novo; "aceita cartão?" é pergunta, não escolha
       if (!s.pagamento) return dizer(`${pick(['Fechado', 'Combinado'], n)}, é ${resumoVaga}. Para agilizar o seu atendimento na recepção, gostaria de ${MARCA_PAGAMENTO} por pix ou link de crédito?`);
     } else if (!s.pagamento) {
-      const f = lerPagamento(t);
+      const f = faq === 'pagto' ? undefined : lerPagamento(t);
       if (!f) {
         s.compTent += 1;
         if (s.compTent >= 3) return out('Vou passar para a equipe combinar o pagamento com você, já com tudo anotado. Só um instante.', { motivo: `Paciente não definiu a forma de pagamento. Vaga: ${resumoVaga}. Agendamento AINDA NÃO feito.` });
@@ -506,6 +598,7 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
   const slotAntes = Boolean(base.slot && base.pagFinal);
   if (!s.cpf) {
     const cpf = slotAntes ? cpfDoTexto(t) : undefined;
+    if (cpf && !cpfValido(cpf)) return dizer('Esse CPF não parece estar correto, algum número deve ter ficado errado. Pode conferir os 11 números e me enviar de novo?');
     if (cpf) s.cpf = cpf;
     else if (slotAntes && /\d{2,}/.test(t)) return dizer('Não consegui ler o CPF. Pode me enviar os 11 números?');
     else return dizer(`${pick(['Fechado', 'Combinado'], n)}, é ${resumoVaga}. Para eu reservar, preciso do CPF do paciente. Qual é?`);
@@ -528,7 +621,7 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
   if (s.paciente === null) {
     const c = s.cad;
     if (!acabouDeConsultar) {
-      if (!c.nome) { const m = limparNome(texto); if (/^[\p{L}' ]{5,80}$/u.test(m) && m.includes(' ') && !SIM.test(t) && !NAO.test(t)) c.nome = titulo(m); }
+      if (!c.nome) { const m = limparNome(texto); if (/^[\p{L}' ]{5,80}$/u.test(m) && m.includes(' ') && !SIM.test(t) && !NAO.test(t) && !faq) c.nome = titulo(m); }
       else if (!c.nascimento) { const nsc = lerNascimento(texto); if (nsc) c.nascimento = nsc; }
       else if (!c.sexo) { if (/fem|mulher/.test(t)) c.sexo = 'feminino'; else if (/masc|homem/.test(t)) c.sexo = 'masculino'; }
       else if (!c.telefone) {

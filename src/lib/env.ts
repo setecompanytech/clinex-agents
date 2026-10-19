@@ -33,6 +33,8 @@ export const env = {
   openaiModel: process.env.OPENAI_MODEL ?? 'gpt-4o-mini',
   // chave pix para o pagamento antecipado e nome que deve aparecer como recebedor no comprovante
   pixKey: process.env.PIX_KEY ?? 'clinicaclinex@gmail.com',
+  // horário de atendimento da equipe, como a Amanda informa (o mesmo da resposta automática da clínica)
+  clinicHorario: process.env.CLINIC_HORARIO ?? 'Nosso horário de atendimento é de segunda a sexta, das 7h às 17h, e aos sábados das 7h às 11h.',
   // palavras (separadas por vírgula) que identificam o recebedor no comprovante; basta uma aparecer no nome ou na chave
   pixRecebedor: process.env.PIX_RECEBEDOR ?? 'clinex',
   clinicName: process.env.CLINIC_NAME ?? 'Clínica',
