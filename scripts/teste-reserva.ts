@@ -14,6 +14,7 @@ const PROC = '22222222-2222-4222-8222-222222222222';
 const PROC2 = '23232323-2323-4232-8232-232323232323';
 const MEDICO = '33333333-3333-4333-8333-333333333333';
 const P_REB = '51515151-5151-4515-8515-515151515151'; // REBECCA SILVA MOURA (Ginecologia, só no Guamá)
+const P_LIDUINA = '54545454-5454-4545-8545-545454545454'; // atende a tarde de depois de amanhã
 const P_REBECA = '52525252-5252-4525-8525-525252525252'; // REBECA COSTA LIMA (Cardiologia, sem agenda aberta)
 const PROC3 = '24242424-2424-4242-8242-242424242424';
 const PROC_USG = '25252525-2525-4252-8252-252525252525';
@@ -30,7 +31,7 @@ const horarios = (ini: string, fim: string, profId?: string, unidadeId?: string)
   if (profId === P_REB) return unidadeId === U_TELEGRAFO ? [] : [...["10:00", "10:30"].map((h) => mk(dia(3), h, "10:00", { id: P_REB, nome: "REBECCA SILVA MOURA" }))].filter((h) => h.data >= ini && h.data <= fim);
   return [
     ...["08:00", "08:30", "09:00"].slice(modo.ocupados).map((h) => mk(dia(1), h, "08:00")),
-    ...["13:30", "14:00"].map((h) => mk(dia(2), h, "13:00")),
+    ...["13:30", "14:00"].map((h) => mk(dia(2), h, "13:00", { id: P_LIDUINA, nome: "LIDUINA COSTA PINTO" })),
   ].filter((h) => h.data >= ini && h.data <= fim);
 };
 
@@ -591,6 +592,40 @@ r = await dd(['Quero agendar teste', 'esforço']);
 confere('I3 escolher pelo nome de uma das opções ("esforço") também', /Você quer agendar Teste de Esforco/i.test(r.reply), r.reply.slice(0, 120));
 r = await dd(['Quero agendar teste', 'nao, quero consulta de dermatologia']);
 confere('I3 e trocar de assunto com opções pendentes ("quero dermatologia") funciona', /Você quer agendar consulta Dermatologia/i.test(r.reply), r.reply.slice(0, 120));
+
+// ===================== datas e posições: "quinta", "quinta 22", "com a Liduina" (a conversa NÃO pode repetir a pergunta) =====================
+const { lerData, lerEscolha } = await import('../src/agents/receptivo/script/engine.js');
+const seg = { now: new Date('2026-10-19T15:00:00Z'), nome: '', tz: 'America/Sao_Paulo' }; // segunda-feira, 19/10/2026
+for (const [txt, esp] of [['quinta', '2026-10-22'], ['quinta 22', '2026-10-22'], ['quinta-feira dia 29', '2026-10-29'], ['terca 27', '2026-10-27'], ['sexta 2', '2026-11-02'], ['quarta', '2026-10-21'], ['segunda', '2026-10-26'], ['dia 25', '2026-10-25'], ['25/10', '2026-10-25'], ['amanha', '2026-10-20']] as [string, string][]) {
+  const got = lerData(txt, seg);
+  confere(`K0 lerData("${txt}") = ${esp}`, got === esp, String(got));
+}
+for (const [txt, total, esp] of [['quinta', 4, -1], ['quinta 22', 4, -1], ['quarta', 4, -1], ['segunda', 4, -1], ['a quinta opcao', 5, 4], ['opcao quinta', 5, 4], ['o quinto', 5, 4], ['o quarto', 5, 3], ['o segundo', 3, 1], ['a primeira', 3, 0], ['2', 3, 1], ['terca', 3, -1], ['22 de outubro', 3, -1]] as [string, number, number][]) {
+  const got = lerEscolha(txt, total);
+  confere(`K0 lerEscolha("${txt}", ${total}) = ${esp}`, got === esp, String(got));
+}
+
+// a lista de horários na tela e o paciente responde com dia da semana, dia do mês ou o nome da médica
+const nomeSemana = (ymd: string) => ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'][new Date(`${ymd}T12:00:00Z`).getUTCDay()];
+const ateLista = ['oi', 'quero agendar ginecologista', 'sim', 'guama'];
+reset({ ocupados: 0 });
+r = await dd(ateLista);
+confere('K1 ponto de partida: a lista de horários aparece com as duas médicas', /Tenho estas opções/.test(r.reply) && /Liduina Costa Pinto/.test(r.reply) && Boolean(r.state.lista?.length), r.reply.replace(/\n/g, ' | ').slice(-230));
+const diaDoMes = Number(dia(2).slice(8));
+r = await dd([...ateLista, `${nomeSemana(dia(2))}`]);
+confere('K1 responder só o dia da semana escolhe aquele dia (não repete a lista)', /antecipar o pagamento/.test(r.reply) && !/Tenho estas opções/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(-190));
+r = await dd([...ateLista, `${nomeSemana(dia(2))} ${diaDoMes}`]);
+confere('K1 "dia da semana + número" ("quinta 22") escolhe aquele dia', /antecipar o pagamento/.test(r.reply) && !/Tenho estas opções/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(-190));
+r = await dd([...ateLista, `${nomeSemana(dia(2))} ${diaDoMes} com o armando`]);
+confere('K1 e com um nome que não é de nenhum médico ("com o armando") a data vale e a conversa segue', /antecipar o pagamento/.test(r.reply) && !/Tenho estas opções/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(-190));
+r = await dd([...ateLista, 'quero com a liduina']);
+confere('K2 citar a médica da lista escolhe o horário dela', /Liduina Costa Pinto/.test(r.reply) && /antecipar o pagamento/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(-230));
+r = await dd([...ateLista, 'o primeiro']);
+confere('K2 "o primeiro" continua escolhendo a posição 1', /antecipar o pagamento/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(-120));
+// o mesmo pedido 3 vezes não pode dar a mesma resposta 3 vezes: depois de entender, a conversa AVANÇA
+const resp1 = (await dd([...ateLista, `${nomeSemana(dia(2))} ${diaDoMes}`])).reply;
+const resp2 = (await dd([...ateLista, `${nomeSemana(dia(2))} ${diaDoMes}`, 'pode agendar'])).reply;
+confere('K3 depois de escolher o dia, a pergunta seguinte é DIFERENTE (não fica repetindo a lista)', !/Tenho estas opções/.test(resp1) && !/Tenho estas opções/.test(resp2), resp2.replace(/\n/g, ' | ').slice(0, 140));
 
 server.close();
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTODOS OS CENÁRIOS PASSARAM');

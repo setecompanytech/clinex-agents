@@ -121,6 +121,7 @@ export const flow = {
       'Se o serviço pedido não aparece no Clinilink (o Clinilink só entrega ao chatbot o que está marcado como "Agendamento via chatbot"), ela diz com franqueza e oferece chamar a equipe; só transfere se o paciente aceitar',
       'Retoma sozinha: se ela transferiu (comprovante com problema, falha, vaga) e o paciente volta a escrever antes de um atendente assumir, a conversa volta para ela e continua de onde parou. Se o paciente pediu um humano ou foi urgência, ela não retoma',
       'Responde dúvidas no meio da conversa (horário de atendimento, valor, formas de pagamento, médicos e unidades) e volta para a pergunta em que estava. O que ela não sabe com segurança (endereço, convênio, preparo) ela deixa para a equipe, sem inventar',
+      'Entende como o paciente escolhe o horário: "o segundo", "a quinta opção", "quinta" (dia da semana), "quinta 22" (dia da semana mais o dia do mês) e "com a Fernanda" (escolhe pelo médico que aparece na lista). "Quinta", "quarta" e "segunda" valem como dia da semana, não como posição na lista',
       'Se o paciente muda de ideia antes de informar o CPF (outro dia, outra unidade, outro serviço), ela ajusta e segue, sem recomeçar',
       'Confere os dígitos do CPF antes de consultar o paciente (CPF digitado errado não chega ao cadastro)',
       'Pagamento parcial: soma os comprovantes, diz quanto falta e deixa o paciente escolher entre pagar o resto por pix ou na recepção',

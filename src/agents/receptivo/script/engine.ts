@@ -116,11 +116,23 @@ const numerada = (slots: Slot[], comMedico: boolean) => slots.map((s, i) => `${i
 
 const SEMANA: [RegExp, number][] = [[/domingo/, 0], [/segunda/, 1], [/terca/, 2], [/quarta/, 3], [/quinta/, 4], [/sexta/, 5], [/sabado/, 6]];
 
-function lerData(t: string, ctx: Ctx): string | undefined {
+export function lerData(t: string, ctx: Ctx): string | undefined {
   const h = hoje(ctx);
   if (/depois de amanha/.test(t)) return addDias(h.ymd, 2);
   if (/amanha/.test(t)) return addDias(h.ymd, 1);
   if (/\bhoje\b/.test(t)) return h.ymd;
+  // "quinta 22", "terça-feira, dia 27": o número é o dia do mês (este mês, ou o próximo se já passou)
+  const wn = t.match(/\b(?:segunda|terca|quarta|quinta|sexta|sabado|domingo)(?:-feira)?[\s,.-]*(?:dia\s*)?(\d{1,2})\b(?![\/.-]\d)/);
+  if (wn) {
+    const dia = Number(wn[1]);
+    if (dia >= 1 && dia <= 31) {
+      let ano = Number(h.ymd.slice(0, 4)); let mes = Number(h.ymd.slice(5, 7));
+      const mk = (a: number, m: number) => `${a}-${String(m).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+      let ymd = mk(ano, mes);
+      if (ymd < h.ymd) { mes += 1; if (mes > 12) { mes = 1; ano += 1; } ymd = mk(ano, mes); }
+      if (toDate(ymd).getUTCDate() === dia) return ymd; // só se o dia existe naquele mês
+    }
+  }
   for (const [re, dow] of SEMANA) {
     if (re.test(t)) { let n = (dow - diaSemana(h.ymd) + 7) % 7; if (n === 0) n = 7; return addDias(h.ymd, n); }
   }
@@ -154,15 +166,15 @@ const cpfDoTexto = (t: string): string | undefined => {
 };
 
 /** Escolha numa lista: "2", "opção 2", "o primeiro", "a terceira", "o último", "dois". -1 = não é uma escolha. */
-function lerEscolha(t: string, total: number): number {
+export function lerEscolha(t: string, total: number): number {
   const porOpcao = /\b(opcao|alternativa|numero)\b/.test(t);
   const FILL = '(?:(?:a|o|essa|esse|de|quero|opcao|alternativa|numero)\\s+)*';
   const dig = t.match(new RegExp(`^\\s*${FILL}(\\d)\\b(?![/.-]\\d)`));
   if (dig) return Number(dig[1]) - 1;
   if (/\bultim[oa]\b/.test(t)) return total - 1;
-  const ord: [RegExp, number][] = [[/\bprimeir[oa]\b/, 0], [/\bterceir[oa]\b/, 2], [/\bquint[oa]\b/, 4], [/\bsegundo\b/, 1], [/\bquarto\b/, 3]]; // "segundo" e "quarto" (masculino) não são dias da semana
-  // "segunda" e "quarta" também são dias da semana: só valem como posição quando vêm com "opção/número"
-  if (porOpcao) ord.push([/\bsegund[oa]\b/, 1], [/\bquart[oa]\b/, 3]);
+  const ord: [RegExp, number][] = [[/\bprimeir[oa]\b/, 0], [/\bterceir[oa]\b/, 2], [/\bquinto\b/, 4], [/\bsegundo\b/, 1], [/\bquarto\b/, 3]]; // masculino ("o quinto") não é dia da semana
+  // "segunda", "quarta" e "quinta" também são dias da semana: só valem como posição quando vêm com "opção/número"
+  if (porOpcao) ord.push([/\bsegund[oa]\b/, 1], [/\bquart[oa]\b/, 3], [/\bquinta\b/, 4]);
   for (const [re, i] of ord) if (re.test(t)) return i;
   const NUM: Record<string, number> = { um: 0, uma: 0, dois: 1, duas: 1, tres: 2, quatro: 3, cinco: 4 };
   const w = t.match(new RegExp(`^\\s*${FILL}(um|uma|dois|duas|tres|quatro|cinco)\\b`)) ?? t.match(/\b(?:opcao|alternativa|numero)\s+(um|uma|dois|duas|tres|quatro|cinco)\b/);
@@ -262,6 +274,14 @@ export function cpfValido(cpf: string): boolean {
   if (d.length !== 11 || /^(\d)\1{10}$/.test(d)) return false;
   const dv = (n: number) => { let soma = 0; for (let i = 0; i < n; i++) soma += Number(d[i]) * (n + 1 - i); const r = (soma * 10) % 11; return r === 10 ? 0 : r; };
   return dv(9) === Number(d[9]) && dv(10) === Number(d[10]);
+}
+
+/** O paciente citou um(a) médico(a) que aparece nos horários ("com a Fernanda", "com o Armando")? Devolve o nome, se for só um. */
+function medicoDaLista(t: string, slots: Slot[]): string | undefined {
+  const nomes = [...new Set(slots.map((x) => x.profissional).filter((x): x is string => Boolean(x)))];
+  const palavras = t.split(/[^a-z]+/).filter((w) => w.length >= 4);
+  const achados = nomes.filter((n) => norm(n).split(/\s+/).some((p) => p.length >= 4 && palavras.some((w) => w === p || (w.length >= 5 && p.startsWith(w)))));
+  return achados.length === 1 ? achados[0] : undefined;
 }
 
 // ---------- núcleo ----------
@@ -493,7 +513,8 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
     }
     if (!s.unidade && sv.unidades.length > 1 && /tanto faz|qualquer|a mais proxima|o mais proximo/.test(t)) s.unidade = sv.unidades[0];
     if (!s.unidade && sv.unidades.length === 1) s.unidade = sv.unidades[0];
-    const escolhaLista = s.lista?.length ? lerEscolha(t, s.lista.length) : -1; // "a segunda opção" não é um dia da semana
+    const posicao = s.lista?.length ? lerEscolha(t, s.lista.length) : -1;
+    const escolhaLista = posicao >= 0 && posicao < (s.lista?.length ?? 0) ? posicao : -1; // posição que não existe na lista não é escolha
     const tn = lerTurno(t); const d = escolhaLista >= 0 ? undefined : lerData(t, ctx);
     if (d) { s.data = d; s.lista = undefined; }
     if (tn === 'noite') aviso = aviso || 'Nosso atendimento é pela manhã e à tarde.';
@@ -522,6 +543,15 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
     if (s.lista && s.lista.length && !s.slot) {
       const idx = lerEscolha(t, s.lista.length);
       if (idx >= 0 && s.lista[idx]) { s.slot = s.lista[idx]; s.data = s.slot.ymd; s.turno = s.slot.turno; s.lista = undefined; }
+      else {
+        // citou um(a) médico(a) da lista: fica só com os horários dele(a)
+        const med = medicoDaLista(t, s.lista);
+        if (med) {
+          const dela = s.lista.filter((x) => x.profissional === med);
+          if (dela.length === 1) { s.slot = dela[0]; s.data = dela[0].ymd; s.turno = dela[0].turno; s.lista = undefined; }
+          else { s.lista = dela; return dizer(`Com ${med}, tenho:\n${numerada(dela, false)}\nQual fica melhor para você?`); }
+        }
+      }
     }
   }
   if (!s.slot) {
@@ -531,7 +561,9 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
     };
     if (s.data) {
       const doDia = await fonte.periodos(sv, un, s.data);
-      const certos = s.turno ? doDia.filter((x) => x.turno === s.turno) : doDia;
+      let certos = s.turno ? doDia.filter((x) => x.turno === s.turno) : doDia;
+      const medDia = medicoDaLista(t, certos); // "quinta 22 com a Fernanda"
+      if (medDia) certos = certos.filter((x) => x.profissional === medDia);
       if (certos.length === 1) { s.slot = certos[0]; s.turno = certos[0].turno; s.lista = undefined; }
       else if (certos.length > 1) {
         s.lista = certos;
