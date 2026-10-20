@@ -187,7 +187,7 @@ const lerTurno = (texto: string): Periodo | 'noite' | undefined => {
 const EMERGENCIA = /dor (forte )?no peito|falta de ar|nao consigo respirar|desmai|convuls|sangramento (intenso|forte)|avc|infarto|rigidez (de|na) nuca|fraqueza (subita|de um lado)|fala (travada|enrolada)/;
 const CRISE = /suicid|me matar|tirar minha vida|acabar com minha vida|nao quero mais viver|me machucar|autolesao/;
 /** Emergência ou crise: a Amanda não espera os 30 s de agrupamento de mensagens para responder. */
-export const ehUrgencia = (texto: string) => { const t = norm(texto); return EMERGENCIA.test(t) || CRISE.test(t); };
+export const ehUrgencia = (texto: unknown) => { if (typeof texto !== 'string') return false; const t = norm(texto); return EMERGENCIA.test(t) || CRISE.test(t); };
 const HUMANO = /atendente|humano|pessoa de verdade|falar com alguem|falar com uma pessoa|(falar|conversar|chamar|chama|passar|passa|pedir|quero|pode chamar).{0,20}(recepcao|recepcionista|equipe)/;
 const SIM = /^(s+i+m+|s|pode|pode (sim|reservar|agendar|marcar|confirmar|fazer|seguir|continuar|ser)|quero|quero sim|ok|okay|isso|isso (mesmo|ai|a)|e isso|e isso mesmo|e esse|e esse mesmo|esse (mesmo|ai)|ele mesmo|ela mesma|exato|exatamente|confirmo|confirma|confirmado|fechado|fechou|combinado|bora|vamos|vamo|vai la|manda ver|claro|claro que sim|mas claro|com certeza|por favor|ta bom|ta certo|ta otimo|ta|tudo bem|correto|certo|certinho|perfeito|otimo|beleza|blz|demorou|uhum|aham|u+h+u+m+|positivo|afirmativo|yes|sim senhora|sim senhor|sou eu|sou eu mesmo)\b/;
 const RETOMAR = /\b(retom\w*|continu\w*|dar continuidade|voltei|ainda quero|onde (a gente )?parou|de onde paramos|seguir com (o|meu) agendamento)\b/;

@@ -62,5 +62,29 @@ for (const [txt, esperado] of [['estou com dor no peito', true], ['to com falta 
   console.log(`${ok ? 'OK  ' : 'FALHOU'} urgência: "${txt}" -> ${ehUrgencia(txt) ? 'responde na hora' : 'espera a janela'}`);
 }
 
+// o texto do webhook pode vir como objeto ({ text } / { body }): nunca pode derrubar o agente (foi o que fez a Amanda não responder em 20/10)
+{
+  const { parseMessageReceived } = await import('../src/integrations/inovstar.js');
+  const evento = (text: unknown) => ({ event: 'MESSAGE_RECEIVED', id: 'd1', data: { id: 'm1', direction: 'in', type: 'text', text, contact: { waId: '5591999990000' }, attendance: { id: 'a1', status: 'pending', sector: { id: 's1' } } } });
+  for (const [rotulo, entrada, esperado] of [
+    ['texto simples', 'olá boa tarde', 'olá boa tarde'],
+    ['objeto { text }', { text: 'quero agendar gastro' }, 'quero agendar gastro'],
+    ['objeto { body }', { body: 'quero agendar gastro' }, 'quero agendar gastro'],
+    ['objeto sem texto', { caption: 'x' }, null],
+    ['sem texto', null, null],
+    ['número', 42, null],
+  ] as [string, unknown, string | null][]) {
+    const ev = parseMessageReceived(evento(entrada));
+    const ok = ev !== null && ev.text === esperado;
+    if (!ok) falhas++;
+    console.log(`${ok ? 'OK  ' : 'FALHOU'} webhook com texto ${rotulo} -> ${JSON.stringify(ev?.text)}`);
+  }
+  for (const entrada of [{ text: 'dor no peito' }, null, undefined, 42]) {
+    let ok = true; try { ehUrgencia(entrada); } catch { ok = false; }
+    if (!ok) falhas++;
+    console.log(`${ok ? 'OK  ' : 'FALHOU'} ehUrgencia não quebra com ${JSON.stringify(entrada)}`);
+  }
+}
+
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTODAS AS PROTEÇÕES FUNCIONAM');
 process.exit(falhas ? 1 : 0);

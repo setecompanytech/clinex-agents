@@ -54,7 +54,8 @@ export function parseMessageReceived(body: any): MessageReceivedEvent | null {
     channelId: String(d.channel?.id ?? ''),
     to: '+' + String(d.contact?.waId ?? '').replace(/\D/g, ''),
     type: String(d.type),
-    text: d.text ?? null,
+    // o texto pode vir como string ou como objeto { text } / { body } (igual ao histórico): sempre devolve string ou null
+    text: typeof d.text === 'string' ? d.text : (d.text && typeof d.text === 'object' ? (typeof d.text.text === 'string' ? d.text.text : typeof d.text.body === 'string' ? d.text.body : null) : null),
     sectorId: d.attendance.sector?.id,
     // Na fila (status 'pending', ex.: transferido para um setor) não há dono, mesmo que o webhook
     // ainda traga o usuário que iniciou/transferiu o atendimento.
