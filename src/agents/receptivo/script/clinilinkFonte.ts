@@ -1,4 +1,4 @@
-import { criarAgendamento, criarPaciente, getPacientePorCpf, listAgenda, listAgendaFresca, listClinicas, listProcedimentos, listProfissionais, type Clinica, type Horario, type Procedimento } from '../../../integrations/clinilink.js';
+import { criarAgendamento, criarPaciente, demandaPorProcedimento, getPacientePorCpf, listAgenda, listAgendaFresca, listClinicas, listProcedimentos, listProfissionais, type Clinica, type Horario, type Procedimento } from '../../../integrations/clinilink.js';
 import { env } from '../../../lib/env.js';
 import { exibir, prepararGeneros } from '../../../lib/genero.js';
 import { evt } from '../../../lib/log.js';
@@ -233,12 +233,14 @@ function ranquear(cands: Cand[], palavras: string[], t: string) {
 /** Serviços que a clínica mais agenda: na hora de sugerir, passam na frente dos exames raros. */
 const PRINCIPAIS = /ergometr|esforco|eletrocardio|\becg\b|ecocardio|holter|\bmapa\b|ultrassom|\busg\b|ultrassonograf|raio ?x|radiograf|tomograf|resson|mamograf|densitom|endosc|colonosc|espirom|audiom|papanicolau|preventivo|\bconsulta\b/;
 
-/** O serviço tem horário aberto nos próximos 30 dias em alguma unidade? (compartilha o cache da agenda com o resto do fluxo) */
-async function temAgenda(c: Cand): Promise<boolean> {
+/** Quantos horários abertos o serviço tem nos próximos 30 dias, somando as unidades (compartilha o cache da agenda com o resto do fluxo). */
+async function vagasAbertas(c: Cand): Promise<number> {
   const ini = hojeYmd(); const fim = somaDias(ini, 30);
-  const r = await Promise.all(c.clinicas.map((u) => listAgenda({ unidadeId: u.id, dataInicial: ini, dataFinal: fim, procedimentoId: c.proc.id }).then((h) => h.length > 0).catch(() => false)));
-  return r.some(Boolean);
+  const r = await Promise.all(c.clinicas.map((u) => listAgenda({ unidadeId: u.id, dataInicial: ini, dataFinal: fim, procedimentoId: c.proc.id }).then((h) => h.length).catch(() => 0)));
+  return r.reduce((a, b) => a + b, 0);
 }
+/** O serviço tem horário aberto nos próximos 30 dias em alguma unidade? */
+const temAgenda = async (c: Cand): Promise<boolean> => (await vagasAbertas(c)) > 0;
 
 /**
  * Um vencedor claro vira o serviço; vários parecidos (ex.: só "teste") viram até 5 sugestões, escolhidas com inteligência:
@@ -253,9 +255,12 @@ async function decidir(pont: ReturnType<typeof ranquear>, viaSintoma: boolean): 
   }
   const parecidos = pont.filter((x) => x.hits === topo.hits && topo.score - x.score < 1.5);
   const principal = (x: (typeof parecidos)[number]) => (PRINCIPAIS.test(norm(x.cand.proc.nome)) ? 1 : 0);
+  // o que a clínica mais agenda (últimos 30 dias) vem primeiro; sem esse dado, vale a regra dos serviços principais
+  const dem = await demandaPorProcedimento();
+  const demanda = (x: (typeof parecidos)[number]) => dem.get(x.cand.proc.id) ?? 0;
   // olha a agenda em blocos de 12 (os principais primeiro) até juntar sugestões com horário aberto: no catálogo real há dezenas de
   // testes rápidos de laboratório sem agenda e eles não podem esconder os serviços agendáveis
-  const fila = [...parecidos].sort((a, b) => principal(b) - principal(a) || b.score - a.score);
+  const fila = [...parecidos].sort((a, b) => demanda(b) - demanda(a) || principal(b) - principal(a) || b.score - a.score);
   const itens: { x: (typeof parecidos)[number]; ag: boolean }[] = [];
   for (let i = 0; i < fila.length && i < 36; i += 12) {
     const bloco = fila.slice(i, i + 12);
@@ -264,7 +269,7 @@ async function decidir(pont: ReturnType<typeof ranquear>, viaSintoma: boolean): 
     if (itens.filter((it) => it.ag).length >= 5) break;
   }
   const visiveis = itens.some((i) => i.ag) ? itens.filter((i) => i.ag) : itens;
-  const top = visiveis.sort((a, b) => principal(b.x) - principal(a.x) || b.x.score - a.x.score || pontuar(b.x.cand.proc) - pontuar(a.x.cand.proc)).slice(0, 5);
+  const top = visiveis.sort((a, b) => demanda(b.x) - demanda(a.x) || principal(b.x) - principal(a.x) || b.x.score - a.x.score || pontuar(b.x.cand.proc) - pontuar(a.x.cand.proc)).slice(0, 5);
   if (top.length === 1) {
     const d = await montar(top[0].x.cand);
     return d && 'servico' in d ? { servico: { ...d.servico, viaSintoma } } : d;
@@ -282,8 +287,47 @@ async function buscarSimilares(t: string, palavras: string[], viaSintoma: boolea
   return pont.length ? decidir(pont, viaSintoma) : undefined;
 }
 
+/**
+ * Pedido genérico ("preciso agendar um exame", "quero marcar uma consulta") sem dizer qual: em vez de perguntar no escuro, mostra os
+ * serviços DAQUELE tipo que têm agenda aberta (os principais primeiro). Só entra o que o chatbot pode agendar e que tem horário.
+ */
+async function sugerirPorTipo(tipo: 'exame' | 'consulta'): Promise<Descoberta> {
+  const [itens, dem] = await Promise.all([catalogo(), demandaPorProcedimento()]);
+  const ehConsulta = (c: Cand) => /consulta/i.test(c.proc.nome) || /consulta/i.test(c.proc.categoria ?? '');
+  const demanda = (c: Cand) => dem.get(c.proc.id) ?? 0;
+  const principal = (c: Cand) => (PRINCIPAIS.test(norm(c.proc.nome)) ? 1 : 0);
+  // o que a clínica mais agenda primeiro (últimos 30 dias); sem esse dado, os serviços principais
+  const fila = itens.map((i) => i.cand)
+    .filter((c) => (tipo === 'consulta' ? ehConsulta(c) : !ehConsulta(c)) && !/\bretorno\b/i.test(c.proc.nome))
+    .sort((a, b) => demanda(b) - demanda(a) || principal(b) - principal(a) || pontuar(b.proc) - pontuar(a.proc) || a.proc.nome.localeCompare(b.proc.nome));
+  const achados: Cand[] = []; const pulados: Cand[] = []; const porCategoria = new Map<string, number>();
+  // olha a agenda em blocos de 12 (os mais agendados primeiro) até juntar 6 com horário aberto; nos exames, no máximo 2 por categoria
+  // (senão a lista fica só de laboratório e some o ultrassom, o eletrocardiograma...)
+  for (let i = 0; i < fila.length && i < 60 && achados.length < 6; i += 12) {
+    const bloco = fila.slice(i, i + 12);
+    const vagas = await Promise.all(bloco.map((c) => vagasAbertas(c)));
+    bloco.forEach((c, k) => {
+      if (vagas[k] === 0 || achados.length >= 6) return;
+      const cat = norm(c.proc.categoria ?? '');
+      if (tipo === 'exame' && (porCategoria.get(cat) ?? 0) >= 2) { pulados.push(c); return; }
+      porCategoria.set(cat, (porCategoria.get(cat) ?? 0) + 1); achados.push(c);
+    });
+  }
+  for (const c of pulados) if (achados.length < 6) achados.push(c);
+  if (achados.length === 0) return undefined;
+  for (const c of achados) conhecidos.set(c.proc.id, c);
+  if (achados.length === 1) return montar(achados[0]);
+  return {
+    opcoes: achados.map((c) => ({ id: c.proc.id, nome: titulo(c.proc.nome) })),
+    intro: tipo === 'exame' ? 'Claro! Estes são os exames mais procurados que tenho com agenda:' : 'Claro! Estas são as consultas mais procuradas que tenho com agenda:',
+    pergunta: tipo === 'exame' ? 'Qual deles você precisa? Se for outro, me diz o nome.' : 'Qual delas você precisa? Se for outra, me diz o nome.',
+  };
+}
+
 export const fonteClinilink: Fonte = {
   tipo: 'clinilink',
+  /** Pré-carrega unidades e catálogo (o Clinilink pode demorar para "acordar"): a espera de 30 s do agente já cobre isso. */
+  async aquecer() { await Promise.allSettled([listClinicas().then(() => catalogo()), demandaPorProcedimento()]); },
   async nomesUnidades() { return (await listClinicas()).map(nomeUnidade); },
 
   async descobrir(t, buscando) {
@@ -293,6 +337,13 @@ export const fonteClinilink: Fonte = {
     const raizes = RAIZES.filter((r) => r.re.test(t));
     const termos = raizes.flatMap((r) => [r.busca, ...(r.alt ?? [])]); // ex.: ultrassom -> usg -> ultrassonografia
     const palavras = palavrasDoPedido(t);
+    // pedido genérico: quer AGENDAR um exame (ou uma consulta) e não disse qual -> mostra os que têm agenda
+    if (buscando && termos.length === 0 && palavras.length === 0) {
+      const exame = /\b(exames?)\b/.test(t); const consulta = /\b(consultas?)\b/.test(t);
+      const querAgendar = /\b(marcar|agendar|agendamento|marcacao|quero|queria|preciso|precisando|gostaria|fazer|realizar|tem vaga|disponivel|horario)\b/.test(t);
+      const outroAssunto = /\b(remarc\w*|reagend\w*|desmarc\w*|cancel\w*|resultado|laudo|retorno)\b/.test(t);
+      if (exame !== consulta && querAgendar && !outroAssunto) return sugerirPorTipo(exame ? 'exame' : 'consulta');
+    }
     // sem raiz conhecida e sem palavra que possa ser nome de serviço: não é pedido de serviço
     if (termos.length === 0 && !(buscando && palavras.length)) return undefined;
     const pediu = /\b(quero|queria|preciso|gostaria|marcar|agendar|fazer|realizar|consulta|exame)\b/.test(t);
@@ -320,7 +371,11 @@ export const fonteClinilink: Fonte = {
       const pont = ranquear([...mapa.values()], palavras, t);
       const topo = pont[0];
       const iguais = pont.filter((x) => x.hits === topo.hits && Math.abs(x.score - topo.score) < 0.01 && pontuar(x.cand.proc, t) === pontuar(topo.cand.proc, t));
-      if (iguais.length > 1) return { opcoes: iguais.slice(0, 5).map((x) => ({ id: x.cand.proc.id, nome: titulo(x.cand.proc.nome) })) };
+      if (iguais.length > 1) {
+        const dem = await demandaPorProcedimento();
+        iguais.sort((a, b) => (dem.get(b.cand.proc.id) ?? 0) - (dem.get(a.cand.proc.id) ?? 0));
+        return { opcoes: iguais.slice(0, 5).map((x) => ({ id: x.cand.proc.id, nome: titulo(x.cand.proc.nome) })) };
+      }
       return decidir(pont, viaSintoma);
     }
     // a busca exata não achou: procura no catálogo inteiro por nome igual ou PARECIDO (abreviação, erro de digitação, radical)

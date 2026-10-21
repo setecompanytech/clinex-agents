@@ -1,6 +1,7 @@
 import type { Comprovante } from '../../../lib/comprovante.js';
 import { env } from '../../../lib/env.js';
 import { exibir, exibirLista, prepararGeneros } from '../../../lib/genero.js';
+import type { PedidoInterpretado } from '../../../lib/interpretarPedido.js';
 import { RAIZES, type Fonte, type PacienteInfo, type Periodo, type Servico, type Slot, type Unidade } from './catalog.js';
 
 /**
@@ -22,6 +23,7 @@ export type State = {
   saudou: boolean;
   servico?: Servico;
   opcoes?: { id: string; nome: string }[];
+  opcoesTexto?: { intro: string; pergunta: string }; // texto próprio da lista (pedido genérico: "Estes são os exames mais procurados...")
   confirmPerguntado: boolean;
   servicoConfirmado: boolean;
   unidadesInformadas: boolean;
@@ -62,6 +64,9 @@ export type Ctx = {
   lerComprovante?: (idMensagem: string) => Promise<Comprovante | null>; // lê a imagem do comprovante
   /** Intérprete de apoio (IA): quando as regras não entendem a resposta do paciente à lista de horários, tenta entender. Sempre validado. */
   interpretar?: (p: { texto: string; lista: Slot[]; hoje: string }) => Promise<(IntLista & { indice?: number | null; turno?: 'manhã' | 'tarde' | null }) | null>;
+  /** Intérprete do pedido (IA): quando as regras não acham o serviço, entende o que o paciente quis dizer (com o contexto) e devolve um termo de busca. Sempre validado. */
+  interpretarPedido?: (p: { texto: string; anteriores: string[] }) => Promise<PedidoInterpretado | null>;
+  anteriores?: string[]; // o que o paciente já tinha dito nesta jornada (contexto para o intérprete)
 };
 export type Handoff = { motivo: string; urgente?: boolean };
 export type Result = {
@@ -517,7 +522,22 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
   // CPF dito antes da hora ("meu cpf é ..."): guarda, para não perguntar de novo quando chegar a vez dele
   if (!s.cpf && !faq && !(base.slot && base.pagFinal) && (/\bcpf\b/.test(t) || /\b\d{3}\.\d{3}\.\d{3}-\d{2}\b/.test(t))) { const c = cpfDoTexto(t); if (c && cpfValido(c)) s.cpf = c; }
   // o que o paciente adiantou antes de dizer o serviço (dia, período, unidade, "o mais rápido", forma de pagamento) fica guardado
+  // remarcar ou cancelar ainda não é com a Amanda: em vez de procurar "remarcar" como se fosse um serviço, chama a equipe
+  if (!s.servico && !s.opcoes && /\b(remarc\w*|reagend\w*|desmarc\w*|cancel\w*)\b/.test(t)) {
+    return out(comAbertura('Claro! Pra remarcar ou cancelar eu chamo alguém da equipe pra te ajudar. Só um instante.'), { motivo: 'Paciente quer remarcar ou cancelar um agendamento (a Amanda ainda não faz isso). Mensagem: ' + texto.replace(TOKEN_MIDIA, ' ').trim().slice(0, 200) });
+  }
   const adiantou = !s.servico && !s.opcoes ? await guardaAdiantado() : '';
+  /** As regras não acharam o serviço: o intérprete (IA) entende o pedido no contexto da conversa e o roteiro procura o termo no Clinilink. */
+  const entenderPedido = async (): Promise<Awaited<ReturnType<Fonte['descobrir']>>> => {
+    if (!ctx.interpretarPedido || faq || t.length < 3 || SIM.test(t) || NAO.test(t) || soAgradecimento(t) || SO_CUMPRIMENTO.test(t)) return undefined;
+    const ia = await ctx.interpretarPedido({ texto: texto.replace(TOKEN_MIDIA, ' ').trim(), anteriores: ctx.anteriores ?? [] }).catch(() => null);
+    if (!ia || (ia.quer !== 'agendar' && !(ia.sintoma && ia.termo))) return undefined; // queixa de saúde também vale como pedido de consulta
+    let d = ia.termo ? await fonte.descobrir(ia.termo, true) : undefined;
+    // nada com esse termo: pelo menos o tipo (exame ou consulta) -> mostra os mais procurados
+    if (!d && ia.tipo) d = await fonte.descobrir(ia.tipo === 'exame' ? 'quero marcar um exame' : 'quero marcar uma consulta', true);
+    if (d && 'servico' in d && ia.sintoma) d = { servico: { ...d.servico, viaSintoma: true } };
+    return d;
+  };
   let mudouServico = false;
   const aplicar = (d: Awaited<ReturnType<Fonte['descobrir']>>): Result | undefined => {
     if (!d) return undefined;
@@ -542,7 +562,7 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
       }
       return out(comAbertura(`${quem} não tem horário aberto nos próximos dias. Me diz a especialidade ou o exame que você precisa que eu vejo as outras opções.`));
     }
-    if ('opcoes' in d) { s.opcoes = d.opcoes; s.servico = undefined; return undefined; }
+    if ('opcoes' in d) { s.opcoes = d.opcoes; s.opcoesTexto = d.intro && d.pergunta ? { intro: d.intro, pergunta: d.pergunta } : undefined; s.servico = undefined; return undefined; }
     const atual = s.servico;
     if (atual && d.servico.id === atual.id && d.servico.profissional && d.servico.profissional.id !== atual.profissional?.id) {
       // a mesma consulta, agora com a médica ou o médico que ele pediu pelo nome: mantém o que já foi combinado e refaz só os horários
@@ -597,13 +617,18 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
           const GENERICAS = new Set(['teste', 'exame', 'consulta', 'rapido', 'total']);
           escolhida = s.opcoes.find((o) => norm(o.nome).split(/[^a-z]+/).filter((w) => w.length > 3 && !GENERICAS.has(w)).some((w) => t.includes(w)));
           if (!escolhida && novo) { const r = aplicar(novo); if (r) return r; }
+          if (!escolhida && !novo) { const r = aplicar(await entenderPedido()); if (r) return r; }
         }
       }
       if (escolhida) { const r = aplicar(await fonte.resolver(escolhida.id)); if (r) return r; }
     } else {
       // dúvida ("funciona sábado?", "qual o horário de atendimento?"): sem busca solta por palavras, para não "achar" um serviço sem querer
       const soSaudacao = SO_CUMPRIMENTO.test(t) && !/\bteste\b/.test(t); // "oi", "bom dia": não procura serviço; "teste" pode ser o começo de "teste ergométrico"
-      const r = aplicar(await fonte.descobrir(tBusca, !s.servico && !faq && !soSaudacao));
+      const buscar = !s.servico && !faq && !soSaudacao;
+      let achou = await fonte.descobrir(tBusca, buscar);
+      // as regras não acharam, ou só concluíram "não achei" com as palavras soltas da frase ("coisa", "pé"): o intérprete entende o pedido primeiro
+      if ((!achou || 'naoAchouServico' in achou) && buscar) { const ia = await entenderPedido(); if (ia) achou = ia; }
+      const r = aplicar(achou);
       if (r) return r;
     }
   }
@@ -612,6 +637,7 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
   if (!s.servico) {
     if (s.opcoes) {
       const lista = s.opcoes.map((o, i) => `${i + 1}. ${o.nome}`).join('\n');
+      if (s.opcoesTexto) return out(comAbertura(`${s.opcoesTexto.intro}\n${lista}\n${s.opcoesTexto.pergunta}`));
       return out(comAbertura(`Achei estas opções:\n${lista}\nQual delas você precisa?${s.opcoes.length >= 5 ? ' Se não for nenhuma dessas me diz o nome completo.' : ''}`));
     }
     // ela ofereceu chamar a equipe para um serviço que não achou: "sim" transfere; "não" volta ao começo
@@ -1022,13 +1048,15 @@ export async function responder(entrada: (string | string[])[], ctx: Ctx, fonte:
   let state = novoEstado();
   if (ctx.pos) state = { ...state, saudou: true, pos: ctx.pos }; // a conversa já começou: logo depois de um agendamento
   let last: Result | undefined;
+  const vistas: string[] = []; // mensagens do paciente já processadas (contexto para o intérprete do pedido)
   let i = 0;
   let aposHandoffDuro = false;
   for (let t = 0; t < turnos.length; t++) {
     const msgs = turnos[t];
     for (let j = 0; j < msgs.length; j++) {
       const antes = { saudou: state.saudou, unidadesInformadas: state.unidadesInformadas };
-      last = await step(state, msgs[j], { ...ctx, efetivar: t === turnos.length - 1 }, fonte, i++);
+      last = await step(state, msgs[j], { ...ctx, efetivar: t === turnos.length - 1, anteriores: vistas.slice(-3) }, fonte, i++);
+      vistas.push(msgs[j].replace(TOKEN_MIDIA, ' ').trim());
       state = last.state;
       // no último turno, quem encerra a jornada ou transfere já é a resposta que o paciente vai receber
       if (t === turnos.length - 1 && (last.handoff || last.state.fim)) return { ...last, aposHandoffDuro };

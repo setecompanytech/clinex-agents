@@ -7,6 +7,7 @@ import { fonteSimulada } from './script/catalog.js';
 import { fonteClinilink } from './script/clinilinkFonte.js';
 import { amigavelDetalhado, temPrecoZero } from '../../lib/humanizer.js';
 import { interpretarEscolha } from '../../lib/interpretar.js';
+import { interpretarPedido } from '../../lib/interpretarPedido.js';
 import { exibir } from '../../lib/genero.js';
 import { comAtendimento, evt } from '../../lib/log.js';
 import { firstName, followUpMessage, greeting, nowParts, welcomeMessage } from '../../lib/humanize.js';
@@ -89,16 +90,37 @@ function lerComprovanteDe(history: InovstarMessage[]) {
 }
 
 /**
- * Faz a resposta parecer digitada: ela só sai entre replyDelayMinMs e replyDelayMaxMs depois que a mensagem
- * do paciente chegou. O tempo já gasto (espera de 4 s, GPT, Clinilink) conta; se já passou do alvo, não espera mais.
+ * Faz a resposta parecer digitada por uma pessoa: espera o tempo de ler e escrever AQUELE texto (resposta grande demora mais).
  * Mensagem de segurança (emergência/crise) nunca espera.
  */
-export async function pareceDigitando(inicio: number, urgente: boolean) {
-  const { replyDelayMinMs: min, replyDelayMaxMs: max } = env;
-  if (urgente || !(max > 0)) return;
-  const alvo = min + Math.random() * Math.max(0, max - min);
-  const falta = Math.min(alvo - (Date.now() - inicio), 30000);
-  if (falta > 0) await sleep(falta);
+export async function pareceDigitando(inicio: number, urgente: boolean, texto = '', primeiro = true) {
+  if (urgente) return;
+  const ms = tempoDeDigitacao(texto, primeiro);
+  // a função da Vercel vive 120 s: a "digitação" nunca come o tempo que falta para enviar
+  const espera = Math.min(ms, LIMITE_FUNCAO_MS - (Date.now() - inicio) - 3000);
+  if (espera > 0) await sleep(espera);
+}
+
+const LIMITE_FUNCAO_MS = 110_000;
+
+/**
+ * Quanto uma pessoa levaria para ler e digitar este texto: de 1 a 2 s de leitura (só no primeiro balão; nos seguintes, uma pausa
+ * curta) mais ~40 ms por caractere, com variação de 15% para não ficar cronometrado, entre o mínimo e o máximo de cada balão.
+ * Contado a partir de AGORA (resposta pronta), não de quando a mensagem do paciente chegou.
+ */
+export function tempoDeDigitacao(texto: string, primeiro: boolean): number {
+  const { replyDelayMinMs: min, replyDelayMaxMs: max, typingMsPerChar: porChar } = env;
+  if (!(max > 0)) return 0;
+  const leitura = primeiro ? 1000 + Math.random() * 1000 : 400 + Math.random() * 600;
+  const digitando = texto.length * porChar * (0.85 + Math.random() * 0.3);
+  return Math.round(Math.min(max, Math.max(min, leitura + digitando)));
+}
+
+/** Parágrafos separados por linha em branco viram balões separados (até 3), como uma pessoa que manda um texto em partes. */
+export function dividirEmBaloes(texto: string): string[] {
+  const partes = texto.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+  if (partes.length <= 3) return partes.length ? partes : [texto];
+  return [partes[0], partes[1], partes.slice(2).join('\n')];
 }
 
 /**
@@ -122,6 +144,8 @@ async function processar(ev: MessageReceivedEvent) {
   const naFilaDaEquipe = Boolean(env.humanSectorId) && ev.sectorId === env.humanSectorId;
   if (env.agentSectorId && ev.sectorId !== env.agentSectorId && !naFilaDaEquipe) return skip(`setor ${ev.sectorId} != setor da IA`);
 
+  // Enquanto espera, já acorda o Clinilink (unidades, catálogo, serviços mais agendados): a primeira consulta lenta não soma à espera.
+  if (env.clinilinkKey) void fonteClinilink.aquecer?.().catch(() => {});
   // Debounce: espera o paciente terminar de digitar e só a última mensagem dispara a resposta.
   // (emergência e crise não esperam: respondem em poucos segundos)
   await sleep(ehUrgencia(ev.text ?? '') ? Math.min(env.debounceMs, 3000) : env.debounceMs);
@@ -202,7 +226,7 @@ async function processar(ev: MessageReceivedEvent) {
     if (ilg) {
       r = { state: undefined as never, reply: ilg === 'audio' ? 'Não consegui ouvir esse áudio. Escreve pra mim ou manda de novo?' : 'Recebi o arquivo, mas só leio texto e áudio por aqui. Pode me escrever?', handoff: undefined };
     } else try {
-      r = await responder(turnos, { now: new Date(), nome, tz: env.timezone, telefone: ev.to, pos, lerComprovante: lerComprovanteDe(history), interpretar: interpretarEscolha }, fonte);
+      r = await responder(turnos, { now: new Date(), nome, tz: env.timezone, telefone: ev.to, pos, lerComprovante: lerComprovanteDe(history), interpretar: interpretarEscolha, interpretarPedido }, fonte);
     } catch (e) {
       // Clinilink fora do ar / lento: não inventa dado, devolve para a equipe
       console.error(`${tag} falha ao consultar a fonte (${fonte.tipo}):`, (e as Error).message);
@@ -239,10 +263,16 @@ async function processar(ev: MessageReceivedEvent) {
       enviou_de_verdade: env.autoReply,
     });
     if (!env.autoReply) return;
-    await pareceDigitando(inicio, Boolean(r.handoff?.urgente));
     // A mensagem ao paciente vai SEMPRE como texto normal: a mensagem anexada ao endpoint de transferência não chega
     // ao paciente (o histórico mostra só a resposta automática do setor). Depois, se for o caso, transfere.
-    const enviar = () => sendText({ channelId: ev.channelId, to: ev.to, attendanceId: ev.attendanceId, text: msg, clientMessageId: `agente-receptivo-${ev.messageId}` });
+    // Cada balão espera o tempo de alguém ler e digitar aquele texto (resposta grande demora mais), e só o primeiro leva o título.
+    const enviar = async () => {
+      const baloes = dividirEmBaloes(texto);
+      for (let i = 0; i < baloes.length; i++) {
+        await pareceDigitando(inicio, Boolean(r.handoff?.urgente), baloes[i], i === 0);
+        await sendText({ channelId: ev.channelId, to: ev.to, attendanceId: ev.attendanceId, text: i === 0 ? withTitle(baloes[i]) : baloes[i], clientMessageId: i === 0 ? `agente-receptivo-${ev.messageId}` : `agente-receptivo-${ev.messageId}-${i + 1}` });
+      }
+    };
     const transferir = async (setor: string, motivo: string) => {
       try { await transferToSector(ev.attendanceId, setor, motivo); }
       catch (e) {

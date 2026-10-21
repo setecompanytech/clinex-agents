@@ -83,7 +83,7 @@ n = 0;
 const base = ate_o_pagamento();
 c = await roda([...base, eu('link de crédito'), amanda('Combinado! Vou pedir para a equipe te enviar o link de pagamento...'), sistema('Transferido pela API para o setor Principal'), eu('na verdade vou pagar no pix')], 'HUM');
 confere('A3 paciente volta na fila da equipe: a conversa é devolvida para a Amanda ANTES de responder', transfs(c)[0]?.corpo.toSectorId === 'AI' && !('message' in transfs(c)[0].corpo) && c.findIndex((x) => x.caminho.endsWith('/transfer')) < c.findIndex((x) => x.caminho.endsWith('/send/text')), c.map((x) => x.caminho.split('/').slice(-1)[0]).join(' -> '));
-confere('A3 e continua de onde parou: manda a chave pix', /Chave pix:/.test(textos(c)[0] ?? ''), (textos(c)[0] ?? '').replace(/\n/g, ' | ').slice(0, 110));
+confere('A3 e continua de onde parou: manda a chave pix (em balões: a chave fica sozinha, para copiar)', /Chave pix:/.test(textos(c).join('\n')) && textos(c).length === 3 && /^Chave pix:/m.test(textos(c)[1] ?? '') && /Amanda \(IA\)/.test(textos(c)[0] ?? '') && !/Amanda \(IA\)/.test(textos(c)[1] ?? ''), textos(c).join(' | ').replace(/\n/g, ' ').slice(0, 160));
 
 // A4) pediu um humano: a Amanda NÃO retoma
 n = 0;

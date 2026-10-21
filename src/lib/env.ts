@@ -15,9 +15,11 @@ export const env = {
   // espera antes de responder, para agrupar mensagens picadas do paciente
   // espera depois da mensagem do paciente, para ele terminar de escrever ("quero tal coisa" + "mais isso" viram um pedido só)
   debounceMs: Number(process.env.DEBOUNCE_MS ?? 30000),
-  // a resposta sai entre MIN e MAX ms depois da mensagem do paciente (parece digitação). 0/0 desliga.
-  replyDelayMinMs: Number(process.env.REPLY_DELAY_MIN_MS ?? 5000),
-  replyDelayMaxMs: Number(process.env.REPLY_DELAY_MAX_MS ?? 10000),
+  // "Digitando": cada balão de resposta espera o tempo de uma pessoa ler e escrever aquele texto (~TYPING_MS_PER_CHAR por caractere),
+  // nunca menos que MIN nem mais que MAX por balão. MAX = 0 desliga a espera.
+  replyDelayMinMs: Number(process.env.REPLY_DELAY_MIN_MS ?? 1500),
+  replyDelayMaxMs: Number(process.env.REPLY_DELAY_MAX_MS ?? 12000),
+  typingMsPerChar: Number(process.env.TYPING_MS_PER_CHAR ?? 40),
   testReply: process.env.TEST_REPLY ?? 'Olá! Aqui é o assistente virtual da Clinex. Recebi sua mensagem e a equipe já vai te responder. (teste)',
   // título que abre toda mensagem enviada (negrito no WhatsApp com asteriscos). Vazio = sem título.
   agentTitle: process.env.AGENT_TITLE ?? '*Amanda (IA) - Nova*',

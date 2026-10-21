@@ -19,6 +19,16 @@ const P_REBECA = '52525252-5252-4525-8525-525252525252'; // REBECA COSTA LIMA (C
 const PROC3 = '24242424-2424-4242-8242-242424242424';
 const PROC_USG = '25252525-2525-4252-8252-252525252525';
 const AGENDA = '44444444-4444-4444-8444-444444444444';
+/** Quantos agendamentos cada serviço teve (o Clinilink simulado devolve isso em GET /agendamentos): o teste de alergia é o mais procurado dos exames. */
+const DEMANDA_PADRAO: Record<string, number> = {
+  '33333333-3434-4343-8343-343434343434': 60, // TESTE DE ALERGIA
+  '25252525-2525-4252-8252-252525252525': 40, // USG ABDOME TOTAL
+  '31313131-3131-4313-8313-313131313131': 15, // TESTE ERGOMETRICO
+  '28282828-2828-4282-8282-282828282828': 8, // TESTE DE ESFORCO COM ECG
+  '22222222-2222-4222-8222-222222222222': 50, // CONSULTA GINECOLOGIA
+  '23232323-2323-4232-8232-232323232323': 25, // CONSULTA DERMATOLOGIA
+  '24242424-2424-4242-8242-242424242424': 10, // CONSULTA CARDIOLOGIA
+};
 const dia = (n: number) => { const d = new Date(Date.now() + n * 86400000); return d.toISOString().slice(0, 10); };
 const mk = (data: string, hora: string, inicio: string, prof = { id: MEDICO, nome: "MEDICA TESTE DA SILVA" }) => ({
   data, hora, dataHora: `${data}T${hora}:00-03:00`, agendaId: AGENDA, agendaNome: "Agenda Guamá", agendaHoraInicio: inicio, duracaoMinutos: 30,
@@ -84,6 +94,14 @@ const server = http.createServer((req, res) => {
       }
       if (p.endsWith('/agenda')) { (globalThis as any).__procAgenda = url.searchParams.get('procedimentoId') ?? ''; }
       if (p.endsWith('/agenda')) return j(200, { ok: true, horarios: horarios(url.searchParams.get('dataInicial') ?? '0000', url.searchParams.get('dataFinal') ?? '9999', url.searchParams.get('profissionalId') ?? undefined, url.searchParams.get('unidadeId') ?? undefined) });
+      if (p.endsWith('/agendamentos')) {
+        // lista de agendamentos já feitos (só para contar a demanda por serviço); 1 em cada 10 está cancelado e não conta
+        const dem: Record<string, number> = (globalThis as any).__demanda ?? DEMANDA_PADRAO;
+        const ags: any[] = [];
+        for (const [id, n] of Object.entries(dem)) for (let i = 0; i < n; i++) ags.push({ agendamentoId: `a${ags.length}`, status: i % 10 === 0 ? 'cancelado' : 'agendado', paciente: { nome: 'PACIENTE DE TESTE', telefone: '000' }, procedimentos: [{ id, nome: 'x' }] });
+        const off = Number(url.searchParams.get('offset') ?? 0); const lim = Number(url.searchParams.get('limite') ?? 100);
+        return j(200, { ok: true, total: ags.length, limite: lim, offset: off, agendamentos: ags.slice(off, off + lim) });
+      }
       if (p.endsWith('/pacientes')) return j(200, { ok: true, pacientes: url.searchParams.get('cpf') === '52998224725' ? [{ id: '55555555-5555-4555-8555-555555555555', nome: 'MARIA EXEMPLO' }] : [] });
     }
     if (req.method === 'POST') {
@@ -223,7 +241,7 @@ reset({ ocupados: 0 });
 r = await responder([['boa tarde, quero uma consulta'], ['ola, quero marcar uma consulta'], ['Olá'], ['quero agendar ginecologista']], ctx, fonteClinilink) as any;
 confere('16 depois de uma transferência a jornada recomeça', !r.handoff && /agendar consulta Ginecologia|consulta Ginecologia/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 110));
 r = await responder([['boa tarde, quero uma consulta'], ['ola, quero marcar uma consulta'], ['Olá']], ctx, fonteClinilink) as any;
-confere('16 "Olá" depois da transferência só cumprimenta', !r.handoff && /Me conta o que você precisa|Qual consulta/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 110));
+confere('16 "Olá" depois de pedir uma consulta sem dizer qual: não transfere e segue com as opções', !r.handoff && /Me conta o que você precisa|Qual consulta|consultas mais procuradas/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 110));
 
 // 17) jeito de falar dos áudios transcritos (frases longas, pontuação, números por extenso)
 reset({ ocupados: 0 });
@@ -405,7 +423,7 @@ confere('T1 e o comprovante certo depois da transferência é aceito', /Recebi o
 r = await resp([...base0, 'link de crédito', 'melhor, vou pagar no pix'].map((x) => [x]));
 confere('T1 mudou de ideia depois do link de crédito: manda a chave pix', /Chave pix:/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 100));
 r = await resp([['boa tarde, quero uma consulta'], ['ola, quero marcar uma consulta'], ['Olá']]);
-confere('T1 falhas antigas não contaminam: "Olá" só cumprimenta', !r.handoff && /Me conta o que você precisa|Qual consulta/.test(r.reply), r.reply);
+confere('T1 "Olá" depois de pedir uma consulta sem dizer qual: não transfere e segue com as opções', !r.handoff && /Me conta o que você precisa|Qual consulta|consultas mais procuradas/.test(r.reply), r.reply);
 // T2) transferência "dura" (o paciente pediu um humano): a Amanda não retoma sozinha
 r = await resp([['oi'], ['quero falar com um atendente'], ['??']]);
 confere('T2 pediu atendente e voltou a escrever: a Amanda não retoma', r.aposHandoffDuro === true, String(r.aposHandoffDuro));
@@ -782,12 +800,60 @@ confere('O6 "o mais cedo possível" é o primeiro horário, não "de manhã"', o
 confere('O6 "o mais rápido": frase corrida, com Dra., fechando com "Já separo esse pra você" e a pergunta do pagamento', /O mais rápido que tenho é \p{L}+ dia \d{1,2} de manhã a partir das 8h com a Dra\. Medica\. Já separo esse pra você\./u.test(o.reply) && /antecipar o pagamento/.test(o.reply), o.reply.replace(/\n/g, ' | ').slice(0, 260));
 
 o = await turnosDe(['oi, quero marcar uma consulta']);
-confere('O7 quer agendar mas não disse o quê: pergunta com simpatia, sem "não entendi"', /Claro! Qual consulta ou exame você precisa\?/.test(o.reply) && !/Hmm|Não peguei/.test(o.reply) && !o.handoff, o.reply.replace(/\n/g, ' | '));
+confere('O7 quer marcar uma consulta e não disse qual: mostra as consultas com agenda (não pergunta no escuro)', /Estas são as consultas mais procuradas que tenho com agenda:/.test(o.reply) && /1\. Consulta/.test(o.reply) && /Qual delas você precisa\? Se for outra, me diz o nome\./.test(o.reply) && !/Hmm|Não peguei/.test(o.reply) && !o.handoff && Boolean(o.state.opcoes?.length), o.reply.replace(/\n/g, ' | '));
 
 o = await turnosDe(['oi', 'quero agendar ginecologista', 'sim']);
 confere('O8 médicos com Dr./Dra. e "Tenho sim!" ao informar as unidades', /Tenho sim! No Guamá com a Dra\. Medica e a Dra\. Liduina, e no Telégrafo com a Dra\. Medica e a Dra\. Liduina\./.test(o.reply) && /A consulta é R\$ 100,00\./.test(o.reply) && /Qual dos dois fica melhor pra você\?/.test(o.reply), o.reply.replace(/\n/g, ' | ').slice(0, 260));
 o = await turnosDe(['oi', 'quero agendar ginecologista', 'sim', 'guama', '1']);
 confere('O8 o resumo não traz "Fechado" nem "Combinado" e a pergunta do pagamento é a aprovada', /Pra agilizar o seu atendimento na recepção, você quer antecipar o pagamento por pix ou link de crédito\?/.test(o.reply) && !/Fechado|Combinado/.test(o.reply), o.reply.replace(/\n/g, ' | ').slice(-200));
+
+// ---- inteligência na hora de sugerir: o que a clínica mais agenda e tem agenda vem primeiro ----
+reset({ ocupados: 0 });
+let m = await turnosDe(['bom dia, preciso agendar um exame']);
+confere('M1 "preciso agendar um exame": mostra os exames mais procurados COM agenda (não pergunta no escuro)', /Estes são os exames mais procurados que tenho com agenda:/.test(m.reply) && /Qual deles você precisa\? Se for outro, me diz o nome\./.test(m.reply) && !m.handoff && (m.state.opcoes?.length ?? 0) >= 3, m.reply.replace(/\n/g, ' | ').slice(0, 330));
+confere('M1 o mais agendado vem primeiro (teste de alergia: 54 agendamentos), depois o ultrassom', /1\. Teste de Alergia/i.test(m.reply) && /2\. Usg Abdome Total/i.test(m.reply), (m.state.opcoes ?? []).map((x: any) => x.nome).join(' | '));
+confere('M1 serviço sem agenda (teste rápido de laboratório) NUNCA entra na lista', !/Rapido (Dengue|Covid|Hiv)|Coombs|Troponina/i.test(m.reply), '');
+m = await turnosDe(['bom dia, preciso agendar um exame', '1']);
+confere('M1 escolher pelo número segue o fluxo com o serviço escolhido', /(Ah, então é|Entendi, você quer|Só pra confirmar: é|Então é) Teste de Alergia/i.test(m.reply) && m.state.servico?.id === '33333333-3434-4343-8343-343434343434', m.reply.replace(/\n/g, ' | ').slice(0, 160));
+m = await turnosDe(['quero marcar uma consulta']);
+confere('M2 consultas: a mais agendada vem primeiro (ginecologia), depois dermatologia e cardiologia', /1\. Consulta Ginecologia/.test(m.reply) && m.reply.indexOf('Consulta Dermatologia') < m.reply.indexOf('Consulta Cardiologia'), (m.state.opcoes ?? []).map((x: any) => x.nome).join(' | '));
+m = await turnosDe(['oi, quero remarcar minha consulta']);
+confere('M3 remarcar/cancelar não é busca de serviço: chama a equipe', !/mais procuradas|Não achei/.test(m.reply) && Boolean(m.handoff) && /remarcar ou cancelar/.test(m.handoff.motivo), m.reply.replace(/\n/g, ' | ').slice(0, 140));
+m = await turnosDe(['quero agendar uma consulta ou exame']);
+confere('M3 "consulta ou exame" (os dois tipos) não escolhe um tipo sozinha', !/mais procuradas/.test(m.reply), m.reply.replace(/\n/g, ' | ').slice(0, 140));
+m = await turnosDe(['quero fazer um ultrassom']);
+confere('M4 pedido vago "ultrassom" (vários parecidos): o mais agendado e com agenda vem primeiro', /Usg Abdome Total/i.test(m.reply) || /Usg Abdome Total/i.test((m.state.servico?.nome ?? '')), m.reply.replace(/\n/g, ' | ').slice(0, 160));
+// sem dados de demanda (o Clinilink não devolveu a lista): volta para a regra dos serviços principais, sem quebrar
+(globalThis as any).__demanda = {};
+m = await turnosDe(['quero marcar um exame']);
+confere('M5 sem demanda no Clinilink: ainda sugere, pela regra dos serviços principais', /exames mais procurados/.test(m.reply) && (m.state.opcoes?.length ?? 0) >= 3, m.reply.replace(/\n/g, ' | ').slice(0, 200));
+(globalThis as any).__demanda = undefined;
+
+// ---- interpretação do pedido por IA (simulada): entende o contexto e o roteiro busca no Clinilink ----
+const comPedido = (fn: (p: { texto: string; anteriores: string[] }) => any) => ({ ...ctx, interpretarPedido: async (p: { texto: string; anteriores: string[] }) => fn(p) });
+let chamadasIA: { texto: string; anteriores: string[] }[] = [];
+const viaIA = async (msgs: string[], resp: any) => { chamadasIA = []; return (await responder(msgs.map((z) => [z]), comPedido((p) => { chamadasIA.push(p); return resp; }), fonteClinilink)) as any; };
+m = await viaIA(['oi, estou com unha encravada e doendo'], { quer: 'agendar', tipo: 'consulta', termo: 'dermatologia', sintoma: true });
+confere('I1 o intérprete acha a especialidade pelo sintoma e o roteiro CONFIRMA com aviso de segurança', /Pelo que você contou, o serviço indicado é consulta Dermatologia/.test(m.reply) && /192/.test(m.reply) && m.state.servico?.viaSintoma === true, m.reply.replace(/\n/g, ' | ').slice(0, 230));
+m = await viaIA(['preciso fazer uma coisa aí'], { quer: 'agendar', tipo: 'exame', termo: null, sintoma: false });
+confere('I2 só entendeu que é um exame: mostra os exames mais procurados', /exames mais procurados/.test(m.reply), m.reply.replace(/\n/g, ' | ').slice(0, 120));
+m = await viaIA(['queria escutar melhor'], { quer: 'agendar', tipo: 'exame', termo: 'audiometria', sintoma: false });
+confere('I3 termo que o Clinilink não tem: diz que não achou e oferece a equipe (usa o termo entendido)', /Não achei audiometria pra agendar por aqui/.test(m.reply) && /chame alguém da equipe/.test(m.reply), m.reply.replace(/\n/g, ' | ').slice(0, 200));
+m = await viaIA(['tenho sentido muita tontura ultimamente'], { quer: 'duvida', tipo: null, termo: 'dermatologia', sintoma: true });
+confere('I10 queixa de saúde (o modelo pode marcar como "dúvida") também vira pedido de consulta, com aviso de segurança', /Pelo que você contou, o serviço indicado é consulta Dermatologia/.test(m.reply) && /192/.test(m.reply), m.reply.replace(/\n/g, ' | ').slice(0, 200));
+m = await viaIA(['quanto tempo demora o resultado?'], { quer: 'duvida', tipo: null, termo: null, sintoma: false });
+confere('I4 era só uma dúvida: o intérprete não inventa serviço', !m.state.servico && !m.state.opcoes, m.reply.replace(/\n/g, ' | ').slice(0, 140));
+m = await viaIA(['obrigado'], { quer: 'agendar', tipo: 'exame', termo: 'ultrassom', sintoma: false });
+confere('I5 agradecimento e "sim/não" nem chegam a chamar o intérprete', chamadasIA.length === 0, `chamadas: ${chamadasIA.length}`);
+m = await viaIA(['preciso agendar um exame', 'daqueles de sangue'], { quer: 'agendar', tipo: 'exame', termo: 'ginecologia', sintoma: false });
+confere('I6 o intérprete recebe o CONTEXTO (mensagens anteriores do paciente) e a busca usa o que ele entendeu', chamadasIA.some((c) => c.texto === 'daqueles de sangue' && c.anteriores.includes('preciso agendar um exame')) && /Ginecologia/.test(m.reply), JSON.stringify(chamadasIA.map((c) => c.anteriores)));
+m = await viaIA(['quero marcar uma consulta de ginecologia'], { quer: 'agendar', tipo: 'consulta', termo: 'dermatologia', sintoma: false });
+confere('I7 se as regras já entendem o pedido, o intérprete nem é chamado (e não muda o resultado)', chamadasIA.length === 0 && /Ginecologia/.test(m.reply), `${chamadasIA.length} chamadas | ${m.reply.replace(/\n/g, ' | ').slice(0, 80)}`);
+m = await turnosDe(['preciso resolver um problema na pele']);
+confere('I8 sem o intérprete (sem chave da OpenAI) o roteiro segue como antes, sem quebrar', !m.handoff && Boolean(m.reply), m.reply.replace(/\n/g, ' | ').slice(0, 100));
+const falha = async () => { throw new Error('OpenAI fora do ar'); };
+m = (await responder([['preciso resolver um problema na pele']], { ...ctx, interpretarPedido: falha as any }, fonteClinilink)) as any;
+confere('I9 intérprete que dá erro: o roteiro segue sem ele', !m.handoff && Boolean(m.reply), m.reply.replace(/\n/g, ' | ').slice(0, 100));
 
 server.close();
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTODOS OS CENÁRIOS PASSARAM');

@@ -37,6 +37,7 @@ function resumo(caminho: string, body: any) {
   for (const [k, v] of Object.entries(body ?? {})) {
     if (!Array.isArray(v)) continue;
     if (k === 'pacientes') { out.pacientes = { encontrados: v.length }; continue; }
+    if (k === 'agendamentos') { out.agendamentos = { total: v.length }; continue; } // lista com nome/telefone de paciente: só a contagem vai para o log
     out[k] = { total: v.length, amostra: v.slice(0, 5).map((x: any) => ({ unidade: k === 'clinicas' ? x.nome : x.unidade?.nome, procedimento: k === 'procedimentos' ? x.nome : undefined, medico: x.profissional?.nome, id: typeof x.id === 'string' ? x.id.slice(0, 8) : undefined, data: x.data, hora: x.hora, inicioAgenda: x.agendaHoraInicio, preco: x.preco, precoDinheiro: x.precoDinheiro })) };
   }
   return out;
@@ -84,6 +85,41 @@ export const listProfissionais = (unidadeId: string, procedimentoId?: string) =>
 export const listAgenda = (p: { unidadeId: string; dataInicial: string; dataFinal: string; procedimentoId?: string; profissionalId?: string }) =>
   memo(`agenda:${p.unidadeId}:${p.dataInicial}:${p.dataFinal}:${p.procedimentoId ?? ''}:${p.profissionalId ?? ''}`, 2 * 60_000, async () =>
     (await get<{ horarios: Horario[] }>('/v1/agendamento/agenda', p)).horarios);
+
+/**
+ * Demanda: quantos agendamentos (não cancelados) cada procedimento teve nos últimos 30 dias, somando as unidades. Serve para sugerir
+ * primeiro o que a clínica mais agenda. A listagem do Clinilink traz nome e telefone de paciente: aqui só se CONTA por procedimento,
+ * nada disso é guardado, logado ou devolvido. Fica em memória por 6 h. Se falhar, devolve vazio (as sugestões caem na regra
+ * de serviços principais) e não tenta de novo por 5 min.
+ */
+let semDemandaAte = 0;
+export async function demandaPorProcedimento(): Promise<Map<string, number>> {
+  if (Date.now() < semDemandaAte) return new Map();
+  try {
+    return await memo('demanda', 6 * 3600_000, async () => {
+      const hoje = new Date();
+      const ymd = (d: Date) => d.toISOString().slice(0, 10);
+      const ini = ymd(new Date(hoje.getTime() - 30 * 86400000)); const fim = ymd(hoje);
+      const total = new Map<string, number>();
+      for (const c of await listClinicas()) {
+        const pagina = (offset: number) => get<{ total?: number; agendamentos: { status?: string; procedimentos?: { id: string }[] }[] }>('/v1/agendamento/agendamentos', { unidadeId: c.id, dataInicial: ini, dataFinal: fim, limite: '500', offset: String(offset) });
+        const conta = (r: Awaited<ReturnType<typeof pagina>>) => {
+          for (const a of r.agendamentos ?? []) { if (a.status === 'cancelado') continue; for (const p of a.procedimentos ?? []) total.set(p.id, (total.get(p.id) ?? 0) + 1); }
+        };
+        const primeira = await pagina(0); conta(primeira);
+        const paginas = Math.min(8, Math.ceil((primeira.total ?? 0) / 500)); // até 4000 por unidade
+        const resto = await Promise.all(Array.from({ length: Math.max(0, paginas - 1) }, (_, i) => pagina((i + 1) * 500)));
+        resto.forEach(conta);
+      }
+      evt('clinilink', { recurso: 'demanda', procedimentos: total.size, agendamentos: [...total.values()].reduce((a, b) => a + b, 0) });
+      return total;
+    });
+  } catch (e) {
+    semDemandaAte = Date.now() + 5 * 60_000;
+    evt('clinilink', { recurso: 'demanda', erro: (e as Error).message.slice(0, 120) });
+    return new Map();
+  }
+}
 
 export type Paciente = { id: string; nome: string; cpf?: string | null; dataNascimento?: string | null; telefone?: string | null };
 

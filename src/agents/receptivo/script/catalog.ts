@@ -19,7 +19,7 @@ export type Servico = {
 
 export type Descoberta =
   | { servico: Servico }
-  | { opcoes: { id: string; nome: string }[] } // mais de um procedimento parecido: perguntar qual
+  | { opcoes: { id: string; nome: string }[]; intro?: string; pergunta?: string } // mais de um procedimento parecido: perguntar qual (intro/pergunta: texto próprio, ex.: pedido genérico de exame)
   | { semAgenda: string } // existe, mas sem vaga aberta
   | { naoAchouServico: string } // o paciente pediu um serviço conhecido/claro e ele não está liberado para agendamento (ou tem outro nome no cadastro)
   | { naoAchouProfissional: string } // o paciente pediu uma pessoa pelo nome e não há ninguém assim com agenda
@@ -42,6 +42,8 @@ export type ResultadoReserva =
 
 export interface Fonte {
   tipo: 'simulado' | 'clinilink';
+  /** Só a fonte real: pré-carrega unidades e catálogo para a primeira consulta não esperar o Clinilink "acordar". */
+  aquecer?(): Promise<void>;
   /** Só a fonte real implementa: cadastra (se novo) e reserva o horário livre. */
   reservar?(pedido: PedidoReserva): Promise<ResultadoReserva>;
   nomesUnidades(): Promise<string[]>;
