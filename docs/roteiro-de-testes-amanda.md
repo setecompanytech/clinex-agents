@@ -161,7 +161,7 @@ Faça cada uma em etapas diferentes (antes do serviço, na unidade, nos horário
 - 8.2 "quanto custa?", "qual o valor da consulta de ginecologia?" → valor (e, sem serviço, pergunta qual).
 - 8.3 "quais as formas de pagamento?", "aceita cartão?", "posso parcelar?"
 - 8.4 "quais médicos atendem?", "quais unidades vocês têm?"
-- 8.5 "qual o endereço?", "como chego aí?" → não inventa: a equipe passa. Oferece chamar.
+- 8.5 "qual o endereço?", "como chego aí?", "onde fica?" → manda o endereço aprovado pela clínica, **uma mensagem para cada unidade**: "Guamá: Endereço: Av. José Bonifácio, 2426 - Guamá, Belém - PA, 66063-075" com o link do mapa (https://share.google/VHM9fHMaWIUZujkl3) e "Telégrafo: Travessa Coronel Luís Bentes com a Rua do Úna, nº 170A, no bairro do Telégrafo, em Belém (PA)." Depois volta para a pergunta em que estava. Se você citar a unidade ("endereço do Telégrafo?"), manda só a dela, **sem escolher essa unidade** para o agendamento. Se você já escolheu a unidade, manda a dela. Nunca "a equipe passa".
 - 8.6 "vocês atendem Unimed?" (convênio) → a equipe confirma, não inventa.
 - 8.7 "preciso de jejum?", "o que levar?" → a equipe orienta.
 - 8.8 "??", "oi?", "tá aí?", "alguém aí?" → "Tô aqui!" e repete a pergunta pendente.

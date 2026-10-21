@@ -123,7 +123,7 @@ export const MARCAS_FIM = [MARCA_FIM, MARCA_AGENDADO, MARCA_MAIS, MARCA_ADEUS];
 /** Mensagens com texto exato (valores, chave, marcas): não passam pelo GPT. */
 export const SEM_GPT = [MARCA_AGENDADO, MARCA_MAIS, MARCA_ADEUS, MARCA_PIX, MARCA_PAGAMENTO];
 /** Textos que o Giovanny aprovou palavra por palavra (unidades, horários, "o mais rápido", comprovante, aviso de segurança do sintoma): também não passam pelo GPT. */
-SEM_GPT.push(MARCA_DUP, 'Está sim, confirmado!', 'Tenho sim!', 'Consegui estes aqui', 'Esses são os horários que tenho', 'O mais rápido que tenho é', 'O último que tenho é', 'Não to conseguindo ler esse comprovante', 'Recebi o seu comprovante', 'Pelo que você contou');
+SEM_GPT.push(MARCA_DUP, 'Está sim, confirmado!', 'Tenho sim!', 'Consegui estes aqui', 'Esses são os horários que tenho', 'Guamá: Endereço:', 'Travessa Coronel Luís Bentes com a Rua do Úna', 'O mais rápido que tenho é', 'O último que tenho é', 'Não to conseguindo ler esse comprovante', 'Recebi o seu comprovante', 'Pelo que você contou');
 
 export const novoEstado = (): State => ({
   saudou: false, confirmPerguntado: false, servicoConfirmado: false, unidadesInformadas: false,
@@ -427,6 +427,17 @@ export function lerIntencao(t: string, ctx: Ctx, tamanhoLista = 0): IntLista | u
 /** Hora cheia do início ("08:00" -> 8). */
 const horaCheia = (inicio: string) => Number(inicio.slice(0, 2));
 
+/** Endereços aprovados pela clínica, palavra por palavra (não passam pelo GPT). O primeiro tem o link do mapa. */
+const ENDERECOS: { re: RegExp; texto: string }[] = [
+  { re: /guama/, texto: 'Guamá: Endereço: Av. José Bonifácio, 2426 - Guamá, Belém - PA, 66063-075\nhttps://share.google/VHM9fHMaWIUZujkl3' },
+  { re: /telegrafo/, texto: 'Telégrafo: Travessa Coronel Luís Bentes com a Rua do Úna, nº 170A, no bairro do Telégrafo, em Belém (PA).' },
+];
+/** O endereço da unidade que o paciente citou; senão o da unidade que ele já escolheu; senão o das duas (uma mensagem para cada). */
+export function textoEnderecos(t: string, unidadeEscolhida?: string): string {
+  const citadas = ENDERECOS.filter((e) => e.re.test(t));
+  const doEscolhido = unidadeEscolhida ? ENDERECOS.filter((e) => e.re.test(norm(unidadeEscolhida))) : [];
+  return (citadas.length ? citadas : doEscolhido.length ? doEscolhido : ENDERECOS).map((e) => e.texto).join('\n\n');
+}
 /** Marca do texto que informa as unidades (a dúvida "quais unidades?" não repete o que já foi dito). */
 const MARCA_UNIDADES = 'Tenho sim!';
 /** Onde e com quem: "Tenho sim! No Guamá com a Dra. Giovanna e a Dra. Ebenezaide, e no Telégrafo com a Dra. Ebenezaide." Os nomes saem com Dr./Dra. */
@@ -613,7 +624,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
         return textoUnidades(sv, 'duvida');
       }
       // o que eu não sei com segurança, não invento: a equipe confirma
-      case 'endereco': return `Endereço e como chegar eu prefiro que a equipe te passe certinho pra não te falar nada errado.${EQUIPE}`;
+      case 'endereco': return textoEnderecos(t, s.unidade?.nome);
       case 'convenio': return `Sobre convênios a equipe confirma direitinho pra você e assim ninguém te passa informação errada.${EQUIPE}`;
       case 'preparo': return `Sobre preparo e o que levar a equipe te orienta certinho pro seu atendimento.${EQUIPE}`;
     }
@@ -926,7 +937,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
   let entendeuHorario = false; // alguma coisa da resposta foi entendida (unidade, posição, data, período, intenção)
   if (!s.slot) {
     const nomesUn = await fonte.nomesUnidades();
-    const unCitada = nomesUn.find((u) => t.includes(norm(u)));
+    const unCitada = faq === 'endereco' ? undefined : nomesUn.find((u) => t.includes(norm(u))); // "qual o endereço do Telégrafo?" pergunta, não escolhe a unidade
     if (unCitada) entendeuHorario = true;
     if (unCitada) {
       const ok = sv.unidades.find((u) => norm(u.nome) === norm(unCitada));

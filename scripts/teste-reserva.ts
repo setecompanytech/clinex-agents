@@ -450,7 +450,7 @@ confere('F1 sem serviço: responde o horário e pergunta o que ele precisa (sem 
 r = await resp([['quanto custa a consulta de ginecologia?']]);
 confere('F2 valor + serviço na mesma frase: informa o valor e confirma o serviço', /A consulta é R\$ 100,00/.test(r.reply) && /(?:Ah, então é|Entendi, você quer|Só pra confirmar: é|Então é) consulta Ginecologia/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 170));
 r = await resp([...ate3.map(um), um('qual o endereço de vocês?')]);
-confere('F3 endereço no meio do fluxo: não inventa, oferece a equipe e RETOMA a pergunta da unidade', /equipe te passe certinho/.test(r.reply) && /Qual dos dois você prefere/.test(r.reply) && !r.handoff, r.reply.replace(/\n/g, ' | ').slice(0, 220));
+confere('F3 endereço no meio do fluxo: manda o endereço das duas unidades (aprovado pela clínica) e RETOMA a pergunta da unidade', /Guamá: Endereço: Av. José Bonifácio, 2426 - Guamá, Belém - PA, 66063-075/.test(r.reply) && /Telégrafo: Travessa Coronel Luís Bentes/.test(r.reply) && /Qual dos dois você prefere/.test(r.reply) && !/equipe/.test(r.reply) && !r.handoff, r.reply.replace(/\n/g, ' | ').slice(0, 220));
 r = await resp([...base0.map(um), um('qual o valor?')]);
 confere('F4 "qual o valor?" depois da chave pix: responde o valor e reenvia a chave', /R\$ 100,00/.test(r.reply) && /Chave pix: clinicaclinex@gmail\.com/.test(r.reply) && !r.handoff, r.reply.replace(/\n/g, ' | ').slice(0, 200));
 r = await resp([...base0, 'pix', 'qual o valor?'].map(um));
@@ -458,11 +458,11 @@ confere('F5 valor esperando o comprovante: reenvia a chave com o valor (sem dupl
 r = await resp([...ate3.map(um), um('??')]);
 confere('F6 "??" no meio do fluxo: "Estou aqui" e repete a pergunta pendente', /^Tô aqui!/.test(r.reply) && /Qual dos dois você prefere/.test(r.reply), r.reply.replace(/\n/g, ' | '));
 r = await resp([...base.map(um), um('qual o endereço?')]);
-confere('F7 dúvida no pedido do CPF: responde e volta a pedir o CPF', /equipe/.test(r.reply) && /CPF do paciente/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 200));
+confere('F7 dúvida no pedido do CPF: responde o endereço e volta a pedir o CPF', /Av. José Bonifácio/.test(r.reply) && /CPF do paciente/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 200));
 r = await resp([...base.map(um), um('12345678909'), um('qual o endereço de vocês')]);
-confere('F8 dúvida (sem "?") na hora do nome: NÃO vira o nome do paciente', r.state.cad?.nome === undefined && /nome completo/.test(r.reply) && /equipe/.test(r.reply), `${r.state.cad?.nome} | ${r.reply.replace(/\n/g, ' | ').slice(0, 150)}`);
+confere('F8 dúvida (sem "?") na hora do nome: NÃO vira o nome do paciente', r.state.cad?.nome === undefined && /nome completo/.test(r.reply) && /Av. José Bonifácio/.test(r.reply), `${r.state.cad?.nome} | ${r.reply.replace(/\n/g, ' | ').slice(0, 150)}`);
 r = await resp([...ate3.map(um), um('qual o endereço?'), um('pode chamar alguém da equipe')]);
-confere('F9 depois da dúvida que ela não sabe, "pode chamar alguém da equipe" transfere', Boolean(r.handoff), r.reply);
+confere('F9 depois do endereço, "pode chamar alguém da equipe" transfere', Boolean(r.handoff), r.reply);
 r = await resp([...ate3.map(um), um('quais médicos atendem?')]);
 confere('F10 "quais médicos atendem?": mostra os médicos de cada unidade e volta à pergunta', /Dra\. Medica/.test(r.reply) && /Qual dos dois você prefere/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 220));
 r = await resp([...base0.map(um), um('aceita cartão de crédito?')]);
@@ -1117,6 +1117,23 @@ confere('CP8 comprovante de meses atrás: diz que é de outro atendimento', /ent
 reset({ ocupados: 0 });
 r = (await resp([...base0, 'pix', img('cp-depois'), '52998224725', 'sim'].map((x) => [x]), ctxCp)) as any;
 confere('CP10 a observação do agendamento leva o dia e a hora do comprovante', /Pix antecipado: R\$ 100,00 \(\d{2}\/\d{2}\/\d{4} 15:20\)/.test(posts.find((x) => x.rota.endsWith('/agendamentos'))?.corpo?.observacao ?? ''), posts.find((x) => x.rota.endsWith('/agendamentos'))?.corpo?.observacao ?? '(sem agendamento)');
+
+// ---- endereço: texto aprovado pela clínica (Guamá com o link do mapa; Telégrafo) ----
+const END_GUAMA = 'Guamá: Endereço: Av. José Bonifácio, 2426 - Guamá, Belém - PA, 66063-075\nhttps://share.google/VHM9fHMaWIUZujkl3';
+const END_TELEGRAFO = 'Telégrafo: Travessa Coronel Luís Bentes com a Rua do Úna, nº 170A, no bairro do Telégrafo, em Belém (PA).';
+const { SEM_GPT: SEM_GPT_LISTA } = await import('../src/agents/receptivo/script/engine.js');
+reset({ ocupados: 0 });
+r = (await resp([['qual o endereço de vocês?']])) as any;
+confere('EN1 pediu o endereço de cara: manda os dois endereços, cada um numa mensagem, e pergunta o que ele precisa', r.reply.includes(`${END_GUAMA}\n\n${END_TELEGRAFO}\n\n`) && /Qual consulta ou exame você precisa/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 330));
+r = (await resp([['onde fica o Guamá?']])) as any;
+confere('EN2 pediu o do Guamá: manda só o do Guamá (com o link)', r.reply.includes(END_GUAMA) && !/Telégrafo: Travessa/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 200));
+r = (await resp([['como chego na unidade do telégrafo?']])) as any;
+confere('EN3 pediu o do Telégrafo: manda só o do Telégrafo', r.reply.includes(END_TELEGRAFO) && !/Guamá: Endereço/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 200));
+r = (await resp([...ate3.map(um), um('guamá'), um('qual o endereço?')])) as any;
+confere('EN4 já escolheu o Guamá e pergunta o endereço: manda o do Guamá (a unidade dele) e continua o agendamento', r.reply.startsWith(END_GUAMA) && !/Telégrafo: Travessa/.test(r.reply) && /Qual desses fica bom pra você|Consegui estes aqui|horário/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 260));
+r = (await resp([...ate3.map(um), um('qual o endereço do telégrafo?')])) as any;
+confere('EN5 pergunta o do Telégrafo antes de escolher a unidade: manda o do Telégrafo e retoma a pergunta', r.reply.startsWith(END_TELEGRAFO) && /Qual dos dois/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 240));
+confere('EN6 o texto do endereço nunca passa pelo GPT (aprovado palavra por palavra)', SEM_GPT_LISTA.some((x: string) => r.reply.includes(x)), '');
 
 server.close();
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTODOS OS CENÁRIOS PASSARAM');
