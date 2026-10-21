@@ -30,8 +30,8 @@ Escrito para: Giovanny, para testar a Amanda no WhatsApp com vários cenários e
 | 1.2 | "quero agendar cardiologia" | Confirma o serviço: "Ah, então é consulta ... né?" (ou "Entendi, você quer ..., é isso?") |
 | 1.3 | "sim" | "Tenho sim! No Guamá com a Dra. ... e no Telégrafo com ..." + preço "A consulta é R$ ..." + "Qual dos dois fica melhor pra você?" |
 | 1.4 | "Guamá" | "Consegui estes aqui:" com até 4 opções numeradas (dia da semana, dia, período, "a partir das Xh", médico se houver mais de um) |
-| 1.5 | "2" | Resumo "Beleza, então fica ... por ordem de chegada ..." + "Pra agilizar o seu atendimento na recepção, você quer antecipar o pagamento por pix ou link de crédito?" |
-| 1.6 | "na recepção" | "Sem problema nenhum o pagamento fica pra recepção no dia do atendimento. Me passa o CPF do paciente pra eu reservar?" |
+| 1.5 | "2" | Resumo "Beleza, então fica ... por ordem de chegada ..." e **já induz o pix**, sem perguntar antes: "Pra agilizar o seu atendimento na recepção, o melhor é antecipar o pagamento por pix, o valor é R$ ...:" + a chave sozinha ("Chave pix: ...", fácil de copiar) + "Quando pagar, me manda o comprovante aqui ... Se preferir pagar na recepção ou por link de crédito, é só me falar." (três balões) |
+| 1.6 | "na recepção" (ou "não", "prefiro pagar lá") | "Sem problema nenhum o pagamento fica pra recepção no dia do atendimento. Me passa o CPF do paciente pra eu reservar?" |
 | 1.7 | CPF de paciente que já existe | "Achei aqui o cadastro de [Nome]. É esse mesmo o paciente?" (só o nome, nenhum outro dado) |
 | 1.8 | "sim" | "Agendamento confirmado! Deu tudo certo ..." com serviço, unidade, dia, período, médico com Dr./Dra. e "por ordem de chegada" |
 
@@ -115,7 +115,7 @@ Com a lista de horários na tela:
 
 ## Fluxo 6. Pagamento
 
-- 6.1 "pix" → "Show! A chave pix é essa, o valor é R$ ...:" + "Chave pix: ..." + pede o comprovante.
+- 6.1 Assim que você escolhe o horário, ela manda o pix sem você pedir: "Pra agilizar o seu atendimento na recepção, o melhor é antecipar o pagamento por pix, o valor é R$ ...:" + "Chave pix: ..." + pede o comprovante. Quem já disse antes que paga na recepção (ou por link) **não** é empurrado para o pix. Serviço sem valor cadastrado: ela não induz o pix e pergunta a forma de pagamento.
 - 6.2 Mandar um **comprovante certo** (hoje, valor igual ao da consulta, recebedor da Clinex) → "Recebi o seu comprovante, muito obrigada! Agora pra eu fazer a reserva pode me passar o CPF do paciente?"
 - 6.3 Comprovante com **valor maior** → aceita.
 - 6.4 Comprovante com **valor menor** → "Recebi o seu comprovante de R$ X. O valor é R$ Y, então ainda faltam R$ Z. Prefere pagar o restante agora por pix ou deixar para pagar na recepção?" Mande um segundo comprovante que complete (confirma) ou responda "na recepção" (o resto fica pra recepção).
@@ -127,10 +127,14 @@ Com a lista de horários na tela:
 - 6.10 "já paguei" sem imagem → pede o comprovante. Outra mensagem qualquer enquanto espera → "Tô aguardando o comprovante do pix ..." (sem avançar).
 - 6.11 "qual a chave?" / "me manda o qr" enquanto espera → reenvia a chave.
 - 6.12 Depois de receber a chave, "na verdade pago na recepção" → segue sem pix.
-- 6.13 "link" / "crédito" / "cartão" → chama a equipe para mandar o link (não termina o agendamento sozinha).
-- 6.14 Resposta solta à pergunta do pagamento ("hum") → "Você prefere pagar por pix, link de crédito ou lá na recepção, no dia?" Na terceira vez chama a equipe.
+- 6.13 "link de crédito" / "vou pagar com cartão de crédito" → "Combinado! Vou passar pra equipe te enviar o link de pagamento e concluir o agendamento." e **vai para o atendimento do time** com a vaga anotada. Se você escrever depois, a Amanda fica quieta (a equipe assume). Não termina o agendamento sozinha.
+- 6.14 Resposta solta depois da chave ("hum", "ok") → "Tô aguardando o comprovante do pix pra seguir com o seu agendamento, tá? Se preferir pagar na recepção é só me avisar."
 - 6.15 "não quero antecipar", "pago lá", "depois eu pago", "só quero agendar" → recepção.
-- 6.16 "aceita cartão?" na pergunta do pagamento → explica as formas e **volta a perguntar** (não conta como escolha).
+- 6.16 "aceita cartão?" / "posso pagar no cartão?" depois da chave → explica ("Na recepção, no dia, aceitamos pix, cartão de crédito e débito e dinheiro") e segue esperando o comprovante. **Não** vira escolha de link nem transfere.
+- 6.17 Dúvidas sobre o pagamento, em linguagem solta: "preciso pagar agora?", "se eu não pagar perco a vaga?", "o pix é obrigatório?" → responde com o que a clínica informa (antecipar por pix é opcional e serve para agilizar; dá para pagar na recepção, no dia) e segue esperando o comprovante.
+- 6.18 Dúvidas que ela não tem como saber: "esse pix é seguro?", "posso parcelar em quantas vezes?" → não inventa: "Essa eu prefiro que a equipe confirme certinho pra você, pra não te falar nada errado. Se quiser é só me pedir que eu chamo alguém." e continua esperando o comprovante.
+- 6.19 "quanto é mesmo?" / "qual o valor?" depois da chave → responde o valor e reenvia a chave.
+- 6.20 Depois da chave, "queria outro dia" / "mudar o horário" → ela troca o horário e manda o pix de novo, já com o novo horário. "Outro dia eu pago" **não** troca o horário.
 
 ## Fluxo 7. CPF, paciente e cadastro
 

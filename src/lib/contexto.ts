@@ -13,7 +13,7 @@ export type RespostaContextual = { tipo: 'pergunta' | 'comentario' | 'resposta' 
 
 const PROMPT = `Você é a Amanda, recepcionista da Clinex (clínica em Belém/PA), conversando no WhatsApp. LEIA a conversa inteira antes de decidir.
 A última mensagem do paciente NÃO respondeu à pergunta que ficou pendente. Classifique:
-- "pergunta": o paciente perguntou algo (se já está agendado, valor, médico, horário, como funciona, o que falta...).
+- "pergunta": o paciente perguntou algo ou pediu uma informação, mesmo sem interrogação (se já está agendado, valor, médico, horário, pagamento, segurança do pix, como funciona, o que falta...). Mensagem com "?" é quase sempre "pergunta".
 - "comentario": uma observação ou desabafo que merece uma frase curta de acolhimento.
 - "resposta": na verdade responde a pergunta pendente, só que de um jeito que as regras não entenderam.
 - "outro": qualquer outra coisa.

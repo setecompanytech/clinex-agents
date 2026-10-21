@@ -81,9 +81,13 @@ confere('A2 agradecimento depois da despedida: a Amanda fica em silêncio', c.le
 // A3) RETOMAR: a Amanda transferiu (comprovante/vaga/etc.), o paciente volta a escrever na fila da equipe -> ela volta e continua
 n = 0;
 const base = ate_o_pagamento();
-c = await roda([...base, eu('link de crédito'), amanda('Combinado! Vou pedir para a equipe te enviar o link de pagamento...'), sistema('Transferido pela API para o setor Principal'), eu('na verdade vou pagar no pix')], 'HUM');
+const foto = { id: 'img-a3', direction: 'in', type: 'image', text: null, timestamp: ts(), status: 'delivered' }; // comprovante (sem leitura automática no teste: vai para a equipe conferir)
+c = await roda([...base, foto, amanda('Recebi o seu comprovante. Vou pedir pra equipe conferir. Já deixei tudo anotado. Só um instante.'), sistema('Transferido pela API para o setor Principal'), eu('já paguei o pix')], 'HUM');
 confere('A3 paciente volta na fila da equipe: a conversa é devolvida para a Amanda ANTES de responder', transfs(c)[0]?.corpo.toSectorId === 'AI' && !('message' in transfs(c)[0].corpo) && c.findIndex((x) => x.caminho.endsWith('/transfer')) < c.findIndex((x) => x.caminho.endsWith('/send/text')), c.map((x) => x.caminho.split('/').slice(-1)[0]).join(' -> '));
-confere('A3 e continua de onde parou: manda a chave pix (em balões: a chave fica sozinha, para copiar)', /Chave pix:/.test(textos(c).join('\n')) && textos(c).length === 3 && /^Chave pix:/m.test(textos(c)[1] ?? '') && /Amanda \(IA\)/.test(textos(c)[0] ?? '') && !/Amanda \(IA\)/.test(textos(c)[1] ?? ''), textos(c).join(' | ').replace(/\n/g, ' ').slice(0, 160));
+confere('A3 e continua de onde parou: pede o comprovante do pix (já tinha recebido a chave)', /comprovante/.test(textos(c).join('\n')) && !/Chave pix:/.test(textos(c).join('\n')), textos(c).join(' | ').replace(/\n/g, ' ').slice(0, 160));
+// A3b) link de crédito: a equipe assume e a Amanda NÃO retoma sozinha
+c = await roda([...base, eu('link de crédito'), amanda('Combinado! Vou passar pra equipe te enviar o link de pagamento...'), sistema('Transferido pela API para o setor Principal'), eu('na verdade vou pagar no pix')], 'HUM');
+confere('A3b link de crédito: depois da transferência para o time, se o paciente escreve a Amanda fica quieta (o time responde)', c.length === 0, `chamadas=${c.length}`);
 
 // A4) pediu um humano: a Amanda NÃO retoma
 n = 0;

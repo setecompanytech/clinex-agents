@@ -462,6 +462,10 @@ export function fatosDoEstado(s: State, ref: string, confirmacao?: string): stri
   else if (s.pagamento === 'pix') L.push('Pagamento: por pix, esperando o comprovante');
   if (s.dup) L.push(`O paciente já tem esse atendimento marcado no dia ${dataFalada(s.dup.ymd, ref)} (nenhum outro foi feito agora)`);
   if (confirmacao) L.push(`Último agendamento já confirmado: ${confirmacao}`);
+  // o que a clínica informa sobre pagamento e atendimento (para responder dúvidas sem inventar)
+  L.push('Pagamento: dá pra pagar por pix, cartão de crédito e débito ou dinheiro em espécie. Antecipar por pix é opcional e serve para agilizar o atendimento na recepção; também dá pra pagar na recepção, no dia do atendimento. Pagamento por link de crédito é combinado com a equipe, que envia o link.');
+  L.push('O atendimento é por ordem de chegada: o horário informado é a hora em que a agenda abre, não um horário marcado individual.');
+  if (env.clinicHorario) L.push(`Horário de funcionamento da clínica: ${env.clinicHorario}`);
   L.push(s.dup ? 'Situação: o paciente já tem esse atendimento marcado; ela espera ele decidir o que fazer'
     : sv ? `Situação: o agendamento ainda NÃO foi feito; etapa atual: ${etapa(s)}`
     : 'Situação: ainda não foi pedido nenhum serviço nesta conversa');
@@ -479,6 +483,13 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
   if (t.length < 6 || SIM.test(t) || NAO.test(t) || SO_CUMPRIMENTO.test(t) || soAgradecimento(t) || TOKEN_MIDIA.test(texto)) return r;
   if (marcaDeProgresso(prev.fim ? novoEstado() : prev) !== marcaDeProgresso(r.state)) return r; // a conversa avançou: a mensagem era a resposta esperada
   const c = await ctx.contexto({ conversa: ctx.conversa ?? [], mensagem: texto.replace(TOKEN_MIDIA, ' ').trim(), fatos: fatosDoEstado(r.state, hoje(ctx).ymd, ctx.confirmacao), perguntaPendente: r.reply }).catch(() => null);
+  // mensagem com "?" que o modelo chamou de comentário ("esse pix é seguro?") também é dúvida: sem fato para responder, vai para a equipe
+  if (c && ((c.tipo === 'pergunta' && !c.resposta) || (c.tipo === 'comentario' && texto.includes('?')))) {
+    // é uma dúvida e os fatos não bastam (ou a resposta não passou na validação): não inventa, deixa com a equipe e segue a pergunta pendente
+    const nao = 'Essa eu prefiro que a equipe confirme certinho pra você, pra não te falar nada errado. Se quiser é só me pedir que eu chamo alguém.';
+    const ab = r.reply.match(/^Oi[^\n]*Aqui é a Amanda, da Clinex\.[ \n]?/);
+    return { ...r, reply: ab ? `${ab[0].trimEnd()}\n${nao}\n${r.reply.slice(ab[0].length)}` : `${nao}\n${r.reply}` };
+  }
   if (!c?.resposta || c.tipo !== 'pergunta') return r; // só responde PERGUNTA com fatos; desabafo e conversa solta seguem o roteiro
   const abre = r.reply.match(/^Oi[^\n]*Aqui é a Amanda, da Clinex\.[ \n]?/); // a resposta entra depois da saudação de abertura
   return { ...r, reply: abre ? `${abre[0].trimEnd()}\n${c.resposta}\n${r.reply.slice(abre[0].length)}` : `${c.resposta}\n${r.reply}` };
@@ -513,7 +524,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
         // sem preço cadastrado: não inventa nem fala "zero"; a equipe confirma
         if (!sv.precoTexto) return `O valor desse atendimento eu prefiro que a equipe confirme certinho pra você.${EQUIPE}`;
         return reply.includes(sv.precoTexto) ? '' : sv.precoTexto;
-      case 'pagto': return esperandoPix() || reply.includes(MARCA_PAGAMENTO) ? '' : 'Dá pra antecipar por pix (eu te passo a chave) ou por link de crédito. Ou então pagar na recepção no dia do atendimento.';
+      case 'pagto': return reply.includes(MARCA_PAGAMENTO) ? '' : 'Dá pra antecipar por pix (eu te passo a chave) ou por link de crédito. Na recepção, no dia, aceitamos pix, cartão de crédito e débito e dinheiro.';
       case 'medicos':
       case 'unidades': {
         if (!sv) return faq === 'unidades' && nomesUnFaq.length ? `Temos as unidades ${nomesUnFaq.join(' e ')}.` : '';
@@ -553,6 +564,8 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     s.pagPerguntado = false; s.pagamento = undefined; s.pixEnviado = false; s.pagFinal = false; s.compTent = 0; s.comprovante = undefined; s.pagoPix = undefined; s.transacoes = undefined;
     Object.assign(s, adiantado);
   };
+  /** O horário mudou e nada foi pago ainda: o pagamento recomeça (a Amanda induz o pix de novo, já com o novo horário). */
+  const refazPagamento = () => { if (!s.pagFinal && !s.pagoPix) { s.pagamento = undefined; s.pixEnviado = false; s.pagPerguntado = false; s.comprovante = undefined; } };
   /** Guarda o que o paciente adiantou antes de dizer o serviço (dia, período, unidade, "o mais rápido", forma de pagamento). Devolve o que anotou ('' = nada). */
   const guardaAdiantado = async (): Promise<string> => {
     if (faq) return '';
@@ -697,7 +710,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
       s.ofereceuEquipe = undefined; s.servico = d.servico; s.opcoes = undefined; mudouServico = true;
       s.unidadesInformadas = false; s.lista = undefined; s.slot = undefined; s.data = undefined; s.turno = undefined;
       s.unidade = nomeUn ? d.servico.unidades.find((u) => norm(u.nome) === norm(nomeUn)) : undefined;
-      if (!s.pagFinal && !s.pagamento) s.pagPerguntado = false;
+      refazPagamento();
       partes.push(`Beleza, vou olhar os horários com ${exibir(d.servico.profissional.nome, { artigo: true })}.`);
     } else if (d.servico.id !== atual?.id || d.servico.profissional?.id !== atual?.profissional?.id) {
       const primeira = !atual;
@@ -719,14 +732,14 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     if (!trocou) {
       const outra = (await fonte.nomesUnidades()).find((u) => t.includes(norm(u)) && norm(u) !== norm(s.unidade?.nome ?? ''));
       const outraUn = outra ? s.servico.unidades.find((u) => norm(u.nome) === norm(outra)) : undefined;
-      const outroDia = !esperandoPix() && TROCA_DIA.test(t);
+      const outroDia = TROCA_DIA.test(t) && !(esperandoPix() && /\b(pag\w*|pix|comprovante|transfer\w*)\b/.test(t)); // "outro dia eu pago" não troca o horário
       if (outraUn || outroDia) {
         if (outraUn) {
           s.unidade = outraUn;
           if (!s.pagFinal) { s.pagamento = undefined; s.pixEnviado = false; s.pagoPix = undefined; s.transacoes = undefined; s.comprovante = undefined; } // o valor pode ser outro na outra unidade
         }
         s.slot = undefined; s.lista = undefined; s.data = undefined; s.turno = undefined;
-        if (!s.pagFinal && !s.pagamento) s.pagPerguntado = false; // pergunta o pagamento de novo, já com o novo horário
+        refazPagamento(); // o pix vai de novo, já com o novo horário
         partes.push(pick(['Sem problema, vamos ajustar.', 'Tranquilo, a gente ajusta.'], n));
       }
     }
@@ -1000,8 +1013,14 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
   // 7b) forma de pagamento: pix (espera o comprovante), link de crédito (equipe envia) ou pagar na recepção
   const valorPix = un.precoPix;
   const pedirCpf = (pre: string) => dizer(!pre ? PERG_CPF : `${pre} ${pre.startsWith('Recebi') ? PERG_CPF_APOS : PERG_CPF}`);
-  const pixMsg = `Show! A chave pix é essa${valorPix ? `, o valor é ${reais(valorPix)}` : ''}:\n\n${MARCA_PIX} ${env.pixKey}\n\nQuando pagar, me manda o comprovante aqui que eu já sigo com o seu agendamento, tá?`;
-  const deLink = () => out('Combinado! Vou pedir pra equipe te enviar o link de pagamento e concluir o agendamento. Já deixei tudo anotado. Só um instante.', { motivo: `Paciente quer pagar por link de crédito: enviar o link e concluir o agendamento. Vaga: ${resumoVaga}. Agendamento AINDA NÃO feito.` });
+  // Assim que o horário está escolhido, ela JÁ induz o pix: manda a chave (sem perguntar antes), com a saída para quem prefere outro jeito.
+  // Quem já disse como quer pagar (na recepção, link) não é empurrado para o pix.
+  let induziuPix = false;
+  const pixMsg = () => `${induziuPix
+    ? `Pra agilizar o seu atendimento na recepção, o melhor é ${MARCA_PAGAMENTO} por pix${valorPix ? `, o valor é ${reais(valorPix)}` : ''}:`
+    : `Show! A chave pix é essa${valorPix ? `, o valor é ${reais(valorPix)}` : ''}:`}\n\n${MARCA_PIX} ${env.pixKey}\n\nQuando pagar, me manda o comprovante aqui que eu já sigo com o seu agendamento, tá?${induziuPix ? ' Se preferir pagar na recepção ou por link de crédito, é só me falar.' : ''}`;
+  // link de pagamento: a equipe assume (envia o link e conclui). A Amanda não retoma sozinha depois.
+  const deLink = () => out('Combinado! Vou passar pra equipe te enviar o link de pagamento e concluir o agendamento. Já deixei tudo anotado. Só um instante.', { duro: true, motivo: `Paciente quer pagar por link de crédito: enviar o link e concluir o agendamento. Vaga: ${resumoVaga}. Agendamento AINDA NÃO feito.` });
   let preCpf = '';
   if (!s.pagFinal) {
     if (!s.pagPerguntado) {
@@ -1009,8 +1028,12 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
       // se ele já adiantou a forma de pagamento (agora ou antes), não pergunta de novo; "aceita cartão?" é pergunta, não escolha
       s.pagamento = faq === 'pagto' ? undefined : (lerPagamento(t) ?? s.pagPref);
       const resumo = escolhaDireta || `${pick(['Beleza', 'Show'], n)}, então fica ${resumoFalado}.`;
-      if (!s.pagamento) return dizer(resumo, `Pra agilizar o seu atendimento na recepção, você quer ${MARCA_PAGAMENTO} por pix ou link de crédito?`);
-      partes.push(resumo); // já escolheu como pagar: mostra o que ficou combinado e segue
+      if (!s.pagamento) {
+        // com valor definido, induz o pix direto; sem valor (a equipe confirma), pergunta como antes
+        if (!valorPix) return dizer(resumo, `Pra agilizar o seu atendimento na recepção, você quer ${MARCA_PAGAMENTO} por pix ou link de crédito?`);
+        s.pagamento = 'pix'; induziuPix = true;
+      }
+      partes.push(resumo); // mostra o que ficou combinado e segue (já escolheu como pagar, ou ela induziu o pix)
     } else if (!s.pagamento) {
       const f = faq === 'pagto' ? undefined : lerPagamento(t);
       if (!f) {
@@ -1024,7 +1047,8 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
       // já mandamos a chave pix: só seguimos com o comprovante, ou se ele desistir do pix
       const aEquipeComp = (aviso: string, motivo: string) => out(`${aviso} Vou pedir pra equipe conferir. Já deixei tudo anotado. Só um instante.`, { motivo: `${motivo} Vaga: ${resumoVaga}. Agendamento AINDA NÃO feito.` });
       const falta = valorPix ? Math.max(0, valorPix - (s.pagoPix ?? 0)) : 0;
-      if (RECEPCAO.test(t)) { s.pagamento = 'recepcao'; }
+      if (faq === 'pagto') { /* dúvida sobre pagamento ("aceita cartão?"): é pergunta, não escolha */ }
+      else if (RECEPCAO.test(t) || (!s.pagoPix && /^(nao|n|nao quero|nao vou|nao obrigad[oa])[\s!.,]*$/.test(t))) { s.pagamento = 'recepcao'; } // só "não" (sem pagamento parcial): paga na recepção
       else if (LINK.test(t) && !PIX.test(t)) { s.pagamento = 'link'; }
       else if (midia) {
         if (!ctx.lerComprovante) return aEquipeComp('Recebi o seu comprovante.', 'Comprovante de pix recebido, mas a leitura automática está indisponível: conferir a imagem.');
@@ -1081,7 +1105,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
         } else preCpf = 'Sem problema nenhum o pagamento fica pra recepção no dia do atendimento.';
       }
       else if (s.pagamento === 'pix') {
-        if (!s.pixEnviado) { s.pixEnviado = true; return dizer(pixMsg); }
+        if (!s.pixEnviado) { s.pixEnviado = true; return dizer(pixMsg()); }
       }
     }
     if (s.pagFinal) {
