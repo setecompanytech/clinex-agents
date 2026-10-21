@@ -5,7 +5,6 @@ Escrito para: Giovanny, para testar a Amanda no WhatsApp com vários cenários e
 ## Antes de começar
 
 - **Só números autorizados recebem resposta.** De outro número ela fica quieta (isso também é um teste: o fluxo 10).
-- **Para ligar a Amanda em uma conversa não precisa mais mover para o setor Agente IA:** basta o contato ter a etiqueta **Amanda** na Inovstar (a etiqueta é do contato, vale para todos os atendimentos dele). O número também precisa estar autorizado.
 - **Ela espera cerca de 30 segundos** depois da sua última mensagem para responder (para você terminar de escrever). Emergência e crise respondem em poucos segundos.
 - **Agendamento e cadastro são REAIS.** Se você chegar até o "sim" final, a Amanda grava no Clinilink. Use um paciente de teste e cancele depois no Clinilink (ela não cancela). Para testar sem gravar, pare antes do último "sim" ou responda "não" quando ela perguntar se o paciente é aquele.
 - Os logs de cada resposta ficam em `/painel/logs` (mostra o que o paciente disse, a etapa, o texto do roteiro, se o GPT foi usado e se transferiu).

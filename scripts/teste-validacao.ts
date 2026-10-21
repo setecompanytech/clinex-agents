@@ -79,19 +79,6 @@ for (const [txt, esperado] of [['estou com dor no peito', true], ['to com falta 
     if (!ok) falhas++;
     console.log(`${ok ? 'OK  ' : 'FALHOU'} webhook com texto ${rotulo} -> ${JSON.stringify(ev?.text)}`);
   }
-  // etiquetas do contato no webhook (data.contact.labels) e do atendimento (data.attendance.tags)
-  const comEtiquetas = (contact: unknown, attendance: unknown = {}) => parseMessageReceived({ event: 'MESSAGE_RECEIVED', id: 'd1', data: { id: 'm1', direction: 'in', type: 'text', text: 'oi', contact: { waId: '5591999990000', ...(contact as object) }, attendance: { id: 'a1', status: 'pending', ...(attendance as object) } } });
-  for (const [rotulo, ev, esperado] of [
-    ['labels do contato', comEtiquetas({ labels: [{ id: '1', name: 'Amanda', color: '#fff' }, { id: '2', name: 'VIP' }] }), ['Amanda', 'VIP']],
-    ['sem labels', comEtiquetas({}), []],
-    ['labels em formato inesperado', comEtiquetas({ labels: 'Amanda' }), []],
-    ['labels como texto simples', comEtiquetas({ labels: ['Amanda'] }), ['Amanda']],
-    ['tags do atendimento também valem', comEtiquetas({ labels: [{ name: 'VIP' }] }, { tags: ['Amanda'] }), ['VIP', 'Amanda']],
-  ] as [string, ReturnType<typeof parseMessageReceived>, string[]][]) {
-    const ok = JSON.stringify(ev?.etiquetas) === JSON.stringify(esperado);
-    if (!ok) falhas++;
-    console.log(`${ok ? 'OK  ' : 'FALHOU'} etiquetas do webhook: ${rotulo} -> ${JSON.stringify(ev?.etiquetas)}`);
-  }
   for (const entrada of [{ text: 'dor no peito' }, null, undefined, 42]) {
     let ok = true; try { ehUrgencia(entrada); } catch { ok = false; }
     if (!ok) falhas++;

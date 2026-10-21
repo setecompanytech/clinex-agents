@@ -26,7 +26,6 @@ export type MessageReceivedEvent = {
   type: string;
   text: string | null;
   sectorId?: string;
-  etiquetas?: string[]; // nomes das etiquetas do contato (e do atendimento, se vierem)
   isAssigned: boolean;
   isGroup: boolean;
   attendanceInfo: string;
@@ -43,10 +42,6 @@ export function verifySignature(rawBody: Buffer | undefined, header: string | un
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-/** Nomes das etiquetas, venham como objetos { name } ou como texto simples. */
-const nomesDeEtiquetas = (x: unknown): string[] =>
-  Array.isArray(x) ? x.map((i) => (typeof i === 'string' ? i : i && typeof i === 'object' ? String((i as { name?: unknown }).name ?? '') : '')).map((s) => s.trim()).filter(Boolean) : [];
-
 /** Extrai o que importa de um MESSAGE_RECEIVED; null para qualquer outro evento ou direção. */
 export function parseMessageReceived(body: any): MessageReceivedEvent | null {
   if (body?.event !== 'MESSAGE_RECEIVED') return null;
@@ -62,8 +57,6 @@ export function parseMessageReceived(body: any): MessageReceivedEvent | null {
     // o texto pode vir como string ou como objeto { text } / { body } (igual ao histórico): sempre devolve string ou null
     text: typeof d.text === 'string' ? d.text : (d.text && typeof d.text === 'object' ? (typeof d.text.text === 'string' ? d.text.text : typeof d.text.body === 'string' ? d.text.body : null) : null),
     sectorId: d.attendance.sector?.id,
-    // etiquetas do contato (data.contact.labels: [{ id, name, color }]) e, se vierem, as do atendimento (data.attendance.tags)
-    etiquetas: [...nomesDeEtiquetas(d.contact?.labels), ...nomesDeEtiquetas(d.attendance?.tags)],
     // Na fila (status 'pending', ex.: transferido para um setor) não há dono, mesmo que o webhook
     // ainda traga o usuário que iniciou/transferiu o atendimento.
     isAssigned: Boolean(d.attendance.isAssigned || d.attendance.user) && d.attendance.status !== 'pending',

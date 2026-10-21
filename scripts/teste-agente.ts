@@ -37,13 +37,13 @@ const msg = (direction: 'in' | 'out', type: string, text: any) => ({ id: `m${n}`
 const eu = (t: string) => msg('in', 'text', { text: t });
 const amanda = (t: string) => msg('out', 'text', { body: `*Amanda (IA) - Nova*\n${t}` }); // mensagem ENVIADA: { body }
 const sistema = (t: string) => msg('in', 'system', { text: t });
-const evento = (m: any, sectorId = 'AI', isAssigned = false, etiquetas: string[] = []) => ({
+const evento = (m: any, sectorId = 'AI', isAssigned = false) => ({
   deliveryId: 'd', messageId: m.id, attendanceId: 'att1', channelId: 'c', to: '+5591900000000', type: m.type, text: null,
-  sectorId, isAssigned, isGroup: false, attendanceInfo: '{}', contactName: 'Teste', etiquetas,
+  sectorId, isAssigned, isGroup: false, attendanceInfo: '{}', contactName: 'Teste',
 });
-async function roda(msgs: any[], sectorId = 'AI', isAssigned = false, etiquetas: string[] = []) {
+async function roda(msgs: any[], sectorId = 'AI', isAssigned = false) {
   historico = msgs; chamadas = [];
-  await handleIncoming(evento(msgs[msgs.length - 1], sectorId, isAssigned, etiquetas));
+  await handleIncoming(evento(msgs[msgs.length - 1], sectorId, isAssigned));
   return chamadas;
 }
 const textos = (c: Chamada[]) => c.filter((x) => x.caminho.endsWith('/send/text')).map((x) => x.corpo.text as string);
@@ -55,7 +55,7 @@ const confere = (nome: string, ok: boolean, detalhe = '') => { if (!ok) falhas++
 // conversa até o pagamento (fonte simulada): serviço, unidade, vaga nº 1 e pergunta de pagamento
 const ate_o_pagamento = () => [
   eu('oi'), amanda('Boa tarde! Sou a Amanda, da Clinex.'),
-  eu('quero agendar cardiologia'), amanda('Ah, então é consulta de Cardiologia, né?'),
+  eu('quero agendar cardiologia'), amanda('(?:Ah, então é|Entendi, você quer|Só pra confirmar: é|Então é) consulta de Cardiologia, é isso?'),
   eu('sim'), amanda('Consulta de Cardiologia tem agenda nestas unidades...'),
   eu('guama'), amanda('Tenho estas opções: 1. ...'),
   eu('1'), amanda('Fechado, é consulta ... Para agilizar o seu atendimento na recepção, gostaria de antecipar o pagamento por pix ou link de crédito?'),
@@ -120,23 +120,6 @@ confere('A8 áudio sem transcrição: pede a transcrição e responde ao que foi
 transcricao = { text: null, status: 'failed' };
 c = await roda([{ ...audio, id: 'aud2' }]);
 confere('A8 áudio que não pôde ser transcrito: pede para escrever e não transfere', /Não consegui ouvir esse áudio/.test(textos(c)[0] ?? '') && transfs(c).length === 0, textos(c)[0]);
-
-// E) etiqueta do contato liga a IA em qualquer setor (sem precisar mover o atendimento para o setor da IA)
-n = 0;
-c = await roda([eu('oi')], 'OUTRO');
-confere('E1 outro setor e sem etiqueta: a Amanda não responde', textos(c).length === 0 && transfs(c).length === 0, JSON.stringify(textos(c)));
-c = await roda([eu('oi')], 'OUTRO', false, ['VIP', 'Agenda']);
-confere('E2 outro setor e etiquetas que não são a da IA: não responde', textos(c).length === 0, JSON.stringify(textos(c)));
-c = await roda([eu('oi')], 'OUTRO', false, ['VIP', 'Amanda']);
-confere('E3 outro setor mas o contato tem a etiqueta "Amanda": responde', textos(c).length === 1 && /Aqui é a Amanda/.test(textos(c)[0]), textos(c)[0]);
-c = await roda([eu('oi')], 'OUTRO', false, [' AMANDA ']);
-confere('E4 maiúsculas e espaços na etiqueta não atrapalham', textos(c).length === 1, JSON.stringify(textos(c)));
-c = await roda([eu('oi')], 'AI', false, []);
-confere('E5 no setor da IA continua funcionando, sem etiqueta', textos(c).length === 1, JSON.stringify(textos(c)));
-c = await roda([eu('oi')], 'OUTRO', true, ['Amanda']);
-confere('E6 com etiqueta, mas já com atendente humano: não responde', textos(c).length === 0, JSON.stringify(textos(c)));
-c = await roda([eu('oi'), amanda('Oi, boa tarde! Aqui é a Amanda, da Clinex.'), eu('quero falar com um atendente')], 'OUTRO', false, ['Amanda']);
-confere('E7 com etiqueta em outro setor, pedir atendente transfere para o setor da equipe', textos(c).length === 1 && transfs(c)[0]?.corpo.toSectorId === 'HUM', JSON.stringify({ t: textos(c), tr: transfs(c).map((x) => x.corpo.toSectorId) }));
 
 server.close();
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTODOS OS CENÁRIOS DO AGENTE PASSARAM');
