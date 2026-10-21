@@ -2,6 +2,7 @@ import type { Comprovante } from '../../../lib/comprovante.js';
 import { env } from '../../../lib/env.js';
 import { exibir, exibirLista, prepararGeneros } from '../../../lib/genero.js';
 import type { PedidoInterpretado } from '../../../lib/interpretarPedido.js';
+import type { MensagemConversa, RespostaContextual } from '../../../lib/contexto.js';
 import { RAIZES, type AgendamentoExistente, type Fonte, type PacienteInfo, type Periodo, type Servico, type Slot, type Unidade } from './catalog.js';
 
 /**
@@ -68,7 +69,14 @@ export type Ctx = {
   /** Intérprete de apoio (IA): quando as regras não entendem a resposta do paciente à lista de horários, tenta entender. Sempre validado. */
   interpretar?: (p: { texto: string; lista: Slot[]; hoje: string }) => Promise<(IntLista & { indice?: number | null; turno?: 'manhã' | 'tarde' | null }) | null>;
   /** Intérprete do pedido (IA): quando as regras não acham o serviço, entende o que o paciente quis dizer (com o contexto) e devolve um termo de busca. Sempre validado. */
-  interpretarPedido?: (p: { texto: string; anteriores: string[] }) => Promise<PedidoInterpretado | null>;
+  interpretarPedido?: (p: { texto: string; anteriores: string[]; conversa?: MensagemConversa[] }) => Promise<PedidoInterpretado | null>;
+  /** A conversa lida antes de responder: as últimas mensagens dos DOIS lados (inclui a última pergunta da Amanda). */
+  conversa?: MensagemConversa[];
+  /** Trecho "Ficou ..." da última confirmação de agendamento (até 24 h): serve para responder "já tá agendado?" sem recomeçar a conversa. */
+  confirmacao?: string;
+  /** Leitor de contexto (IA): a mensagem não respondeu à pergunta pendente; lê a conversa e responde só com os fatos verificados. */
+  contexto?: (p: { conversa: MensagemConversa[]; mensagem: string; fatos: string; perguntaPendente: string }) => Promise<RespostaContextual | null>;
+  ultima?: boolean; // é a última mensagem da última rodada (só ela recebe resposta de verdade)
   anteriores?: string[]; // o que o paciente já tinha dito nesta jornada (contexto para o intérprete)
   /** Reprocessamento: a resposta que a Amanda deu a ESTA mensagem foi o aviso de "já tem esse atendimento no dia" (o agente deduz do histórico). */
   duplicadoAqui?: boolean;
@@ -79,6 +87,7 @@ export type Handoff = { motivo: string; urgente?: boolean; duro?: boolean };
 export type Result = {
   state: State; reply: string; handoff?: Handoff; silencio?: boolean;
   aposHandoffDuro?: boolean; // a conversa já passou por uma transferência que a Amanda NÃO deve desfazer (pediu humano, urgência)
+  faq?: boolean; // a resposta já traz a resposta a uma dúvida (horário, valor...)
 };
 
 /** Etapa legível da conversa, para o painel de logs. */
@@ -110,7 +119,7 @@ export const MARCAS_FIM = [MARCA_FIM, MARCA_AGENDADO, MARCA_MAIS, MARCA_ADEUS];
 /** Mensagens com texto exato (valores, chave, marcas): não passam pelo GPT. */
 export const SEM_GPT = [MARCA_AGENDADO, MARCA_MAIS, MARCA_ADEUS, MARCA_PIX, MARCA_PAGAMENTO];
 /** Textos que o Giovanny aprovou palavra por palavra (unidades, horários, "o mais rápido", comprovante, aviso de segurança do sintoma): também não passam pelo GPT. */
-SEM_GPT.push(MARCA_DUP, 'Tenho sim!', 'Consegui estes aqui', 'O mais rápido que tenho é', 'O último que tenho é', 'Não to conseguindo ler esse comprovante', 'Recebi o seu comprovante', 'Pelo que você contou');
+SEM_GPT.push(MARCA_DUP, 'Está sim, confirmado!', 'Tenho sim!', 'Consegui estes aqui', 'O mais rápido que tenho é', 'O último que tenho é', 'Não to conseguindo ler esse comprovante', 'Recebi o seu comprovante', 'Pelo que você contou');
 
 export const novoEstado = (): State => ({
   saudou: false, confirmPerguntado: false, servicoConfirmado: false, unidadesInformadas: false,
@@ -426,8 +435,57 @@ function textoDuplicado(sv: Servico, ymd: string, ref: string, ex: AgendamentoEx
   return `${MARCA_DUP} ${sv.frase} marcado pra ${dataFalada(ymd, ref)} no ${ex.unidade}${ex.periodo ? ` ${periodoTxt(ex.periodo)}` : ''}${ex.hora ? ` a partir das ${hora(ex.hora)}` : ''}${ex.profissional && !sv.profissional ? ` com ${exibir(ex.profissional, { artigo: true })}` : ''}.`;
 }
 
-// ---------- núcleo ----------
+// ---------- leitor de contexto ----------
+/** "já tá agendado?", "então está marcado?", "deu certo?": pergunta sobre o agendamento, não um pedido novo. */
+const STATUS_Q = /\b(ja|entao)\b.{0,30}\b(agendad\w*|marcad\w*|confirmad\w*)\b|\b(esta|ta|foi|ficou) (mesmo )?(agendad|marcad|confirmad)\w*|\bdeu certo\b|\bqual (e )?(o )?(horario|dia)\b.{0,20}\b(mesmo|ficou)\b/;
+
+/** O que mudou nesta mensagem? Se nada avançou, o paciente não respondeu à pergunta pendente. */
+const marcaDeProgresso = (x: State) => JSON.stringify([
+  x.servico?.id, x.servico?.profissional?.id, x.servicoConfirmado, x.confirmPerguntado, x.unidadesInformadas, x.opcoes?.length ?? 0, x.unidade?.nome, x.lista?.length ?? 0,
+  x.slot ? `${x.slot.ymd}${x.slot.inicio}` : null, x.pagPerguntado, x.pagamento, x.pagFinal, x.pixEnviado, x.pagoPix, x.cpf,
+  x.paciente === undefined ? 'u' : x.paciente === null ? 'n' : x.paciente.nome, x.pacienteConfirmado, x.cad, x.dup?.tent, x.dup?.esclareceu,
+  x.ofereceuEquipe, x.data, x.turno, x.rapido, x.apartir,
+]);
+
+/** Os fatos VERIFICADOS da conversa (só o que o roteiro já sabe), de onde o leitor de contexto pode tirar a resposta. */
+export function fatosDoEstado(s: State, ref: string, confirmacao?: string): string {
+  const L: string[] = [];
+  const sv = s.servico;
+  if (sv) {
+    L.push(`Serviço em andamento: ${sv.frase}${s.servicoConfirmado ? ' (o paciente já confirmou que é esse)' : ' (ainda não confirmado pelo paciente)'}`);
+    if (sv.precoTexto) L.push(`Valor: ${sv.precoTexto}`);
+    L.push(`Onde tem agenda: ${textoUnidades(sv, 'duvida')}`);
+  }
+  if (s.unidade) L.push(`Unidade escolhida: ${s.unidade.nome}`);
+  if (s.slot) L.push(`Horário escolhido: ${slotFalado(s.slot, true, ref)}`);
+  if (s.pagFinal) L.push(s.pagoPix ? `Pagamento: o comprovante de ${reais(s.pagoPix)} já foi recebido` : 'Pagamento: fica para a recepção, no dia do atendimento');
+  else if (s.pagamento === 'pix') L.push('Pagamento: por pix, esperando o comprovante');
+  if (s.dup) L.push(`O paciente já tem esse atendimento marcado no dia ${dataFalada(s.dup.ymd, ref)} (nenhum outro foi feito agora)`);
+  if (confirmacao) L.push(`Último agendamento já confirmado: ${confirmacao}`);
+  L.push(s.dup ? 'Situação: o paciente já tem esse atendimento marcado; ela espera ele decidir o que fazer'
+    : sv ? `Situação: o agendamento ainda NÃO foi feito; etapa atual: ${etapa(s)}`
+    : 'Situação: ainda não foi pedido nenhum serviço nesta conversa');
+  return L.join('\n');
+}
+
+/**
+ * Passo da conversa + leitor de contexto. Se a mensagem NÃO fez a conversa avançar (não respondeu à pergunta pendente) e não é uma
+ * dúvida que o roteiro já responde, um modelo lê a conversa inteira e responde só com os fatos verificados; a pergunta pendente vem depois.
+ */
 export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 0): Promise<Result> {
+  const r = await stepBase(prev, texto, ctx, fonte, n);
+  if (!ctx.ultima || !ctx.contexto || r.handoff || r.silencio || !r.reply || r.state.fim || r.faq) return r;
+  const t = norm(texto.replace(TOKEN_MIDIA, ' '));
+  if (t.length < 6 || SIM.test(t) || NAO.test(t) || SO_CUMPRIMENTO.test(t) || soAgradecimento(t) || TOKEN_MIDIA.test(texto)) return r;
+  if (marcaDeProgresso(prev.fim ? novoEstado() : prev) !== marcaDeProgresso(r.state)) return r; // a conversa avançou: a mensagem era a resposta esperada
+  const c = await ctx.contexto({ conversa: ctx.conversa ?? [], mensagem: texto.replace(TOKEN_MIDIA, ' ').trim(), fatos: fatosDoEstado(r.state, hoje(ctx).ymd, ctx.confirmacao), perguntaPendente: r.reply }).catch(() => null);
+  if (!c?.resposta || c.tipo !== 'pergunta') return r; // só responde PERGUNTA com fatos; desabafo e conversa solta seguem o roteiro
+  const abre = r.reply.match(/^Oi[^\n]*Aqui é a Amanda, da Clinex\.[ \n]?/); // a resposta entra depois da saudação de abertura
+  return { ...r, reply: abre ? `${abre[0].trimEnd()}\n${c.resposta}\n${r.reply.slice(abre[0].length)}` : `${c.resposta}\n${r.reply}` };
+}
+
+// ---------- núcleo ----------
+async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 0): Promise<Result> {
   // depois de uma jornada concluída, uma nova mensagem abre outra jornada (mantém a saudação já feita)
   const s: State = prev.fim ? { ...novoEstado(), saudou: true } : { ...prev, cad: { ...prev.cad } };
   const base = prev.fim ? s : prev;
@@ -478,7 +536,7 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
     }
     return `${pre}\n\n${reply}`;
   };
-  const out = (reply: string, handoff?: Handoff): Result => { s.saudou = true; return { state: s, reply: handoff ? reply : comFaq(reply), handoff }; };
+  const out = (reply: string, handoff?: Handoff): Result => { s.saudou = true; const resp = handoff ? reply : comFaq(reply); return { state: s, reply: resp, handoff, faq: resp !== reply }; };
   const comAbertura = (txt: string) => (abertura ? `${abertura}\n${txt}` : txt);
   const partes: string[] = [];
   if (abertura) partes.push(abertura);
@@ -523,6 +581,9 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
   if (HUMANO.test(t)) {
     return out(comAbertura('Claro! Vou chamar alguém da equipe pra te ajudar. Só um instante.'), { motivo: 'Paciente pediu atendimento humano.' });
   }
+
+  // 1a) "já tá agendado?" depois de um agendamento confirmado: responde com o que foi confirmado, em vez de tratar como pedido novo
+  if (ctx.confirmacao && !s.servico && !s.opcoes && STATUS_Q.test(t)) return out(`Está sim, confirmado! ${ctx.confirmacao}`);
 
   // 1b) logo depois de um agendamento concluído: agradecimento, "só isso" ou novo pedido
   if (s.pos) {
@@ -593,10 +654,11 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
   }
   const adiantou = !s.servico && !s.opcoes ? await guardaAdiantado() : '';
   /** As regras não acharam o serviço: o intérprete (IA) entende o pedido no contexto da conversa e o roteiro procura o termo no Clinilink. */
-  const entenderPedido = async (): Promise<Awaited<ReturnType<Fonte['descobrir']>>> => {
+  const entenderPedido = async (): Promise<Awaited<ReturnType<Fonte['descobrir']>> | 'nao'> => {
     if (!ctx.interpretarPedido || faq || t.length < 3 || SIM.test(t) || NAO.test(t) || soAgradecimento(t) || SO_CUMPRIMENTO.test(t)) return undefined;
-    const ia = await ctx.interpretarPedido({ texto: texto.replace(TOKEN_MIDIA, ' ').trim(), anteriores: ctx.anteriores ?? [] }).catch(() => null);
-    if (!ia || (ia.quer !== 'agendar' && !(ia.sintoma && ia.termo))) return undefined; // queixa de saúde também vale como pedido de consulta
+    const ia = await ctx.interpretarPedido({ texto: texto.replace(TOKEN_MIDIA, ' ').trim(), anteriores: ctx.anteriores ?? [], conversa: ctx.conversa }).catch(() => null);
+    if (!ia) return undefined;
+    if (ia.quer !== 'agendar' && !(ia.sintoma && ia.termo)) return 'nao'; // o modelo leu e NÃO é pedido de agendar (queixa de saúde conta como pedido de consulta)
     let d = ia.termo ? await fonte.descobrir(ia.termo, true) : undefined;
     // nada com esse termo: pelo menos o tipo (exame ou consulta) -> mostra os mais procurados
     if (!d && ia.tipo) d = await fonte.descobrir(ia.tipo === 'exame' ? 'quero marcar um exame' : 'quero marcar uma consulta', true);
@@ -682,7 +744,7 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
           const GENERICAS = new Set(['teste', 'exame', 'consulta', 'rapido', 'total']);
           escolhida = s.opcoes.find((o) => norm(o.nome).split(/[^a-z]+/).filter((w) => w.length > 3 && !GENERICAS.has(w)).some((w) => t.includes(w)));
           if (!escolhida && novo) { const r = aplicar(novo); if (r) return r; }
-          if (!escolhida && !novo) { const r = aplicar(await entenderPedido()); if (r) return r; }
+          if (!escolhida && !novo) { const ia = await entenderPedido(); const r = aplicar(ia === 'nao' ? undefined : ia); if (r) return r; }
         }
       }
       if (escolhida) { const r = aplicar(await fonte.resolver(escolhida.id)); if (r) return r; }
@@ -692,7 +754,11 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
       const buscar = !s.servico && !faq && !soSaudacao;
       let achou = await fonte.descobrir(tBusca, buscar);
       // as regras não acharam, ou só concluíram "não achei" com as palavras soltas da frase ("coisa", "pé"): o intérprete entende o pedido primeiro
-      if ((!achou || 'naoAchouServico' in achou) && buscar) { const ia = await entenderPedido(); if (ia) achou = ia; }
+      if ((!achou || 'naoAchouServico' in achou) && buscar) {
+        const ia = await entenderPedido();
+        if (ia === 'nao') { if (achou && 'naoAchouServico' in achou) achou = undefined; } // não era pedido de serviço: "não achei X" feito com palavras soltas da frase não vale
+        else if (ia) achou = ia;
+      }
       const r = aplicar(achou);
       if (r) return r;
     }
@@ -1132,7 +1198,7 @@ export async function responder(entrada: (string | string[])[], ctx: Ctx, fonte:
     const msgs = turnos[t];
     for (let j = 0; j < msgs.length; j++) {
       const antes = { saudou: state.saudou, unidadesInformadas: state.unidadesInformadas };
-      last = await step(state, msgs[j], { ...ctx, efetivar: t === turnos.length - 1, anteriores: vistas.slice(-3), duplicadoAqui: (ctx.duplicadoNosTurnos ?? []).includes(t) && j === msgs.length - 1 }, fonte, i++);
+      last = await step(state, msgs[j], { ...ctx, efetivar: t === turnos.length - 1, anteriores: vistas.slice(-3), duplicadoAqui: (ctx.duplicadoNosTurnos ?? []).includes(t) && j === msgs.length - 1, ultima: t === turnos.length - 1 && j === msgs.length - 1 }, fonte, i++);
       vistas.push(msgs[j].replace(TOKEN_MIDIA, ' ').trim());
       state = last.state;
       // no último turno, quem encerra a jornada ou transfere já é a resposta que o paciente vai receber

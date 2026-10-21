@@ -11,6 +11,7 @@ import { evt } from './log.js';
 const REGRAS = `Você é a Amanda, recepcionista da Clinex (clínica em Belém/PA). Você ajusta o TOM de mensagens de WhatsApp. A voz da Amanda é natural, como uma pessoa de verdade digitando no WhatsApp ("pra", "tá", "né", "beleza"), com um toque de acolhimento. Simpática e leve, sem exagero e sem teatro.
 
 COMO SOAR
+- Antes de reescrever, LEIA a conversa (se vier em "CONVERSA ATÉ AGORA"): a mensagem tem que fazer sentido como continuação dela.
 - O texto original JÁ está no tom certo. Mude pouco: troque, no máximo, uma ou duas expressões para a conversa não soar repetida. Não acrescente elogios, frases novas nem promessas.
 - Frases curtas e linguagem do dia a dia. Use POUCAS vírgulas: prefira frases curtas a uma frase cheia de vírgulas.
 - No máximo UMA expressão de acolhimento por mensagem, e só quando couber ("Que bom que você voltou", "Pode deixar que eu cuido do resto"). Varie as expressões, nunca repita a mesma fórmula.
@@ -63,8 +64,8 @@ function fatos(texto: string): string[] {
 }
 
 /** Promessas e opiniões que o GPT não pode acrescentar por conta própria. */
-const PROMESSA = /\b(garant\w*|100\s?%|sem fila|sem espera|sem demora|rapidinh[oa]\w*|na hora|imediat\w*|de gra[çc]a|gratuit\w*|descont\w*|promo[çc][ãa]o\w*|melhor cl[ií]nica|diagn[oó]stic\w*|\bcura\w*|tratamento\w*|resultado\w*|rem[ée]dio\w*|medicament\w*|conv[êe]nio\w*|plano de sa[úu]de)\b/i;
-const FRASE_PROIBIDA = /como assistente virtual|fico feliz em ajudar|estou aqui para ajudar/i;
+export const PROMESSA = /\b(garant\w*|100\s?%|sem fila|sem espera|sem demora|rapidinh[oa]\w*|na hora|imediat\w*|de gra[çc]a|gratuit\w*|descont\w*|promo[çc][ãa]o\w*|melhor cl[ií]nica|diagn[oó]stic\w*|\bcura\w*|tratamento\w*|resultado\w*|rem[ée]dio\w*|medicament\w*|conv[êe]nio\w*|plano de sa[úu]de)\b/i;
+export const FRASE_PROIBIDA = /como assistente virtual|fico feliz em ajudar|estou aqui para ajudar/i;
 
 /** Título/gênero que o GPT não pode acrescentar a um nome. */
 const TITULO = /\b(?:dr|dra|doutor|doutora)\b\.?/i;
@@ -107,7 +108,7 @@ const nomeServe = (n?: string) => (n && /^[\p{L}]{2,20}$/u.test(n) ? n : '');
 /** Abertura fixa da primeira mensagem: o GPT não mexe nela (ela é anexada depois, intacta). */
 const ABERTURA = /^(?:Oi(?: [\p{L}]+)?, (?:bom dia|boa tarde|boa noite)! Aqui é a Amanda, da Clinex\.|(?:Bom dia|Boa tarde|Boa noite)(?:, [\p{L}]+)?! Sou a Amanda, da Clinex\.(?: Que bom ter você por aqui!)?)/u;
 
-export async function amigavelDetalhado(texto: string, protegidos: string[] = [], opts: { nome?: string; anteriores?: string[] } = {}): Promise<ResultadoGpt> {
+export async function amigavelDetalhado(texto: string, protegidos: string[] = [], opts: { nome?: string; anteriores?: string[]; conversa?: { de: 'paciente' | 'amanda'; texto: string }[] } = {}): Promise<ResultadoGpt> {
   if (!env.openaiKey) return { texto, status: 'desligado' };
   const ab = texto.match(ABERTURA);
   if (ab) {
@@ -127,6 +128,7 @@ export async function amigavelDetalhado(texto: string, protegidos: string[] = []
         model: env.openaiModel, temperature: 0.6, max_tokens: 600,
         messages: [{ role: 'system', content: REGRAS }, { role: 'user', content: [
           nome ? `NOME DE QUEM ESTÁ CONVERSANDO: ${nome}` : '',
+          opts.conversa?.length ? `CONVERSA ATÉ AGORA (leia antes de reescrever: mantenha o fio, não repita o que já foi dito e não contradiga):\n${opts.conversa.slice(-8).map((m) => `${m.de === 'paciente' ? 'PACIENTE' : 'AMANDA'}: ${m.texto.replace(/\s+/g, ' ').slice(0, 240)}`).join('\n')}` : '',
           opts.anteriores?.length ? `ÚLTIMAS MENSAGENS DA AMANDA NESTA CONVERSA (não repita as mesmas expressões, elogios nem aberturas):\n${opts.anteriores.map((a) => `- ${a.replace(/\n+/g, ' ').slice(0, 300)}`).join('\n')}` : '',
           `MENSAGEM ORIGINAL:\n${texto}`,
         ].filter(Boolean).join('\n\n') }],

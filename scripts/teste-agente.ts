@@ -121,6 +121,25 @@ transcricao = { text: null, status: 'failed' };
 c = await roda([{ ...audio, id: 'aud2' }]);
 confere('A8 áudio que não pôde ser transcrito: pede para escrever e não transfere', /Não consegui ouvir esse áudio/.test(textos(c)[0] ?? '') && transfs(c).length === 0, textos(c)[0]);
 
+// L) a conversa é lida dos DOIS lados antes de responder
+{
+  const { lerConversa } = await import('../src/agents/receptivo/agent.js');
+  const h = (direction: 'in' | 'out', text: string, extra: any = {}) => ({ id: `x${Math.random()}`, _id: `x${Math.random()}`, direction, type: 'text', text, status: 'delivered', createdAt: new Date(Date.now() - (extra.minutosAtras ?? 1) * 60000).toISOString(), ...extra }) as any;
+  const hist = [
+    h('in', 'quero agendar cardiologia'), h('out', '*Amanda (IA) - Nova*\nAh, então é consulta Cardiologia, né?'), h('in', 'sim'),
+    h('out', 'nota interna do time', { isWhisper: true }), h('in', 'x', { type: 'system', text: 'Transferido para o setor' }),
+    h('out', '*Amanda (IA) - Nova*\nAgendamento confirmado! Deu tudo certo, Renato. Ficou consulta Cardiologia no Guamá na quinta, dia 22 de outubro, de manhã com a Dra. Fernanda. É por ordem de chegada a partir das 8h então vale chegar cedinho. Estamos te esperando com carinho!', { minutosAtras: 5 }),
+  ];
+  const { conversa, confirmacao } = lerConversa(hist);
+  confere('L1 lê os dois lados, sem o título da Amanda, sem nota interna e sem evento do sistema', conversa.length === 4 && conversa[1].de === 'amanda' && conversa[1].texto === 'Ah, então é consulta Cardiologia, né?' && !conversa.some((m) => /nota interna|Transferido/.test(m.texto)), JSON.stringify(conversa.map((m) => `${m.de}: ${m.texto.slice(0, 30)}`)));
+  confere('L2 pega o trecho "Ficou ..." da última confirmação (até 24 h)', confirmacao?.startsWith('Ficou consulta Cardiologia no Guamá') === true && /Estamos te esperando com carinho!$/.test(confirmacao ?? ''), confirmacao?.slice(0, 60));
+  const velha = [h('out', 'Agendamento confirmado! Deu tudo certo. Ficou consulta X.', { minutosAtras: 60 * 30 })];
+  confere('L3 confirmação de mais de 24 h não vale', lerConversa(velha).confirmacao === undefined);
+  const longa = Array.from({ length: 30 }, (_, i) => h(i % 2 ? 'out' : 'in', `mensagem ${i}`));
+  confere('L4 guarda só as últimas 12 mensagens', lerConversa(longa).conversa.length === 12 && lerConversa(longa).conversa[11].texto === 'mensagem 29');
+  confere('L5 imagem do paciente vira "[imagem]" (sem o código interno)', lerConversa([h('in', '', { type: 'image', text: null, media: {} })]).conversa[0]?.texto === '[imagem]');
+}
+
 // D) o aviso "Vi que esse paciente já tem..." marca o turno: a conversa continua dali (não recomeça)
 n = 0;
 const hD = [eu('oi'), amanda('Oi!'), eu('sim'), amanda('Vi que esse paciente já tem consulta X marcado pra quinta.\nO que você prefere: manter?'), eu('ja ta agendado então?')];

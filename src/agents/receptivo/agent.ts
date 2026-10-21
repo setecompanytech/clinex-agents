@@ -8,6 +8,7 @@ import { fonteClinilink } from './script/clinilinkFonte.js';
 import { amigavelDetalhado, temPrecoZero } from '../../lib/humanizer.js';
 import { interpretarEscolha } from '../../lib/interpretar.js';
 import { interpretarPedido } from '../../lib/interpretarPedido.js';
+import { entenderNoContexto, type MensagemConversa } from '../../lib/contexto.js';
 import { exibir } from '../../lib/genero.js';
 import { comAtendimento, evt } from '../../lib/log.js';
 import { firstName, followUpMessage, greeting, nowParts, welcomeMessage } from '../../lib/humanize.js';
@@ -155,6 +156,22 @@ export function montarTurnos(history: InovstarMessage[], fimIdx: number, desde: 
   return { turnos, duplicados };
 }
 
+/**
+ * A conversa lida ANTES de responder: as últimas mensagens dos DOIS lados (sem o título da Amanda nem notas internas) e o trecho da
+ * última confirmação de agendamento (até 24 h), para responder "já tá agendado?" com o que foi confirmado.
+ */
+export function lerConversa(history: InovstarMessage[]): { conversa: MensagemConversa[]; confirmacao?: string } {
+  const limpa = (t: string) => t.replace(/^\*[^*\n]+\*\s*/, '').replace(/\[\[midia:[^\]]+\]\]/g, '[imagem]').trim();
+  const conversa: MensagemConversa[] = history
+    .filter((m) => m.type !== 'system' && m.status !== 'whisper' && !m.isWhisper)
+    .map((m) => ({ de: (m.direction === 'in' ? 'paciente' : 'amanda') as MensagemConversa['de'], texto: limpa(textoRoteiro(m) ?? '').slice(0, 400) }))
+    .filter((m) => m.texto)
+    .slice(-12);
+  const conf = [...history].reverse().find((m) => m.direction === 'out' && m.text?.includes(MARCA_AGENDADO) && Date.now() - +new Date(m.createdAt) < 24 * 3600 * 1000);
+  const confirmacao = conf?.text?.match(/Ficou[\s\S]*$/)?.[0]?.trim();
+  return { conversa, confirmacao };
+}
+
 async function processar(ev: MessageReceivedEvent) {
   const inicio = Date.now();
   const skip = (why: string) => {
@@ -227,6 +244,7 @@ async function processar(ev: MessageReceivedEvent) {
       : undefined;
     // turnos: mensagens do paciente entre duas respostas (qualquer saída que não seja nota interna)
     const { turnos, duplicados } = montarTurnos(history, fimIdx, desde);
+    const { conversa, confirmacao } = lerConversa(history); // lê a conversa dos dois lados antes de responder
     const textos = turnos.flat();
     // o que a Amanda acabou de dizer: o GPT varia as expressões em vez de repetir o mesmo elogio
     const anteriores = history.filter((m) => m.direction === 'out' && m.text && m.status !== 'whisper').slice(-2).map((m) => (m.text ?? '').replace(/^\*[^*\n]+\*\s*/, ''));
@@ -240,7 +258,7 @@ async function processar(ev: MessageReceivedEvent) {
     if (ilg) {
       r = { state: undefined as never, reply: ilg === 'audio' ? 'Não consegui ouvir esse áudio. Escreve pra mim ou manda de novo?' : 'Recebi o arquivo, mas só leio texto e áudio por aqui. Pode me escrever?', handoff: undefined };
     } else try {
-      r = await responder(turnos, { now: new Date(), nome, tz: env.timezone, telefone: ev.to, pos, lerComprovante: lerComprovanteDe(history), interpretar: interpretarEscolha, interpretarPedido, duplicadoNosTurnos: duplicados }, fonte);
+      r = await responder(turnos, { now: new Date(), nome, tz: env.timezone, telefone: ev.to, pos, lerComprovante: lerComprovanteDe(history), interpretar: interpretarEscolha, interpretarPedido, duplicadoNosTurnos: duplicados, conversa, confirmacao, contexto: entenderNoContexto }, fonte);
     } catch (e) {
       // Clinilink fora do ar / lento: não inventa dado, devolve para a equipe
       console.error(`${tag} falha ao consultar a fonte (${fonte.tipo}):`, (e as Error).message);
@@ -252,7 +270,7 @@ async function processar(ev: MessageReceivedEvent) {
     if (naFilaDaEquipe && r.aposHandoffDuro) return skip('conversa transferida a pedido do paciente (ou urgência): a Amanda não retoma');
     const replyTxt = r.reply;
     // o GPT só reescreve o tom; emergência/crise nunca passam por ele
-    const gpt = ilg ? { texto: r.reply, status: 'desligado' as const, motivo: 'mensagem fixa (áudio/arquivo ilegível)' } : r.handoff?.urgente ? { texto: r.reply, status: 'desligado' as const, motivo: 'mensagem de segurança' } : SEM_GPT.some((x) => replyTxt.includes(x)) ? { texto: r.reply, status: 'desligado' as const, motivo: 'texto exato (valores, chave pix, confirmação)' } : await amigavelDetalhado(r.reply, nomesProtegidos(r), { nome: textos.length % 3 === 0 ? nome : '', anteriores }); // o nome só em 1 a cada 3 mensagens, para não cansar
+    const gpt = ilg ? { texto: r.reply, status: 'desligado' as const, motivo: 'mensagem fixa (áudio/arquivo ilegível)' } : r.handoff?.urgente ? { texto: r.reply, status: 'desligado' as const, motivo: 'mensagem de segurança' } : SEM_GPT.some((x) => replyTxt.includes(x)) ? { texto: r.reply, status: 'desligado' as const, motivo: 'texto exato (valores, chave pix, confirmação)' } : await amigavelDetalhado(r.reply, nomesProtegidos(r), { nome: textos.length % 3 === 0 ? nome : '', anteriores, conversa }); // o nome só em 1 a cada 3 mensagens, para não cansar
     let texto = gpt.texto;
     // TRAVA FINAL: preço zerado ("R$ 0,00") nunca chega ao paciente, venha de onde vier (dado errado no Clinilink, texto do roteiro, GPT).
     // A mensagem é trocada, a conversa vai para a equipe e o log registra o erro com o texto bloqueado.

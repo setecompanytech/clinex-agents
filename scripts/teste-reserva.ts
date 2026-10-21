@@ -909,6 +909,48 @@ reset({ ocupados: 0 });
 u = await turnosDe(['oi, quero agendar um combo']);
 confere('U10 combo/pacote: diz que ainda não agenda e chama a equipe (não procura "combo" como serviço)', Boolean(u.handoff) && /combo/i.test(u.handoff.motivo) && /Os combos eu ainda não consigo agendar/.test(u.reply) && !/Não achei/.test(u.reply), u.reply.replace(/\n/g, ' | ').slice(0, 150));
 
+// ---- ler o contexto antes de responder ----
+reset({ ocupados: 0 });
+type ChamadaCtx = { conversa: any[]; mensagem: string; fatos: string; perguntaPendente: string };
+let chamadasCtx: ChamadaCtx[] = [];
+const comContexto = (resp: any, extra: any = {}) => ({ ...ctx, ...extra, contexto: async (p: ChamadaCtx) => { chamadasCtx.push(p); return resp; } });
+const conversaEx = [{ de: 'paciente', texto: 'quero agendar ginecologista' }, { de: 'amanda', texto: 'Tenho sim! No Guamá ... Qual dos dois fica melhor pra você?' }];
+const viaCtx = async (msgs: string[], resp: any, extra: any = {}) => { chamadasCtx = []; return (await responder(msgs.map((z) => [z]), comContexto(resp, { conversa: conversaEx, ...extra }), fonteClinilink)) as any; };
+let k = await viaCtx(['oi', 'quero agendar ginecologista', 'sim', 'e se eu não puder ir nesse dia depois?'], { tipo: 'pergunta', resposta: 'Se precisar mudar é só me avisar por aqui.' });
+confere('C1 mensagem que não responde à pergunta pendente: o leitor de contexto responde E a pergunta pendente continua', /^Se precisar mudar é só me avisar por aqui\.\nQual dos dois você prefere/.test(k.reply) || /Se precisar mudar é só me avisar por aqui\.\n[\s\S]*Qual dos dois/.test(k.reply), k.reply.replace(/\n/g, ' | ').slice(0, 220));
+confere('C1 ele recebe a conversa dos dois lados, os fatos verificados e a pergunta pendente', chamadasCtx.length === 1 && chamadasCtx[0].conversa.some((x) => x.de === 'amanda') && /Serviço em andamento: consulta Ginecologia \(o paciente já confirmou que é esse\)/.test(chamadasCtx[0].fatos) && /Valor: A consulta é R\$ 100,00\./.test(chamadasCtx[0].fatos) && /Situação: o agendamento ainda NÃO foi feito; etapa atual: escolhendo a unidade/.test(chamadasCtx[0].fatos) && /Qual dos dois/.test(chamadasCtx[0].perguntaPendente), JSON.stringify(chamadasCtx[0]?.fatos ?? '').slice(0, 300));
+confere('C1 e o estado NÃO avança por causa da pergunta (ainda espera a unidade)', !k.state.unidade && k.state.servicoConfirmado === true, `unidade=${k.state.unidade?.nome}`);
+k = await viaCtx(['oi', 'quero agendar ginecologista', 'sim', 'guama'], { tipo: 'pergunta', resposta: 'não deveria aparecer' });
+confere('C2 a mensagem era a resposta esperada (unidade): o leitor de contexto nem é chamado', chamadasCtx.length === 0 && !/não deveria aparecer/.test(k.reply), `${chamadasCtx.length} chamadas`);
+k = await viaCtx(['oi', 'quero agendar ginecologista', 'sim', 'quanto custa a consulta?'], { tipo: 'pergunta', resposta: 'não deveria aparecer' });
+confere('C3 dúvida que o roteiro já responde (valor): o leitor de contexto não é chamado', chamadasCtx.length === 0 && /R\$ 100,00/.test(k.reply), `${chamadasCtx.length} chamadas`);
+k = await viaCtx(['oi', 'quero agendar ginecologista', 'sim', 'hmm será que eu consigo vir?'], { tipo: 'resposta', resposta: 'texto qualquer' });
+confere('C4 se o modelo diz que é "resposta" (não pergunta), a resposta do roteiro segue como estava', !/texto qualquer/.test(k.reply) && /Qual dos dois/.test(k.reply), k.reply.replace(/\n/g, ' | ').slice(0, 160));
+k = await viaCtx(['oi', 'quero agendar ginecologista', 'sim', 'hmm será que eu consigo vir?'], null);
+confere('C4 sem resposta do modelo: segue como antes, sem quebrar', /Qual dos dois/.test(k.reply) && !k.handoff, k.reply.replace(/\n/g, ' | ').slice(0, 160));
+k = await viaCtx(['oi', 'quero agendar ginecologista', 'hmm será que eu consigo vir?', 'sim'], { tipo: 'pergunta', resposta: 'x' });
+confere('C5 só a ÚLTIMA mensagem chama o leitor (o reprocessamento das anteriores não)', chamadasCtx.length === 0, `${chamadasCtx.length} chamadas`);
+k = await viaCtx(['bom dia quero ver como funciona isso'], { tipo: 'pergunta', resposta: 'Eu ajudo a agendar consultas e exames aqui.' }, { interpretarPedido: async () => ({ quer: 'duvida', tipo: null, termo: null, sintoma: false }) });
+confere('C6 primeira mensagem sem serviço: a resposta entra DEPOIS da saudação e antes da pergunta', /^Oi Teste, bom dia! Aqui é a Amanda, da Clinex\.\nEu ajudo a agendar consultas e exames aqui\.\n/.test(k.reply), k.reply.replace(/\n/g, ' | ').slice(0, 200));
+// "já tá agendado?" depois de um agendamento confirmado: responde com o que foi confirmado e não recomeça
+const CONF = 'Ficou consulta Ginecologia no Guamá na terça, dia 20 de outubro, de manhã com a Dra. Medica. É por ordem de chegada a partir das 8h então vale chegar cedinho. Estamos te esperando com carinho!';
+k = (await responder([['ja ta agendado teste ergometrico então?']], { ...ctx, confirmacao: CONF, pos: 'confirmado' }, fonteClinilink)) as any;
+confere('C7 "já tá agendado?" depois da confirmação: responde "Está sim, confirmado!" com os dados e NÃO recomeça a conversa', k.reply === `Está sim, confirmado! ${CONF}` && !k.state.servico && !k.state.opcoes, k.reply.replace(/\n/g, ' | ').slice(0, 200));
+k = (await responder([['ja ta agendado teste ergometrico então?'], ['obrigado']], { ...ctx, confirmacao: CONF, pos: 'confirmado' }, fonteClinilink)) as any;
+confere('C7 e o "obrigado" seguinte continua funcionando (pergunta se precisa de mais algo)', /Posso te ajudar com mais alguma coisa/.test(k.reply), k.reply.replace(/\n/g, ' | ').slice(0, 120));
+k = (await responder([['quanto tempo depois das 8h eu posso chegar?']], { ...ctx, confirmacao: CONF }, fonteClinilink)) as any;
+confere('C7 pergunta que não é "já está agendado" não usa a confirmação', !/Está sim, confirmado/.test(k.reply), k.reply.replace(/\n/g, ' | ').slice(0, 100));
+k = (await responder([['ja ta agendado teste ergometrico então?']], { ...ctx }, fonteClinilink)) as any;
+confere('C7 sem confirmação recente no histórico: segue o roteiro normal (não inventa que está agendado)', !/Está sim, confirmado/.test(k.reply), k.reply.replace(/\n/g, ' | ').slice(0, 100));
+for (const frase of ['então está agendado?', 'ja foi marcado?', 'ta marcado mesmo?', 'deu certo?', 'ficou confirmado?', 'qual o horário mesmo?']) {
+  k = (await responder([[frase]], { ...ctx, confirmacao: CONF }, fonteClinilink)) as any;
+  confere(`C7 "${frase}" é pergunta sobre o agendamento`, /^Está sim, confirmado!/.test(k.reply), k.reply.slice(0, 50));
+}
+// o intérprete do pedido também recebe a conversa dos dois lados
+chamadasIA = [];
+await responder([['preciso agendar um exame'], ['daqueles de sangue']].map((x) => x), { ...ctx, conversa: [{ de: 'paciente', texto: 'preciso agendar um exame' }, { de: 'amanda', texto: 'Estes são os exames mais procurados: 1. Hemograma' }], interpretarPedido: async (p: any) => { chamadasIA.push(p); return null; } }, fonteClinilink);
+confere('C8 o intérprete do pedido recebe a CONVERSA (inclui a última pergunta da Amanda)', chamadasIA.some((c: any) => (c.conversa ?? []).some((x: any) => x.de === 'amanda')), JSON.stringify(chamadasIA.map((c: any) => (c.conversa ?? []).length)));
+
 server.close();
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTODOS OS CENÁRIOS PASSARAM');
 process.exit(falhas ? 1 : 0);

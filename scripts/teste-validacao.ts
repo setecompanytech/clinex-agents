@@ -86,5 +86,41 @@ for (const [txt, esperado] of [['estou com dor no peito', true], ['to com falta 
   }
 }
 
+// leitor de contexto: a resposta só pode sair dos fatos verificados
+{
+  const { validarRespostaContextual } = await import('../src/lib/contexto.js');
+  const fatos = 'Serviço em andamento: consulta Cardiologia com a Dra. Fernanda\nValor: A consulta é R$ 150,00.\nHorário escolhido: quinta dia 22 de manhã a partir das 8h\nUnidade escolhida: Guamá\nSituação: o agendamento ainda NÃO foi feito; etapa atual: pedindo o CPF';
+  for (const [rotulo, resp, aceita] of [
+    ['usa só os fatos', 'Ainda não está agendado: falta só o CPF do paciente pra eu reservar.', true],
+    ['repete valor e horário dos fatos', 'A consulta é R$ 150,00 e o horário é quinta dia 22 a partir das 8h.', true],
+    ['número inventado', 'A consulta é R$ 180,00.', false],
+    ['horário inventado', 'Começa às 9h.', false],
+    ['dia inventado (sexta)', 'Fica pra sexta no Guamá.', false],
+    ['unidade inventada (Telégrafo)', 'Dá pra fazer no Telégrafo também.', false],
+    ['mês inventado', 'Fica para novembro.', false],
+    ['título inventado', 'Quem atende é o Dr. Paulo.', false],
+    ['promessa', 'Garanto que não tem fila.', false],
+    ['elogio/opinião sobre a médica (a "Dra. Fernanda" está nos fatos, o elogio não)', 'A Dra. Fernanda é bem avaliada pelos pacientes.', false],
+    ['frase de empatia genérica de robô', 'Estou aqui pra ajudar no que precisar.', false],
+    ['pergunta (quem pergunta é o roteiro)', 'Qual unidade você prefere?', false],
+    ['emoji', 'Tudo certo 😊', false],
+    ['travessão', 'Ainda não — falta o CPF.', false],
+    ['diz que está agendado sem ser verdade', 'Pronto, já reservei pra você.', false],
+    ['longa demais', 'x'.repeat(320), false],
+    ['vazia', '   ', false],
+    ['frase de assistente', 'Estou aqui para ajudar com o que precisar.', false],
+  ] as [string, string, boolean][]) {
+    const r = validarRespostaContextual(fatos, resp);
+    const ok = aceita ? r === null : r !== null;
+    if (!ok) falhas++;
+    console.log(`${ok ? 'OK  ' : 'FALHOU'} leitor de contexto, ${rotulo} -> ${r ?? 'aceita'}`);
+  }
+  // com a confirmação nos fatos, "confirmado" é verdade e pode ser dito
+  const fatosConf = 'Último agendamento já confirmado: Ficou consulta Cardiologia no Guamá na quinta, dia 22 de outubro, de manhã.\nSituação: ainda não foi pedido nenhum serviço nesta conversa';
+  const r1 = validarRespostaContextual(fatosConf, 'Está confirmado sim, na quinta dia 22 de manhã no Guamá.');
+  if (r1 !== null) falhas++;
+  console.log(`${r1 === null ? 'OK  ' : 'FALHOU'} leitor de contexto, confirmado é verdade nos fatos -> ${r1 ?? 'aceita'}`);
+}
+
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTODAS AS PROTEÇÕES FUNCIONAM');
 process.exit(falhas ? 1 : 0);

@@ -225,6 +225,27 @@ Faça cada uma em etapas diferentes (antes do serviço, na unidade, nos horário
 - 12.5 (PENDENTE DE DESENVOLVIMENTO) "quero o check-up feminino" → mostra o combo (serviços e valor), pergunta unidade e dia, reserva cada serviço do combo e confirma tudo numa mensagem.
 - 12.6 (PENDENTE DE DESENVOLVIMENTO) Combo com um serviço sem horário: avisa qual falta e oferece outro dia ou a equipe.
 
+## Fluxo 13. Ler o contexto da conversa
+
+Antes de responder, a Amanda lê a conversa inteira (os dois lados e a pergunta que ficou pendente). Quando a sua mensagem não responde à pergunta dela, ela responde ao que você perguntou, **usando só o que já sabe do agendamento**, e depois repete a pergunta pendente. O que ela não sabe, ela não inventa.
+
+| # | Você manda | Esperado |
+|---|---|---|
+| 13.1 | Depois de "Agendamento confirmado": "já tá agendado teste ergométrico então?" | "Está sim, confirmado! Ficou [serviço] no [unidade] [dia] [período] com [Dr./Dra.] ..." com os dados do agendamento. **Nunca** "Ah, então é Teste Ergométrico, né?". Depois "obrigado" → "Posso te ajudar com mais alguma coisa?" |
+| 13.2 | Variações depois da confirmação: "então está marcado?", "deu certo?", "ficou confirmado?", "qual o horário mesmo?" | Mesma resposta (os dados do que foi confirmado). |
+| 13.3 | No meio do agendamento (ela perguntou a unidade ou o pagamento): "então já tá agendado?" | "Ainda não está agendado. [o que falta]" + repete a pergunta pendente. Nunca diz que está agendado antes de estar. |
+| 13.4 | "quanto é mesmo?" / "e o valor?" | O valor do serviço + repete a pergunta pendente. |
+| 13.5 | "com quem vai ser?" / "qual a unidade mesmo?" / "e o horário?" | Responde com o que já foi escolhido + repete a pergunta pendente. |
+| 13.6 | Perguntas que ela não tem como saber: "quanto tempo dura a consulta?", "precisa de jejum?", "tem estacionamento?" | Não inventa nada. Segue com a pergunta pendente (ou oferece a equipe). Anote se a resposta ficou estranha. |
+| 13.7 | "a doutora é boa?" | Não opina nem elogia. Segue o fluxo. |
+| 13.8 | Desabafo: "tô com medo de ir" | Segue o fluxo, sem frase de robô ("estou aqui pra ajudar"). Me diga o que você esperava que ela dissesse. |
+| 13.9 | Logo no começo: "como funciona isso?" | Só responde se der com o que sabe; senão, "Me conta o que você precisa". Nunca "Não achei funciona pra agendar". |
+| 13.10 | "preciso agendar um exame" → (lista) → "daqueles de sangue" | Entende no contexto (exame de sangue) e procura no Clinilink. |
+| 13.11 | Em qualquer ponto do fluxo, pergunte algo sobre o que ela acabou de dizer ("como assim?", "isso é o quê?") | Responde no contexto e repete a pergunta. Nunca reinicia o fluxo. |
+| 13.12 | Depois de dois ou três minutos parado, volte com "e aí?" | Ela retoma de onde parou (não se apresenta de novo, não recomeça). |
+
+**O que nunca pode acontecer:** voltar para "Ah, então é ..., né?" quando você perguntou algo sobre o que já foi dito; repetir a lista de horários sem necessidade; se apresentar de novo no meio da conversa; dizer que algo está agendado sem estar.
+
 ## Como me passar o resultado
 
 Para cada cenário que falhar ou ficar estranho, me mande o número (ex.: **4.10**), o que você escreveu e o que ela respondeu (print ou texto). Se puder, cole também a linha do `/painel/logs`. Assim eu corrijo e acrescento o caso nos testes automáticos.
