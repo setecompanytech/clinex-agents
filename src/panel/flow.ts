@@ -217,14 +217,14 @@ export const flow = {
     },
     {
       id: 'setor', kind: 'trava', step: 3, band: 'p1', x: nx(P1), y: row(2),
-      title: 'Só no setor Agente IA, sem atendente',
+      title: 'No setor Agente IA ou com a etiqueta, sem atendente',
       subtitle: 'Se uma pessoa da equipe já assumiu, o agente não interfere',
       detail: {
-        oQueFaz: 'O agente só atua em conversas que estão no setor "Agente IA" e que ainda não têm uma pessoa da equipe atendendo.',
-        regra: 'Se a conversa já tem atendente humano atribuído, o agente não responde. Se a conversa está em outro setor, também não. Conversa que está só na fila (sem dono) conta como sem atendente. Quando o agente transfere, a conversa vai para o setor Principal e sai do alcance dele.',
-        exemplo: 'Conversa no setor Agente IA, sem atendente: segue. Conversa em que uma atendente da recepção já assumiu: o agente não interfere.',
-        seFalhar: 'Fica em silêncio e registra no log "já tem atendente" ou "setor diferente".',
-        tecnico: 'ev.isAssigned e ev.sectorId em src/agents/receptivo/agent.ts. Variável AGENT_SECTOR_ID (os códigos de setor não aparecem neste painel).',
+        oQueFaz: 'O agente só atua em conversas que estão no setor "Agente IA" OU cujo contato tem a etiqueta "Amanda" (para testar sem mover o atendimento de setor), e que ainda não têm uma pessoa da equipe atendendo.',
+        regra: 'Se a conversa já tem atendente humano atribuído, o agente não responde. Se a conversa está em outro setor e o contato não tem a etiqueta da IA, também não. A etiqueta é a do CONTATO na Inovstar (a mesma etiqueta vale para todos os atendimentos dele); o nome é comparado sem diferenciar maiúsculas, acentos e espaços. Conversa que está só na fila (sem dono) conta como sem atendente. Quando o agente transfere, a conversa vai para o setor Principal e sai do alcance dele.',
+        exemplo: 'Conversa no setor Agente IA, sem atendente: segue. Conversa em outro setor, mas com o contato etiquetado "Amanda": segue. Conversa em que uma atendente da recepção já assumiu: o agente não interfere, mesmo com a etiqueta.',
+        seFalhar: 'Fica em silêncio e registra no log "já tem atendente" ou "setor diferente e sem a etiqueta" (com as etiquetas que o contato tem).',
+        tecnico: 'ev.isAssigned e ev.sectorId em src/agents/receptivo/agent.ts. Variáveis AGENT_SECTOR_ID (os códigos de setor não aparecem neste painel) e AGENT_TAG (padrão Amanda; vazio desliga a etiqueta).',
       },
     },
     {
@@ -824,6 +824,7 @@ export const flow = {
   configuracoes: [
     { nome: 'AGENT_MODE', efeito: 'scripted = roteiro por etapas, sem IA decidindo (padrão e modo atual).' },
     { nome: 'ALLOWED_NUMBERS', efeito: 'Telefones que o agente pode atender. Vazio = não atende ninguém.' },
+    { nome: 'AGENT_TAG', efeito: 'Nome da etiqueta do contato na Inovstar que liga o agente em qualquer setor. Padrão: Amanda. Vazio = só vale o setor.' },
     { nome: 'AGENT_SECTOR_ID', efeito: 'Setor onde o agente atende. Conversas de outros setores são ignoradas. Vazio = trava desligada.' },
     { nome: 'HUMAN_SECTOR_ID', efeito: 'Setor humano (Principal) para onde o agente transfere. Vazio = só avisa o paciente, sem mover a conversa.' },
     { nome: 'AUTO_REPLY', efeito: 'false = modo sombra (só registra no log, não envia nem transfere). Padrão: ligado.' },

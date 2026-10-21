@@ -120,7 +120,13 @@ async function processar(ev: MessageReceivedEvent) {
   if (ev.isAssigned) return skip(`atendimento já tem atendente humano ${ev.attendanceInfo}`);
   // Conversa parada na fila da equipe, sem atendente: se foi a Amanda que transferiu, ela pode retomar quando o paciente volta a escrever.
   const naFilaDaEquipe = Boolean(env.humanSectorId) && ev.sectorId === env.humanSectorId;
-  if (env.agentSectorId && ev.sectorId !== env.agentSectorId && !naFilaDaEquipe) return skip(`setor ${ev.sectorId} != setor da IA`);
+  // Atende se a conversa está no setor da IA OU se o contato tem a etiqueta da IA (assim dá para testar sem mover o atendimento de setor).
+  const etiquetas = ev.etiquetas ?? [];
+  const semAcento = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+  const temEtiqueta = Boolean(env.agentTag) && etiquetas.some((e) => semAcento(e) === semAcento(env.agentTag));
+  if (env.agentSectorId && ev.sectorId !== env.agentSectorId && !naFilaDaEquipe && !temEtiqueta) {
+    return skip(`setor ${ev.sectorId} != setor da IA e o contato não tem a etiqueta "${env.agentTag}" (etiquetas: ${etiquetas.join(', ') || 'nenhuma'})`);
+  }
 
   // Debounce: espera o paciente terminar de digitar e só a última mensagem dispara a resposta.
   // (emergência e crise não esperam: respondem em poucos segundos)

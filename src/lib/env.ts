@@ -8,6 +8,9 @@ export const env = {
   allowedNumbers: (process.env.ALLOWED_NUMBERS ?? '').split(',').map((n) => n.trim()).filter(Boolean),
   // Setor onde a IA atende (opcional). Se definido, conversas fora dele são ignoradas.
   agentSectorId: process.env.AGENT_SECTOR_ID ?? '',
+  // Etiqueta do CONTATO na Inovstar que liga a IA em qualquer setor (útil para testar sem mover o atendimento de setor).
+  // A conversa é atendida se estiver no setor da IA OU se o contato tiver esta etiqueta. Vazio = só vale o setor.
+  agentTag: (process.env.AGENT_TAG ?? 'Amanda').trim(),
   // Setor para onde a IA devolve a conversa ao transferir (opcional; sem ele só avisa o paciente).
   humanSectorId: process.env.HUMAN_SECTOR_ID ?? '',
   // false = modo sombra: lê, decide e só loga a resposta, sem enviar nem transferir.
