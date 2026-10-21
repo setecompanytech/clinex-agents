@@ -51,7 +51,13 @@ Variações para fazer o mesmo caminho:
 - 2.5 Só "teste" → sugere os serviços principais **com agenda** (o ergométrico entre eles) em lista numerada. Responder "2" ou o nome de um deles segue o fluxo.
 - 2.6 Com a lista de sugestões na tela, pedir outra coisa ("quero dermatologia") → ela atende o pedido novo, não vira "a primeira opção".
 - 2.7 "exame de gravidez" → acha o teste de gravidez.
-- 2.8 "quero marcar uma consulta" (sem dizer qual) → "Claro! Qual consulta ou exame você precisa?" (sem dizer que não entendeu).
+- 2.8 "quero marcar uma consulta" (sem dizer qual) → mostra "Estas são as consultas mais procuradas que tenho com agenda:" (até 6, numeradas) e pergunta "Qual delas você precisa? Se for outra, me diz o nome." Responder "2" ou o nome segue o fluxo.
+- 2.8a "bom dia, preciso agendar um exame" (sem dizer qual) → "Estes são os exames mais procurados que tenho com agenda:" com até 6 exames **com agenda aberta** e variedade (laboratório, imagem, métodos gráficos...), os mais agendados primeiro. Nenhum exame sem horário aparece. Depois: "2", o nome do exame, ou "de sangue".
+- 2.8b "consulta ou exame" (os dois tipos) → ela pergunta "Qual consulta ou exame você precisa?" sem escolher um tipo sozinha.
+- 2.8c "só um ultrassom" / "teste" (vários parecidos) → sugere primeiro o que a clínica mais agenda e que tem horário.
+- 2.8d Pedidos que as regras não pegam, mas a IA entende pelo contexto: "quero ver meu coração", "estou com tontura", "preciso de um raio x do joelho", "estou com unha encravada". Ela busca no Clinilink o que entendeu e **sempre confirma** ("Ah, então é ..., né?"). Queixa de saúde vem com o aviso do pronto-socorro/192.
+- 2.8e Contexto: "preciso agendar um exame" e depois "de sangue" ou "daqueles de hemograma" → entende como exame de sangue.
+- 2.8f "quero remarcar" / "preciso cancelar minha consulta" → "Claro! Pra remarcar ou cancelar eu chamo alguém da equipe pra te ajudar." e transfere (não procura "remarcar" como serviço).
 - 2.9 "blablabla" → 1ª vez: "Hmm não peguei qual é o serviço. Me diz a especialidade ou o exame? Pode ser o nome do médico também." 2ª vez: lembra que você pode pedir a equipe. **Ela não transfere sozinha.**
 - 2.10 Serviço que não existe/não está liberado ("audiometria") → "Não achei ... pra agendar por aqui. Quer que eu chame alguém da equipe?" Responda "sim" (transfere) e, em outro teste, "não" (volta a perguntar o serviço).
 - 2.11 Dia e período junto com o serviço que não existe ("audiometria amanhã de manhã") → o aviso cita só "audiometria".
@@ -182,6 +188,10 @@ Faça cada uma em etapas diferentes (antes do serviço, na unidade, nos horário
 - 10.9 Só emoji (👍) no meio do fluxo: observe a reação (não deve travar nem reiniciar).
 - 10.10 Escrever de um número **não autorizado** → nenhuma resposta.
 - 10.11 Conversa que ficou parada **no meio** por horas ou dias e você escreve de novo: observe se ela retoma de onde parou ou recomeça, e me diga qual das duas você prefere. Depois de um agendamento concluído, uma mensagem nova abre uma jornada nova, sem se apresentar de novo.
+- 10.13 **Parece digitado:** uma resposta curta ("Claro! Qual consulta ou exame você precisa?") chega depois de uns 2 a 5 s; uma lista de horários (resposta grande) demora bem mais (até uns 12 s). Cronometre uma curta e uma longa: a longa tem que demorar visivelmente mais. (Isso vem depois da espera de cerca de 30 s para agrupar suas mensagens.)
+- 10.14 **Balões:** quando a resposta tem uma dúvida respondida + a pergunta do fluxo (ex.: "qual o horário de atendimento?" no meio do agendamento), chegam **dois balões** separados, cada um com seu tempo. O pix chega em **três balões** (a chave fica sozinha, fácil de copiar). Só o primeiro balão leva o título "Amanda (IA)".
+- 10.15 Emergência e crise **não** esperam esse tempo: respondem em poucos segundos.
+- 10.16 Demora total: do seu "oi" até a resposta, no primeiro contato do dia, deve ficar perto de 35 a 45 s (30 s de espera + digitação). Se passar de 1 minuto, me avise o horário (o Clinilink pode ter demorado a "acordar").
 - 10.12 Primeira mensagem com nome do WhatsApp esquisito (emoji, número): ela não usa o nome na saudação ("Oi, boa tarde! Aqui é a Amanda...").
 
 ---
