@@ -146,7 +146,7 @@ Com a lista de horários na tela:
 - 7.10 Sexo: "feminino", "mulher", "sou mulher", "masculino", "homem".
 - 7.11 Telefone: "sim" usa o número do WhatsApp; ou digitar outro com DDD.
 - 7.12 Agendar **para outra pessoa**: o nome do seu WhatsApp é diferente do paciente. Ela nunca chama você de "o paciente" e o nome que vale é o do cadastro do CPF.
-- 7.13 Tentar agendar **o mesmo serviço, no mesmo dia, para o mesmo paciente** de novo → "Vi que este paciente já tem esse atendimento marcado pro mesmo dia." e chama a equipe.
+- 7.13 Tentar agendar **o mesmo serviço, no mesmo dia, para o mesmo paciente** de novo → ela NÃO transfere: explica qual agendamento já existe e espera a sua decisão (veja o fluxo 11).
 
 ## Fluxo 8. Dúvidas no meio da conversa
 
@@ -195,6 +195,35 @@ Faça cada uma em etapas diferentes (antes do serviço, na unidade, nos horário
 - 10.12 Primeira mensagem com nome do WhatsApp esquisito (emoji, número): ela não usa o nome na saudação ("Oi, boa tarde! Aqui é a Amanda...").
 
 ---
+
+## Fluxo 11. Remarcação e agendamento repetido no mesmo dia
+
+**Atenção:** estes testes gravam de verdade. Use um paciente de teste que **já tenha** o serviço marcado no dia que você vai escolher (ou faça um agendamento e repita o mesmo logo depois). O que a Amanda faz sozinha hoje: explicar o agendamento que já existe e esperar a sua decisão. **Remarcar de fato ainda é com a equipe** (ela transfere com tudo anotado).
+
+| # | Você manda | Esperado |
+|---|---|---|
+| 11.1 | Faça o fluxo completo até o "sim" final com um paciente que **já tem** aquele serviço naquele dia | Ela NÃO transfere. Responde: "Vi que esse paciente já tem [serviço] marcado pra [dia] no [unidade] [período] a partir das [hora] com [Dr./Dra.]." e pergunta "O que você prefere: manter esse que já está marcado, marcar mais um em outro dia ou remarcar esse que já está agendado?" |
+| 11.2 | "já tá agendado teste ergométrico então?" (ou "então já está marcado?") | Responde **no contexto**: "Isso mesmo! Vi que esse paciente já tem ..." e repete as opções. **Nunca** pode voltar a "Ah, então é Teste Ergométrico, né?" nem recomeçar o fluxo. |
+| 11.3 | "pode manter" / "deixa assim" / "era só pra conferir" | "Combinado, fica mantido o que já está marcado. Posso te ajudar com mais alguma coisa?" Nada é gravado. Depois "obrigado" → despedida. |
+| 11.4 | "quero remarcar" / "preciso trocar esse" | "Combinado! Vou chamar alguém da equipe pra remarcar esse agendamento." e transfere, com a anotação REMARCAR (serviço, dia, unidade, hora e médico do agendamento que já existe). Nada novo é gravado. Se você escrever de novo, a Amanda fica quieta (a equipe assume). |
+| 11.5 | "quero marcar mais um em outro dia" | "Beleza, vamos marcar mais um em outro dia." + lista de horários **sem o dia que já está ocupado**. Escolher um número **reserva de verdade** (grava!) |
+| 11.6 | "quero mudar o dia" (ambíguo) | "Você quer remarcar o que já está agendado pra esse outro dia ou marcar mais um além dele?" Depois: "remarcar o que já tenho" → equipe; "mais um além desse" → lista de outros dias. Ela não grava nada antes de entender. |
+| 11.7 | Responder "hmm", "sei lá", "não sei" (3 vezes) | Repete o agendamento e as opções; na terceira chama a equipe (não fica em loop). |
+| 11.8 | Perguntar outra coisa no meio ("que horas é?", "com quem é?") | Responde com o agendamento que já existe e repete as opções. Não reinicia a conversa. |
+| 11.9 | Sem estar no meio de um agendamento: "quero remarcar minha consulta", "preciso cancelar" | "Claro! Pra remarcar ou cancelar eu chamo alguém da equipe pra te ajudar." e transfere (ela ainda não remarca nem cancela sozinha). |
+| 11.10 | Se o Clinilink recusar a reserva por outro motivo (vaga ocupada, erro) | Ela avisa, transfere com tudo anotado e **não retoma sozinha** se você escrever depois (antes, ela recomeçava a conversa do zero). |
+| 11.11 | Depois de decidir "mais um em outro dia", mudar de ideia: "na verdade pode manter o primeiro" | Observe: ela deve entender e manter (me diga o que acontece). |
+
+## Fluxo 12. Agendamento de combo
+
+**Hoje a Amanda ainda não agenda combos.** O Clinilink tem combos (por exemplo "check-up feminino", com vários serviços e um preço próprio) e a API já permite reservar um serviço de cada vez com o combo, mas o fluxo da Amanda **ainda não foi construído**. Estes testes servem para você conferir o que acontece hoje e para eu desenhar o fluxo certo.
+
+- 12.1 "quero agendar um combo" / "tem pacote de check-up?" → hoje: "Os combos eu ainda não consigo agendar por aqui. Vou chamar alguém da equipe pra te ajudar com isso." e transfere (não procura "combo" como se fosse um exame).
+- 12.2 "quais combos vocês têm?" → hoje também chama a equipe. Anote o que você esperava que ela respondesse (lista de combos, preços, o que inclui).
+- 12.3 Depois da transferência, escreva de novo: ela fica quieta (a equipe assume).
+- 12.4 **Para o fluxo futuro**, anote como você quer que seja: ela lista os combos disponíveis e o que cada um inclui? Mostra o preço do combo? Agenda todos os serviços no mesmo dia, em dias diferentes, ou pergunta? Como lida quando um dos serviços não tem agenda? Cobra tudo junto no pix?
+- 12.5 (PENDENTE DE DESENVOLVIMENTO) "quero o check-up feminino" → mostra o combo (serviços e valor), pergunta unidade e dia, reserva cada serviço do combo e confirma tudo numa mensagem.
+- 12.6 (PENDENTE DE DESENVOLVIMENTO) Combo com um serviço sem horário: avisa qual falta e oferece outro dia ou a equipe.
 
 ## Como me passar o resultado
 

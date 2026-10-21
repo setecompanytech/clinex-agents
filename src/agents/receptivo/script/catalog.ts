@@ -29,6 +29,7 @@ export type Descoberta =
 /** Um período de atendimento (ordem de chegada) numa data. `inicio` = hora em que a agenda abre. */
 export type Slot = { ymd: string; turno: Periodo; inicio: string; profissional?: string; profissionalId?: string };
 export type PacienteInfo = { id?: string; nome: string };
+export type AgendamentoExistente = { unidade: string; hora?: string; periodo?: Periodo; profissional?: string };
 
 export type PedidoReserva = {
   servico: Servico; unidade: Unidade; slot: Slot; cpf: string;
@@ -54,6 +55,8 @@ export interface Fonte {
   periodos(sv: Servico, un: Unidade, ymd: string): Promise<Slot[]>;
   /** Próximos períodos com vaga a partir de uma data (inclusive). */
   proximas(sv: Servico, un: Unidade, deYmd: string, max: number): Promise<Slot[]>;
+  /** O paciente já tem este serviço marcado neste dia (o Clinilink recusa duplicado no dia)? Devolve os dados do agendamento que já existe, ou null. */
+  agendamentoExistente?(sv: Servico, ymd: string, pacienteId?: string): Promise<AgendamentoExistente | null>;
   /** Paciente por CPF (11 dígitos); null se não existir. */
   paciente(cpf: string): Promise<PacienteInfo | null>;
 }

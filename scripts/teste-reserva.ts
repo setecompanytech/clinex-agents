@@ -96,6 +96,12 @@ const server = http.createServer((req, res) => {
       if (p.endsWith('/agenda')) return j(200, { ok: true, horarios: horarios(url.searchParams.get('dataInicial') ?? '0000', url.searchParams.get('dataFinal') ?? '9999', url.searchParams.get('profissionalId') ?? undefined, url.searchParams.get('unidadeId') ?? undefined) });
       if (p.endsWith('/agendamentos')) {
         // lista de agendamentos já feitos (só para contar a demanda por serviço); 1 em cada 10 está cancelado e não conta
+        // um dia só (dataInicial = dataFinal): o agendamento que o paciente de teste já tem (serve para explicar a recusa por duplicidade)
+        const existente = (globalThis as any).__existente as { data: string; hora: string; inicio: string } | undefined;
+        if (existente && url.searchParams.get('dataInicial') === url.searchParams.get('dataFinal')) {
+          const aqui = url.searchParams.get('unidadeId') === U_GUAMA && url.searchParams.get('dataInicial') === existente.data;
+          return j(200, { ok: true, total: aqui ? 1 : 0, limite: 500, offset: 0, agendamentos: aqui ? [{ agendamentoId: 'ex1', status: 'agendado', dataHora: `${existente.data}T${existente.hora}:00-03:00`, agendaHoraInicio: existente.inicio, paciente: { id: '55555555-5555-4555-8555-555555555555', nome: 'MARIA EXEMPLO', telefone: '000' }, profissional: { id: MEDICO, nome: 'MEDICA TESTE DA SILVA' }, unidade: { id: U_GUAMA, nome: 'CLINEX GUAMÁ' }, procedimentos: [{ id: PROC, nome: 'CONSULTA GINECOLOGIA' }] }] : [] });
+        }
         const dem: Record<string, number> = (globalThis as any).__demanda ?? DEMANDA_PADRAO;
         const ags: any[] = [];
         for (const [id, n] of Object.entries(dem)) for (let i = 0; i < n; i++) ags.push({ agendamentoId: `a${ags.length}`, status: i % 10 === 0 ? 'cancelado' : 'agendado', paciente: { nome: 'PACIENTE DE TESTE', telefone: '000' }, procedimentos: [{ id, nome: 'x' }] });
@@ -197,7 +203,7 @@ confere('7 não repetiu o POST', nPost('/agendamentos') === 1, `tentativas=${nPo
 // 8) mesmo serviço no mesmo dia
 reset({ ocupados: 0, agendamento: 'duplicado' });
 r = await conversa([...base, '52998224725', 'sim']);
-confere('8 serviço duplicado no dia: transfere', Boolean(r.handoff) && /já tem esse atendimento/.test(r.reply), r.reply);
+confere('8 serviço duplicado no dia: NÃO transfere, explica e espera o paciente decidir', !r.handoff && /Vi que esse paciente já tem/.test(r.reply) && /manter esse que já está marcado, marcar mais um em outro dia ou remarcar/.test(r.reply) && r.state.dup !== undefined && r.state.fim === false, r.reply.replace(/\n/g, ' | '));
 
 // 9) CPF já existe no cadastro na hora de cadastrar (corrida): usa o existente
 reset({ ocupados: 0, cpfDuplicado: true });
@@ -854,6 +860,54 @@ confere('I8 sem o intérprete (sem chave da OpenAI) o roteiro segue como antes, 
 const falha = async () => { throw new Error('OpenAI fora do ar'); };
 m = (await responder([['preciso resolver um problema na pele']], { ...ctx, interpretarPedido: falha as any }, fonteClinilink)) as any;
 confere('I9 intérprete que dá erro: o roteiro segue sem ele', !m.handoff && Boolean(m.reply), m.reply.replace(/\n/g, ' | ').slice(0, 100));
+
+// ---- o paciente já tem o atendimento no dia: ela explica QUAL e espera o que ele quer (nunca recomeça a conversa) ----
+const dupCtx = { ...ctx, duplicadoNosTurnos: [6] }; // o turno 6 ("sim") foi o que bateu na duplicidade
+const siga = async (msgs: string[], c: any = dupCtx) => (await responder([...base, '52998224725', 'sim', ...msgs].map((z) => [z]), c, fonteClinilink)) as any;
+const { _limparCache } = await import('../src/integrations/clinilink.js');
+_limparCache();
+reset({ ocupados: 0, agendamento: 'duplicado' });
+(globalThis as any).__existente = { data: dia(1), hora: '08:30', inicio: '08:00' };
+let u = await siga([]);
+confere('U1 a recusa por duplicidade explica QUAL agendamento já existe (dia, unidade, período, hora, médica)', /Vi que esse paciente já tem consulta Ginecologia marcado pra \p{L}+ dia \d{1,2} no Guamá de manhã a partir das 8h com a Dra\. Medica\./u.test(u.reply) && !u.handoff, u.reply.replace(/\n/g, ' | '));
+confere('U1 e pergunta o que ele prefere (manter, mais um em outro dia ou remarcar), esperando a resposta', /O que você prefere: manter esse que já está marcado, marcar mais um em outro dia ou remarcar esse que já está agendado\?/.test(u.reply) && u.state.dup?.ymd === dia(1) && u.state.fim === false, JSON.stringify(u.state.dup));
+const postsAntes = nPost('/agendamentos');
+u = await siga(['ja ta agendado teste ergometrico então?']);
+confere('U2 a pergunta "já tá agendado?" é respondida NO CONTEXTO ("Isso mesmo!" + o agendamento + as opções), sem reiniciar o fluxo', /^Isso mesmo! Vi que esse paciente já tem consulta Ginecologia marcado pra/.test(u.reply) && !/(Ah, então é|Entendi, você quer|Só pra confirmar|Então é)/.test(u.reply) && /manter esse que já está marcado/.test(u.reply) && !u.handoff && u.state.dup?.tent === 1, u.reply.replace(/\n/g, ' | ').slice(0, 220));
+u = await siga(['pode manter']);
+confere('U3 "pode manter": fica o que já existe, pergunta se precisa de mais algo e NÃO grava nada', /fica mantido o que já está marcado/.test(u.reply) && /Posso te ajudar com mais alguma coisa/.test(u.reply) && !u.handoff && nPost('/agendamentos') === postsAntes, u.reply.replace(/\n/g, ' | '));
+u = await siga(['quero remarcar esse']);
+confere('U4 "remarcar": chama a equipe com o agendamento que já existe anotado e a Amanda não retoma sozinha', Boolean(u.handoff) && /REMARCAR/.test(u.handoff.motivo) && /Ginecologia/.test(u.handoff.motivo) && /8h/.test(u.handoff.motivo) && u.handoff.duro === true && /remarcar esse agendamento/.test(u.reply), (u.handoff?.motivo ?? '').slice(0, 200));
+confere('U4 nada novo foi gravado', nPost('/agendamentos') === postsAntes, `${nPost('/agendamentos')} vs ${postsAntes}`);
+u = await siga(['quero remarcar esse', 'obrigado']);
+confere('U4 depois da transferência para remarcar, a Amanda NÃO retoma (a equipe assume)', u.aposHandoffDuro === true, String(u.aposHandoffDuro));
+modo.agendamento = undefined; // a partir daqui o Clinilink aceita
+u = await siga(['quero marcar mais um em outro dia']);
+confere('U5 "marcar mais um em outro dia": mostra os horários SEM o dia que já está ocupado', /Beleza, vamos marcar mais um em outro dia\./.test(u.reply) && /Consegui estes aqui/.test(u.reply) && (u.state.lista ?? []).length > 0 && (u.state.lista ?? []).every((x: any) => x.ymd !== dia(1)) && u.state.diasBloqueados?.includes(dia(1)), u.reply.replace(/\n/g, ' | ').slice(0, 200));
+u = await siga(['quero marcar mais um em outro dia', '1']);
+confere('U5 escolhendo um horário novo, reserva de verdade (em outro dia)', u.reply.startsWith(MARCA_AGENDADO) && posts.filter((x) => x.rota.endsWith('/agendamentos')).slice(-1)[0]?.corpo.dataHora.slice(0, 10) !== dia(1), u.reply.replace(/\n/g, ' | ').slice(0, 160));
+u = await siga(['quero mudar o dia']);
+confere('U6 "mudar o dia" é ambíguo: pergunta se remarca o que existe ou marca mais um (não grava nada sem querer)', /remarcar o que já está agendado pra esse outro dia ou marcar mais um além dele\?/.test(u.reply) && !u.handoff && u.state.dup?.esclareceu === true, u.reply.replace(/\n/g, ' | '));
+u = await siga(['quero mudar o dia', 'remarcar o que já tenho']);
+confere('U6 respondendo "remarcar": chama a equipe', Boolean(u.handoff) && /REMARCAR/.test(u.handoff.motivo), u.reply.replace(/\n/g, ' | ').slice(0, 120));
+u = await siga(['quero mudar o dia', 'mais um além desse']);
+confere('U6 respondendo "mais um": mostra outros horários', /Consegui estes aqui/.test(u.reply) && (u.state.lista ?? []).every((x: any) => x.ymd !== dia(1)), u.reply.replace(/\n/g, ' | ').slice(0, 120));
+u = await siga(['hmm', 'sei lá', 'não sei']);
+confere('U7 três respostas que não dizem nada: chama a equipe (não fica em loop)', Boolean(u.handoff) && /não deixou claro/.test(u.handoff.motivo), u.reply.replace(/\n/g, ' | ').slice(0, 140));
+// o Clinilink não devolve o agendamento existente (só o aviso do dia)
+(globalThis as any).__existente = undefined;
+_limparCache();
+reset({ ocupados: 0, agendamento: 'duplicado' });
+u = await siga([]);
+confere('U8 sem achar o agendamento existente: avisa só do dia e mantém a pergunta', /Vi que esse paciente já tem esse atendimento marcado pro mesmo dia \(\p{L}+ dia \d{1,2}\)\./u.test(u.reply) && /O que você prefere/.test(u.reply) && !u.handoff, u.reply.replace(/\n/g, ' | '));
+// outras recusas da reserva: a equipe assume e a Amanda não retoma sozinha (o estado da reserva se perde)
+reset({ ocupados: 0, agendamento: 'ocupado-sempre' });
+u = (await responder([...base, '52998224725', 'sim'].map((z) => [z]), ctx, fonteClinilink)) as any;
+confere('U9 vaga ocupada na hora de reservar: transfere e é transferência "dura" (sem retomar)', Boolean(u.handoff) && u.handoff.duro === true, u.reply.replace(/\n/g, ' | ').slice(0, 120));
+// combo: ainda não é com a Amanda
+reset({ ocupados: 0 });
+u = await turnosDe(['oi, quero agendar um combo']);
+confere('U10 combo/pacote: diz que ainda não agenda e chama a equipe (não procura "combo" como serviço)', Boolean(u.handoff) && /combo/i.test(u.handoff.motivo) && /Os combos eu ainda não consigo agendar/.test(u.reply) && !/Não achei/.test(u.reply), u.reply.replace(/\n/g, ' | ').slice(0, 150));
 
 server.close();
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTODOS OS CENÁRIOS PASSARAM');

@@ -68,6 +68,9 @@ async function get<T>(path: string, params: Record<string, string | undefined>):
   throw ultimo instanceof Error ? ultimo : new ClinilinkError('Falha ao consultar o Clinilink');
 }
 
+/** Só para os testes: esquece o que está em memória. */
+export const _limparCache = () => { cache.clear(); semDemandaAte = 0; };
+
 export const listClinicas = () =>
   memo('clinicas', 10 * 60_000, async () => (await get<{ clinicas: Clinica[] }>('/v1/agendamento/clinicas', {})).clinicas);
 
@@ -120,6 +123,25 @@ export async function demandaPorProcedimento(): Promise<Map<string, number>> {
     return new Map();
   }
 }
+
+/** Um agendamento já feito, SÓ com o que o fluxo precisa (nome, telefone e o resto do paciente ficam de fora desta camada). */
+export type AgendamentoFeito = { pacienteId?: string; procedimentoIds: string[]; status: string; dataHora?: string; agendaHoraInicio?: string | null; profissional?: string; unidadeId: string };
+
+/** Agendamentos (não cancelados) de uma unidade em um dia. Dado pessoal: guardado só 1 min em memória e nunca logado. */
+export const listAgendamentosDoDia = (unidadeId: string, ymd: string) =>
+  memo(`feitos:${unidadeId}:${ymd}`, 60_000, async () => {
+    const saida: AgendamentoFeito[] = [];
+    for (let offset = 0; offset < 2000; offset += 500) {
+      const r = await get<{ total?: number; agendamentos: { status?: string; dataHora?: string; agendaHoraInicio?: string | null; paciente?: { id?: string }; profissional?: { nome?: string }; procedimentos?: { id: string }[] }[] }>(
+        '/v1/agendamento/agendamentos', { unidadeId, dataInicial: ymd, dataFinal: ymd, limite: '500', offset: String(offset) });
+      for (const a of r.agendamentos ?? []) {
+        if (a.status === 'cancelado') continue;
+        saida.push({ pacienteId: a.paciente?.id, procedimentoIds: (a.procedimentos ?? []).map((p) => p.id), status: a.status ?? '', dataHora: a.dataHora, agendaHoraInicio: a.agendaHoraInicio, profissional: a.profissional?.nome, unidadeId });
+      }
+      if (offset + 500 >= (r.total ?? 0)) break;
+    }
+    return saida;
+  });
 
 export type Paciente = { id: string; nome: string; cpf?: string | null; dataNascimento?: string | null; telefone?: string | null };
 

@@ -1,4 +1,4 @@
-import { criarAgendamento, criarPaciente, demandaPorProcedimento, getPacientePorCpf, listAgenda, listAgendaFresca, listClinicas, listProcedimentos, listProfissionais, type Clinica, type Horario, type Procedimento } from '../../../integrations/clinilink.js';
+import { criarAgendamento, criarPaciente, demandaPorProcedimento, getPacientePorCpf, listAgendamentosDoDia, listAgenda, listAgendaFresca, listClinicas, listProcedimentos, listProfissionais, type Clinica, type Horario, type Procedimento } from '../../../integrations/clinilink.js';
 import { env } from '../../../lib/env.js';
 import { exibir, prepararGeneros } from '../../../lib/genero.js';
 import { evt } from '../../../lib/log.js';
@@ -326,6 +326,18 @@ async function sugerirPorTipo(tipo: 'exame' | 'consulta'): Promise<Descoberta> {
 
 export const fonteClinilink: Fonte = {
   tipo: 'clinilink',
+  /** O paciente já tem este serviço neste dia? Procura nas unidades e devolve só o que vai para a conversa (unidade, hora, médico). */
+  async agendamentoExistente(sv, ymd, pacienteId) {
+    if (!pacienteId) return null;
+    for (const c of await listClinicas()) {
+      const feitos = await listAgendamentosDoDia(c.id, ymd).catch(() => []);
+      const a = feitos.find((x) => x.pacienteId === pacienteId && x.procedimentoIds.includes(sv.id));
+      if (!a) continue;
+      const hora = a.agendaHoraInicio ?? a.dataHora?.slice(11, 16) ?? undefined;
+      return { unidade: nomeUnidade(c), hora, periodo: hora ? periodoDe(hora) : undefined, profissional: a.profissional ? titulo(a.profissional) : undefined };
+    }
+    return null;
+  },
   /** Pré-carrega unidades e catálogo (o Clinilink pode demorar para "acordar"): a espera de 30 s do agente já cobre isso. */
   async aquecer() { await Promise.allSettled([listClinicas().then(() => catalogo()), demandaPorProcedimento()]); },
   async nomesUnidades() { return (await listClinicas()).map(nomeUnidade); },

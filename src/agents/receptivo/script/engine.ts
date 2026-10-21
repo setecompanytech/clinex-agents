@@ -2,7 +2,7 @@ import type { Comprovante } from '../../../lib/comprovante.js';
 import { env } from '../../../lib/env.js';
 import { exibir, exibirLista, prepararGeneros } from '../../../lib/genero.js';
 import type { PedidoInterpretado } from '../../../lib/interpretarPedido.js';
-import { RAIZES, type Fonte, type PacienteInfo, type Periodo, type Servico, type Slot, type Unidade } from './catalog.js';
+import { RAIZES, type AgendamentoExistente, type Fonte, type PacienteInfo, type Periodo, type Servico, type Slot, type Unidade } from './catalog.js';
 
 /**
  * Motor de conversa por roteiro. O estado é recalculado a cada mensagem reprocessando as mensagens do
@@ -52,6 +52,9 @@ export type State = {
   pagoPix?: number; // soma dos comprovantes já conferidos (o paciente pode pagar em mais de um pix)
   transacoes?: string[]; // ids de transação já contados, para o mesmo comprovante não valer duas vezes
   pos?: Pos; // logo depois de um agendamento concluído
+  /** O Clinilink recusou porque o paciente já tem esse serviço no dia: ela avisou e espera o que ele quer (manter, marcar mais um em outro dia ou remarcar). */
+  dup?: { ymd: string; unidade: string; servicoId: string; tent: number; esclareceu?: boolean };
+  diasBloqueados?: string[]; // dias que não devem mais ser oferecidos (o dia do agendamento que já existe)
 };
 
 /**
@@ -67,8 +70,12 @@ export type Ctx = {
   /** Intérprete do pedido (IA): quando as regras não acham o serviço, entende o que o paciente quis dizer (com o contexto) e devolve um termo de busca. Sempre validado. */
   interpretarPedido?: (p: { texto: string; anteriores: string[] }) => Promise<PedidoInterpretado | null>;
   anteriores?: string[]; // o que o paciente já tinha dito nesta jornada (contexto para o intérprete)
+  /** Reprocessamento: a resposta que a Amanda deu a ESTA mensagem foi o aviso de "já tem esse atendimento no dia" (o agente deduz do histórico). */
+  duplicadoAqui?: boolean;
+  duplicadoNosTurnos?: number[]; // índices dos turnos cuja resposta foi esse aviso
 };
-export type Handoff = { motivo: string; urgente?: boolean };
+/** `duro`: depois desta transferência a Amanda NÃO retoma sozinha (a equipe assume), como no pedido de atendente humano. */
+export type Handoff = { motivo: string; urgente?: boolean; duro?: boolean };
 export type Result = {
   state: State; reply: string; handoff?: Handoff; silencio?: boolean;
   aposHandoffDuro?: boolean; // a conversa já passou por uma transferência que a Amanda NÃO deve desfazer (pediu humano, urgência)
@@ -97,11 +104,13 @@ export const MARCA_MAIS = 'Posso te ajudar com mais alguma coisa';
 export const MARCA_ADEUS = 'Tenha um ótimo dia';
 export const MARCA_PIX = 'Chave pix:';
 export const MARCA_PAGAMENTO = 'antecipar o pagamento';
+/** Aviso de que o paciente já tem o atendimento no dia: o agente reconhece essa mensagem no histórico para a conversa continuar do mesmo ponto. */
+export const MARCA_DUP = 'Vi que esse paciente já tem';
 export const MARCAS_FIM = [MARCA_FIM, MARCA_AGENDADO, MARCA_MAIS, MARCA_ADEUS];
 /** Mensagens com texto exato (valores, chave, marcas): não passam pelo GPT. */
 export const SEM_GPT = [MARCA_AGENDADO, MARCA_MAIS, MARCA_ADEUS, MARCA_PIX, MARCA_PAGAMENTO];
 /** Textos que o Giovanny aprovou palavra por palavra (unidades, horários, "o mais rápido", comprovante, aviso de segurança do sintoma): também não passam pelo GPT. */
-SEM_GPT.push('Tenho sim!', 'Consegui estes aqui', 'O mais rápido que tenho é', 'O último que tenho é', 'Não to conseguindo ler esse comprovante', 'Recebi o seu comprovante', 'Pelo que você contou');
+SEM_GPT.push(MARCA_DUP, 'Tenho sim!', 'Consegui estes aqui', 'O mais rápido que tenho é', 'O último que tenho é', 'Não to conseguindo ler esse comprovante', 'Recebi o seu comprovante', 'Pelo que você contou');
 
 export const novoEstado = (): State => ({
   saudou: false, confirmPerguntado: false, servicoConfirmado: false, unidadesInformadas: false,
@@ -403,6 +412,20 @@ function textoUnidades(sv: Servico, modo: 'resposta' | 'duvida'): string {
   return modo === 'resposta' ? `${MARCA_UNIDADES} ${cap(corpo)}.` : `${cap(sv.frase)} tem agenda ${corpo}.`;
 }
 
+// ---------- paciente que já tem o atendimento no dia ----------
+const DUP_PERGUNTA = 'O que você prefere: manter esse que já está marcado, marcar mais um em outro dia ou remarcar esse que já está agendado?';
+const DUP_MANTER = /\b(manter|mantem|mantenha|mantenho|deixa (assim|como (esta|ta))|pode deixar|esta bom|ta bom|era so (isso|pra confirmar|para confirmar)|so (queria|quero) (conferir|confirmar|saber)|nao precisa|esse mesmo|fica esse|fica assim)\b/;
+const DUP_NOVO = /\b(mais um|mais uma|outro agendamento|novo agendamento|marcar outro|agendar outro|marcar outra|alem (desse|dele|do que)|tambem|dois|duas)\b/;
+const DUP_REMARCAR = /\b(remarc\w*|reagend\w*|trocar|troca|alterar|altera|adiar|antecipar|transferir|passar (ele|esse|o) pra|mudar (o agendamento|esse|ele|aquele))\b/;
+const DUP_DIA = /\b(outro dia|outra data|outro horario|mudar (o )?dia|mudar a data|dia diferente|trocar o dia)\b/;
+const DUP_CONFIRMA = /\b(ja|entao)\b.*\b(agendad\w*|marcad\w*)\b|\b(esta|ta|ficou) (agendad|marcad)\w*/;
+
+/** "Vi que esse paciente já tem consulta X marcado pra quinta dia 22 no Guamá de manhã a partir das 8h com a Dra. Y." (ou, sem achar o agendamento, só o dia). */
+function textoDuplicado(sv: Servico, ymd: string, ref: string, ex: AgendamentoExistente | null): string {
+  if (!ex) return `${MARCA_DUP} esse atendimento marcado pro mesmo dia (${dataFalada(ymd, ref)}).`;
+  return `${MARCA_DUP} ${sv.frase} marcado pra ${dataFalada(ymd, ref)} no ${ex.unidade}${ex.periodo ? ` ${periodoTxt(ex.periodo)}` : ''}${ex.hora ? ` a partir das ${hora(ex.hora)}` : ''}${ex.profissional && !sv.profissional ? ` com ${exibir(ex.profissional, { artigo: true })}` : ''}.`;
+}
+
 // ---------- núcleo ----------
 export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 0): Promise<Result> {
   // depois de uma jornada concluída, uma nova mensagem abre outra jornada (mantém a saudação já feita)
@@ -509,6 +532,44 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
     s.pos = undefined;
   }
 
+  // 1d) ela acabou de avisar que o paciente já tem esse atendimento no dia: a conversa CONTINUA daqui e espera o que ele quer
+  // (manter, marcar mais um em outro dia ou remarcar o que já está agendado). Nunca recomeça o fluxo.
+  if (s.dup && s.servico) {
+    const d = s.dup; const svD = s.servico;
+    const ex = await fonte.agendamentoExistente?.(svD, d.ymd, s.paciente?.id).catch(() => null) ?? null;
+    if (ex?.profissional) await prepararGeneros([ex.profissional]);
+    const detalhe = textoDuplicado(svD, d.ymd, h.ymd, ex);
+    const paraEquipe = (aviso: string, extra: string, acao = 'remarcar esse agendamento') => {
+      s.dup = undefined; s.fim = true;
+      return out(`${aviso} Vou chamar alguém da equipe pra ${acao}. Já deixei tudo anotado. Só um instante.`, {
+        duro: true,
+        motivo: `REMARCAR: ${s.paciente ? titulo(s.paciente.nome) : 'o paciente'} já tem ${svD.frase} em ${fmtData(d.ymd)}${ex ? ` (${ex.unidade}${ex.hora ? `, a partir das ${hora(ex.hora)}` : ''}${ex.profissional ? `, com ${ex.profissional}` : ''})` : ''}. ${extra} Nenhum agendamento novo foi feito. Mensagem dele: "${texto.replace(TOKEN_MIDIA, ' ').trim().slice(0, 200)}".`,
+      });
+    };
+    if (DUP_MANTER.test(t) && !DUP_NOVO.test(t) && !DUP_REMARCAR.test(t)) {
+      s.dup = undefined; s.fim = true;
+      return out('Combinado, fica mantido o que já está marcado. Posso te ajudar com mais alguma coisa?');
+    }
+    if (DUP_NOVO.test(t)) {
+      // marcar MAIS UM em outro dia: segue o fluxo normal (lista de horários), sem oferecer o dia que já está ocupado
+      s.dup = undefined; s.diasBloqueados = [...(s.diasBloqueados ?? []), d.ymd];
+      s.slot = undefined; s.lista = undefined; s.data = undefined; s.turno = undefined; s.rapido = undefined; s.apartir = undefined; s.fim = false;
+      partes.push('Beleza, vamos marcar mais um em outro dia.');
+    } else if (DUP_REMARCAR.test(t)) {
+      return paraEquipe('Combinado!', 'O paciente quer remarcar o agendamento que já existe.');
+    } else if (DUP_DIA.test(t) || lerData(t, ctx)) {
+      // "outro dia" pode ser remarcar o que já existe OU marcar mais um: pergunta, para não gravar um agendamento a mais sem querer
+      if (d.esclareceu) return paraEquipe('Combinado!', 'O paciente quer mudar o dia (não ficou claro se remarca o existente ou marca mais um).');
+      s.dup = { ...d, esclareceu: true };
+      return out('Você quer remarcar o que já está agendado pra esse outro dia ou marcar mais um além dele?');
+    } else {
+      // pergunta ("já tá agendado então?") ou resposta que não é uma das três opções: responde no contexto e repete as opções
+      s.dup = { ...d, tent: d.tent + 1 };
+      if (s.dup.tent >= 3) return paraEquipe('Combinado!', 'O paciente não deixou claro o que quer fazer com o agendamento que já existe.', 'te ajudar com esse agendamento');
+      return out(`${DUP_CONFIRMA.test(t) ? 'Isso mesmo! ' : ''}${detalhe}\n${DUP_PERGUNTA}`);
+    }
+  }
+
   // 1c) imagem/arquivo: só interessa como comprovante de pix, quando estamos esperando um
   const midia = texto.match(TOKEN_MIDIA);
   const aguardandoComprovante = s.pagamento === 'pix' && s.pixEnviado && !s.pagFinal && Boolean(s.slot);
@@ -525,6 +586,10 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
   // remarcar ou cancelar ainda não é com a Amanda: em vez de procurar "remarcar" como se fosse um serviço, chama a equipe
   if (!s.servico && !s.opcoes && /\b(remarc\w*|reagend\w*|desmarc\w*|cancel\w*)\b/.test(t)) {
     return out(comAbertura('Claro! Pra remarcar ou cancelar eu chamo alguém da equipe pra te ajudar. Só um instante.'), { motivo: 'Paciente quer remarcar ou cancelar um agendamento (a Amanda ainda não faz isso). Mensagem: ' + texto.replace(TOKEN_MIDIA, ' ').trim().slice(0, 200) });
+  }
+  // combo/pacote: ainda não é com a Amanda (o Clinilink tem combos, mas o fluxo de agendar combo não foi feito): chama a equipe
+  if (!s.servico && !s.opcoes && /\b(combos?|pacotes?)\b/.test(t)) {
+    return out(comAbertura('Os combos eu ainda não consigo agendar por aqui. Vou chamar alguém da equipe pra te ajudar com isso. Só um instante.'), { duro: true, motivo: 'Paciente quer agendar um combo/pacote (a Amanda ainda não agenda combos). Mensagem: ' + texto.replace(TOKEN_MIDIA, ' ').trim().slice(0, 200) });
   }
   const adiantou = !s.servico && !s.opcoes ? await guardaAdiantado() : '';
   /** As regras não acharam o serviço: o intérprete (IA) entende o pedido no contexto da conversa e o roteiro procura o termo no Clinilink. */
@@ -755,8 +820,9 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
   const listaAnterior = mudouServico ? undefined : base.lista;
 
   // 7) dia e período: o paciente escolhe da lista (número) ou diz a data
+  const naoBloqueado = (x: { ymd: string }) => !s.diasBloqueados?.includes(x.ymd); // dia do agendamento que já existe: não oferece de novo
   const alternativas = async (de: string, filtro?: Periodo) => {
-    const todas = await fonte.proximas(sv, un, de, 8);
+    const todas = (await fonte.proximas(sv, un, de, 12)).filter(naoBloqueado);
     await prepararGeneros(todas.map((x) => x.profissional));
     return (filtro ? todas.filter((x) => x.turno === filtro) : todas).slice(0, 4);
   };
@@ -769,6 +835,7 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
     let pool: Slot[];
     if (naTela && !it.apartir && !it.mais) pool = [...naTela];
     else pool = await fonte.proximas(sv, un, it.apartir ?? (it.mais && naTela ? addDias(naTela[naTela.length - 1].ymd, 1) : (s.apartir ?? addDias(h.ymd, 1))), 12);
+    pool = pool.filter(naoBloqueado);
     await prepararGeneros(pool.map((x) => x.profissional));
     if (it.ate) pool = pool.filter((x) => x.ymd <= it.ate!);
     if (turnoPedido) pool = pool.filter((x) => x.turno === turnoPedido);
@@ -823,7 +890,7 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
   }
   if (!s.slot) {
     if (s.data) {
-      const doDia = await fonte.periodos(sv, un, s.data);
+      const doDia = (await fonte.periodos(sv, un, s.data)).filter(naoBloqueado);
       await prepararGeneros(doDia.map((x) => x.profissional));
       let certos = s.turno ? doDia.filter((x) => x.turno === s.turno) : doDia;
       const medDia = medicoDaLista(t, certos); // "quinta 22 com a Fernanda"
@@ -1009,9 +1076,13 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
   const quem = s.paciente ? titulo(s.paciente.nome) : s.cad.nome ?? '';
   if (fonte.tipo === 'clinilink') {
     const novo = s.paciente ? `Paciente já cadastrado (${titulo(s.paciente.nome)}, id ${s.paciente.id ?? '?'}).` : `CADASTRAR paciente novo: ${s.cad.nome}, nascimento ${s.cad.nascimento ? fmtNasc(s.cad.nascimento) : '?'}, sexo ${s.cad.sexo}, telefone ${s.cad.telefone}, CPF ${s.cpf}.`;
-    const aEquipe = (aviso: string, motivo: string) => out(`${aviso} Vou chamar alguém da equipe pra concluir. Já deixei tudo anotado. Só um instante.`, { motivo });
+    const aEquipe = (aviso: string, motivo: string) => out(`${aviso} Vou chamar alguém da equipe pra concluir. Já deixei tudo anotado. Só um instante.`, { motivo, duro: true });
 
-    if (!ctx.efetivar) return out('Beleza, vou concluir a sua reserva. Só um instante.'); // reprocessamento: nunca grava
+    if (!ctx.efetivar) { // reprocessamento: nunca grava
+      // a resposta que ela deu a esta mensagem foi o aviso de "já tem esse atendimento no dia": o estado segue daqui, sem recomeçar a conversa
+      if (ctx.duplicadoAqui) { s.fim = false; s.dup = { ymd: slot.ymd, unidade: un.nome, servicoId: sv.id, tent: 0 }; }
+      return out('Beleza, vou concluir a sua reserva. Só um instante.');
+    }
 
     const r = await fonte.reservar!({
       servico: sv, unidade: un, slot, cpf: s.cpf!,
@@ -1029,7 +1100,13 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
     const extra = r.cadastrou ? ' O cadastro do paciente FOI criado.' : '';
     if (r.incerto) return aEquipe('Não consegui confirmar a reserva agora.', `ATENÇÃO: a reserva pode ou não ter sido gravada (${r.codigo}). CONFERIR no Clinilink antes de refazer. Vaga: ${resumoVaga}. ${novo}${extra}`);
     if (r.codigo === 'SEM_VAGA_AGORA' || r.codigo === 'HORARIO_OCUPADO') return aEquipe('Essa vaga acabou de ser preenchida.', `Vaga ocupada na hora de reservar (${r.codigo}). Oferecer outro horário. Pedido: ${resumoVaga}. ${novo}${extra}`);
-    if (r.codigo === 'SERVICO_DUPLICADO_NO_DIA') return aEquipe('Vi que este paciente já tem esse atendimento marcado pro mesmo dia.', `Reserva recusada: ${r.codigo}. Conferir o agendamento existente. Pedido: ${resumoVaga}. ${novo}${extra}`);
+    if (r.codigo === 'SERVICO_DUPLICADO_NO_DIA') {
+      // o paciente já tem esse atendimento no dia: ela explica QUAL agendamento já existe e ESPERA o que ele quer (manter, mais um em outro dia, remarcar)
+      s.fim = false; s.dup = { ymd: slot.ymd, unidade: un.nome, servicoId: sv.id, tent: 0 };
+      const ex = await fonte.agendamentoExistente?.(sv, slot.ymd, s.paciente?.id).catch(() => null) ?? null;
+      if (ex?.profissional) await prepararGeneros([ex.profissional]);
+      return out(`${textoDuplicado(sv, slot.ymd, h.ymd, ex)}\n${DUP_PERGUNTA}`);
+    }
     return aEquipe('Não consegui concluir a reserva.', `Reserva recusada pelo Clinilink (${r.codigo}: ${r.motivo}). Pedido: ${resumoVaga}. ${novo}${extra}`);
   }
   return out(`${s.paciente ? '' : `Cadastro de ${quem} feito. `}Sua vaga de ${sv.frase} está confirmada para ${dataLonga(slot.ymd)} no ${un.nome}${slot.profissional && !sv.profissional ? ` com ${exibir(slot.profissional, { artigo: true })}` : ''}. Os atendimentos começam às ${hora(slot.inicio)} por ordem de chegada. Recomendamos chegar cedo.\n(${MARCA_FIM} de verdade.)`);
@@ -1055,7 +1132,7 @@ export async function responder(entrada: (string | string[])[], ctx: Ctx, fonte:
     const msgs = turnos[t];
     for (let j = 0; j < msgs.length; j++) {
       const antes = { saudou: state.saudou, unidadesInformadas: state.unidadesInformadas };
-      last = await step(state, msgs[j], { ...ctx, efetivar: t === turnos.length - 1, anteriores: vistas.slice(-3) }, fonte, i++);
+      last = await step(state, msgs[j], { ...ctx, efetivar: t === turnos.length - 1, anteriores: vistas.slice(-3), duplicadoAqui: (ctx.duplicadoNosTurnos ?? []).includes(t) && j === msgs.length - 1 }, fonte, i++);
       vistas.push(msgs[j].replace(TOKEN_MIDIA, ' ').trim());
       state = last.state;
       // no último turno, quem encerra a jornada ou transfere já é a resposta que o paciente vai receber
@@ -1064,7 +1141,7 @@ export async function responder(entrada: (string | string[])[], ctx: Ctx, fonte:
       // depois é jornada nova e a Amanda não retoma sozinha. Nos demais casos (comprovante, vaga, falha do sistema...)
       // a conversa CONTINUA de onde parou quando o paciente volta a escrever, com as tentativas zeradas.
       if (last.handoff && j === msgs.length - 1) {
-        const duro = Boolean(last.handoff.urgente) || /atendimento humano/i.test(last.handoff.motivo);
+        const duro = Boolean(last.handoff.urgente) || Boolean(last.handoff.duro) || /atendimento humano/i.test(last.handoff.motivo);
         aposHandoffDuro = duro;
         state = duro ? { ...novoEstado(), saudou: true } : { ...state, falhas: 0, compTent: 0, pagamento: state.pagamento === 'link' ? undefined : state.pagamento };
       }

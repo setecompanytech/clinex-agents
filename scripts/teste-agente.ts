@@ -28,7 +28,7 @@ Object.assign(process.env, {
   AGENT_TITLE: '*Amanda (IA) - Nova*', AUTO_REPLY: 'true', AGENT_MODE: 'scripted',
 });
 for (const k of ['OPENAI_API_KEY', 'CLINILINK_API_KEY', 'CLINILINK_API_KEY_ESCRITA', 'ANTHROPIC_API_KEY']) delete process.env[k]; // fonte simulada, sem GPT
-const { handleIncoming } = await import('../src/agents/receptivo/agent.js');
+const { handleIncoming, montarTurnos } = await import('../src/agents/receptivo/agent.js');
 
 // ---------- montagem do histórico no formato REAL da Inovstar ----------
 let n = 0;
@@ -120,6 +120,18 @@ confere('A8 áudio sem transcrição: pede a transcrição e responde ao que foi
 transcricao = { text: null, status: 'failed' };
 c = await roda([{ ...audio, id: 'aud2' }]);
 confere('A8 áudio que não pôde ser transcrito: pede para escrever e não transfere', /Não consegui ouvir esse áudio/.test(textos(c)[0] ?? '') && transfs(c).length === 0, textos(c)[0]);
+
+// D) o aviso "Vi que esse paciente já tem..." marca o turno: a conversa continua dali (não recomeça)
+n = 0;
+const hD = [eu('oi'), amanda('Oi!'), eu('sim'), amanda('Vi que esse paciente já tem consulta X marcado pra quinta.\nO que você prefere: manter?'), eu('ja ta agendado então?')];
+// o histórico chega ao agente já convertido (texto como string, createdAt): faz a mesma conversão do getHistory
+const conv = (h: any[]) => h.map((m) => ({ ...m, _id: m.id, text: typeof m.text === 'object' && m.text ? (m.text.text ?? m.text.body ?? null) : (m.text ?? null), createdAt: m.timestamp })) as any;
+const td = montarTurnos(conv(hD), -1, 0);
+confere('D1 o turno cuja resposta foi o aviso de duplicidade é reconhecido no histórico', JSON.stringify(td.duplicados) === '[1]' && td.turnos.length === 3, JSON.stringify(td));
+const hD2 = [eu('oi'), amanda('Oi!'), eu('quero agendar')];
+confere('D2 sem o aviso, nenhum turno é marcado', montarTurnos(conv(hD2), -1, 0).duplicados.length === 0);
+const hD3 = [eu('oi'), amanda('Vi que esse paciente já tem consulta X marcado pra quinta.'), eu('ok')];
+confere('D3 aviso de uma jornada que já terminou (antes do fim) não conta', montarTurnos(conv(hD3), 1, 0).duplicados.length === 0);
 
 server.close();
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTODOS OS CENÁRIOS DO AGENTE PASSARAM');

@@ -2,7 +2,7 @@ import { env } from '../../lib/env.js';
 import { describe, getHistory, ilegivel, sendText, textoRoteiro, transcribeMessage, transferToSector, type InovstarMessage, type MessageReceivedEvent } from '../../integrations/inovstar.js';
 import { analisarComprovante, type Comprovante } from '../../lib/comprovante.js';
 import { buildSystemPrompt } from './prompt.js';
-import { MARCAS_FIM, MARCA_ADEUS, MARCA_AGENDADO, MARCA_MAIS, SEM_GPT, ehUrgencia, etapa, responder, type Pos, type Result } from './script/engine.js';
+import { MARCAS_FIM, MARCA_ADEUS, MARCA_AGENDADO, MARCA_DUP, MARCA_MAIS, SEM_GPT, ehUrgencia, etapa, responder, type Pos, type Result } from './script/engine.js';
 import { fonteSimulada } from './script/catalog.js';
 import { fonteClinilink } from './script/clinilinkFonte.js';
 import { amigavelDetalhado, temPrecoZero } from '../../lib/humanizer.js';
@@ -131,6 +131,30 @@ export function dividirEmBaloes(texto: string): string[] {
  */
 export const handleIncoming = (ev: MessageReceivedEvent) => comAtendimento(ev.attendanceId, () => processar(ev));
 
+/**
+ * Turnos do paciente (mensagens entre duas respostas da Amanda) a partir do fim da jornada anterior. `duplicados` = índices dos turnos
+ * cuja resposta foi o aviso "Vi que esse paciente já tem ...": a conversa continua dali (não recomeça), então o roteiro precisa saber.
+ */
+export function montarTurnos(history: InovstarMessage[], fimIdx: number, desde: number): { turnos: string[][]; duplicados: number[] } {
+  const turnos: string[][] = [];
+  const duplicados: number[] = [];
+  let saiuDesdeAUltima = true;
+  history.forEach((m, i) => {
+    if (m.direction === 'out' && m.status !== 'whisper') {
+      if (!saiuDesdeAUltima && turnos.length > 0 && i > fimIdx && m.text?.includes(MARCA_DUP)) duplicados.push(turnos.length - 1);
+      saiuDesdeAUltima = true;
+      return;
+    }
+    if (m.direction !== 'in' || i <= fimIdx || +new Date(m.createdAt) <= desde) return;
+    const txt = textoRoteiro(m);
+    if (!txt) return;
+    if (saiuDesdeAUltima || turnos.length === 0) turnos.push([]);
+    saiuDesdeAUltima = false;
+    turnos[turnos.length - 1].push(txt);
+  });
+  return { turnos, duplicados };
+}
+
 async function processar(ev: MessageReceivedEvent) {
   const inicio = Date.now();
   const skip = (why: string) => {
@@ -202,17 +226,7 @@ async function processar(ev: MessageReceivedEvent) {
       ? (marcaOut.text?.includes(MARCA_AGENDADO) ? 'confirmado' : marcaOut.text?.includes(MARCA_MAIS) ? 'perguntou_mais' : marcaOut.text?.includes(MARCA_ADEUS) ? 'encerrou' : undefined)
       : undefined;
     // turnos: mensagens do paciente entre duas respostas (qualquer saída que não seja nota interna)
-    const turnos: string[][] = [];
-    let saiuDesdeAUltima = true;
-    history.forEach((m, i) => {
-      if (m.direction === 'out' && m.status !== 'whisper') { saiuDesdeAUltima = true; return; }
-      if (m.direction !== 'in' || i <= fimIdx || +new Date(m.createdAt) <= desde) return;
-      const txt = textoRoteiro(m);
-      if (!txt) return;
-      if (saiuDesdeAUltima || turnos.length === 0) turnos.push([]);
-      saiuDesdeAUltima = false;
-      turnos[turnos.length - 1].push(txt);
-    });
+    const { turnos, duplicados } = montarTurnos(history, fimIdx, desde);
     const textos = turnos.flat();
     // o que a Amanda acabou de dizer: o GPT varia as expressões em vez de repetir o mesmo elogio
     const anteriores = history.filter((m) => m.direction === 'out' && m.text && m.status !== 'whisper').slice(-2).map((m) => (m.text ?? '').replace(/^\*[^*\n]+\*\s*/, ''));
@@ -226,7 +240,7 @@ async function processar(ev: MessageReceivedEvent) {
     if (ilg) {
       r = { state: undefined as never, reply: ilg === 'audio' ? 'Não consegui ouvir esse áudio. Escreve pra mim ou manda de novo?' : 'Recebi o arquivo, mas só leio texto e áudio por aqui. Pode me escrever?', handoff: undefined };
     } else try {
-      r = await responder(turnos, { now: new Date(), nome, tz: env.timezone, telefone: ev.to, pos, lerComprovante: lerComprovanteDe(history), interpretar: interpretarEscolha, interpretarPedido }, fonte);
+      r = await responder(turnos, { now: new Date(), nome, tz: env.timezone, telefone: ev.to, pos, lerComprovante: lerComprovanteDe(history), interpretar: interpretarEscolha, interpretarPedido, duplicadoNosTurnos: duplicados }, fonte);
     } catch (e) {
       // Clinilink fora do ar / lento: não inventa dado, devolve para a equipe
       console.error(`${tag} falha ao consultar a fonte (${fonte.tipo}):`, (e as Error).message);
