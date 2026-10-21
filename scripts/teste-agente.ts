@@ -182,6 +182,103 @@ confere('D2 sem o aviso, nenhum turno é marcado', montarTurnos(conv(hD2), -1, 0
 const hD3 = [eu('oi'), amanda('Vi que esse paciente já tem consulta X marcado pra quinta.'), eu('ok')];
 confere('D3 aviso de uma jornada que já terminou (antes do fim) não conta', montarTurnos(conv(hD3), 1, 0).duplicados.length === 0);
 
+// S) estado guardado (Redis): a conversa continua de onde parou, mesmo que a releitura das mensagens antigas desse outro resultado
+{
+  const { env: envAg } = await import('../src/lib/env.js');
+  const { lerEstado } = await import('../src/lib/estado.js');
+  const loja = new Map<string, string>();
+  let redisFora = false;
+  const comandos: string[][] = [];
+  const redis = http.createServer((req, res) => {
+    let raw = ''; req.on('data', (c) => (raw += c)); req.on('end', () => {
+      const cmd = JSON.parse(raw) as string[]; comandos.push(cmd);
+      if (redisFora) { res.writeHead(500, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ error: 'fora do ar' })); }
+      let result: unknown = null;
+      if (cmd[0] === 'GET') result = loja.get(cmd[1]) ?? null;
+      else if (cmd[0] === 'SET') { loja.set(cmd[1], cmd[2]); result = 'OK'; }
+      else if (cmd[0] === 'DEL') { result = loja.delete(cmd[1]) ? 1 : 0; }
+      res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ result }));
+    });
+  });
+  await new Promise<void>((ok) => redis.listen(0, ok));
+  const redisUrl = `http://127.0.0.1:${(redis.address() as any).port}`;
+  envAg.redisUrl = redisUrl; envAg.redisToken = 'tok';
+  const chave = 'amanda:estado:att1';
+
+  // S1) a primeira resposta guarda o estado (jornada = 1ª mensagem do paciente; ate = última respondida)
+  n = 0; loja.clear();
+  const m1 = eu('oi'); const m2 = eu('quero agendar cardiologia');
+  c = await roda([m1, m2]);
+  const g1 = await lerEstado('att1');
+  confere('S1 respondeu e guardou o estado (1ª mensagem da jornada, última respondida, serviço entendido)', textos(c).length > 0 && g1?.jornada === m1.id && g1?.ate === m2.id && /Cardiologia/i.test((g1?.state as any)?.servico?.frase ?? '') && g1?.duro === false, JSON.stringify({ j: g1?.jornada, ate: g1?.ate, sv: (g1?.state as any)?.servico?.frase }));
+  const ttl = comandos.find((x) => x[0] === 'SET');
+  confere('S1 o estado tem prazo (24 h) para não ficar guardado', ttl?.[3] === 'EX' && Number(ttl?.[4]) === 86400, JSON.stringify(ttl?.slice(3)));
+
+  // S2) a releitura das mensagens antigas daria OUTRO serviço (o código/dado mudou no meio), mas o estado guardado manda
+  const m2mudada = { ...m2, text: { text: 'quero agendar ginecologista' } };
+  c = await roda([m1, m2mudada, amanda('Entendi, você quer consulta de Cardiologia, é isso?'), eu('sim')]);
+  const g2 = await lerEstado('att1');
+  confere('S2 continua do estado guardado (Cardiologia), sem reinterpretar a mensagem antiga (agora lida como ginecologia)', textos(c).length > 0 && /Cardiologia/i.test((g2?.state as any)?.servico?.frase ?? '') && !/Ginecolog/i.test((g2?.state as any)?.servico?.frase ?? '') && (g2?.state as any)?.servicoConfirmado === true, JSON.stringify({ sv: (g2?.state as any)?.servico?.frase, conf: (g2?.state as any)?.servicoConfirmado }));
+  confere('S2 o estado avançou para a mensagem respondida agora', g2?.ate !== g1?.ate && g2?.jornada === m1.id, `${g1?.ate} -> ${g2?.ate}`);
+
+  // S3) sem o estado guardado (ou outra jornada), reprocessa tudo como antes
+  loja.clear();
+  c = await roda([m1, m2mudada, amanda('Entendi, você quer consulta de Cardiologia, é isso?'), eu('sim')]);
+  const g3 = await lerEstado('att1');
+  confere('S3 sem estado guardado: reprocessa a jornada (aqui a mensagem mudada vale: ginecologia) e guarda o novo estado', /Ginecolog/i.test((g3?.state as any)?.servico?.frase ?? ''), (g3?.state as any)?.servico?.frase);
+  n = 0;
+  const outra1 = eu('bom dia'); const outra2 = eu('quero agendar dermatologia');
+  c = await roda([outra1, outra2]);
+  const g4 = await lerEstado('att1');
+  confere('S3 outra jornada (primeira mensagem diferente): o estado antigo não vale', g4?.jornada === outra1.id && /Dermato/i.test((g4?.state as any)?.servico?.frase ?? ''), JSON.stringify({ j: g4?.jornada, sv: (g4?.state as any)?.servico?.frase }));
+
+  // S4) o Redis fora do ar não derruba nada: responde reprocessando
+  redisFora = true; n = 0;
+  c = await roda([eu('oi'), eu('quero agendar cardiologia')]);
+  confere('S4 Redis fora do ar: ela responde do mesmo jeito (reprocessando a conversa)', textos(c).length > 0 && /Cardiologia/i.test(textos(c).join(' ')), `${textos(c).length} mensagens`);
+  redisFora = false;
+
+  // S5) transferência dura (pediu humano): o estado guardado lembra, e na fila da equipe ela NÃO retoma
+  n = 0; loja.clear();
+  const h1 = eu('oi'); const h2 = amanda('Boa tarde! Sou a Amanda, da Clinex.'); const h3 = eu('quero falar com um atendente');
+  c = await roda([h1, h2, h3]);
+  const g5 = await lerEstado('att1');
+  confere('S5 pediu atendente: transferiu e o estado guardado marca a transferência dura', transfs(c).length === 1 && g5?.duro === true, `duro=${g5?.duro}`);
+  c = await roda([h1, h2, h3, amanda('Claro, vou te passar para alguém da nossa equipe.'), sistema('Transferido pela API para o setor Principal'), eu('??')], 'HUM');
+  confere('S5 depois, na fila da equipe, a Amanda não retoma (com estado guardado)', c.length === 0, `chamadas=${c.length}`);
+
+  // S6) chegou mensagem nova enquanto respondia: a resposta não sai e o estado NÃO avança
+  n = 0; loja.clear();
+  const k1 = eu('oi'); const k2 = eu('quero agendar cardiologia');
+  historicoDepois = [k1, k2, eu('na verdade é dermatologia')];
+  c = await roda([k1, k2]);
+  historicoDepois = null;
+  confere('S6 resposta cancelada por mensagem nova: nada enviado e nada guardado', c.length === 0 && (await lerEstado('att1')) === null, `chamadas=${c.length}`);
+
+  // S7) uma conversa inteira, passo a passo (com as respostas reais dela no histórico): com o estado guardado e reprocessando, as respostas são as mesmas
+  const falas = ['oi', 'quero agendar cardiologia', 'sim', 'guama', '1', 'na recepção', '52998224725', 'sim'];
+  const porModo: Record<string, string[]> = { redis: [], replay: [] };
+  for (const modo of ['redis', 'replay']) {
+    n = 0; loja.clear(); comandos.length = 0;
+    envAg.redisUrl = modo === 'redis' ? redisUrl : '';
+    const hist: any[] = [];
+    for (const f of falas) {
+      hist.push(eu(f));
+      const cc = await roda([...hist]);
+      const ditos = textos(cc);
+      porModo[modo].push(ditos.join(' || '));
+      for (const tx of ditos) hist.push(amanda(tx.replace(/^\*[^*\n]+\*\n/, '')));
+    }
+    if (modo === 'redis') confere('S7 o estado foi guardado a cada resposta enviada (e apagado no fim, quando concluiu)', comandos.filter((x) => x[0] === 'SET').length >= 5, `SET=${comandos.filter((x) => x[0] === 'SET').length} DEL=${comandos.filter((x) => x[0] === 'DEL').length}`);
+  }
+  const iguais = porModo.redis.map((x, i) => x === porModo.replay[i]);
+  confere('S7 conversa completa: cada resposta com estado guardado é IGUAL à do reprocessamento', iguais.every(Boolean) && porModo.redis.every((x) => x.length > 0), iguais.map((x, i) => (x ? '' : `passo ${i + 1} difere: [${porModo.redis[i].slice(0, 90)}] x [${porModo.replay[i].slice(0, 90)}]`)).filter(Boolean).join(' ; ') || `${porModo.redis.length} passos iguais`);
+
+  envAg.redisUrl = ''; envAg.redisToken = '';
+  redis.close();
+}
+
+
 server.close();
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTODOS OS CENÁRIOS DO AGENTE PASSARAM');
 process.exit(falhas ? 1 : 0);

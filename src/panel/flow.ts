@@ -283,14 +283,14 @@ export const flow = {
     // ================================================================ 2 · RECEPÇÃO
     {
       id: 'jornada', kind: 'etapa', step: 6, band: 'p2', x: nx(P2), y: row(0),
-      title: 'Roteiro relê a conversa do paciente',
-      subtitle: 'Sem banco: refaz o caminho a partir do que o paciente já disse',
+      title: 'Roteiro continua de onde parou',
+      subtitle: 'Estado da conversa guardado entre as mensagens (Redis); sem ele, relê tudo',
       detail: {
-        oQueFaz: 'O roteiro não guarda memória própria. A cada mensagem, ele relê tudo o que o paciente disse nesta conversa, em ordem, e descobre em que etapa a conversa está.',
+        oQueFaz: 'Depois de cada resposta enviada, a Amanda guarda o estado da conversa (serviço, unidade, horário, pagamento...) por até 24 horas. Na mensagem seguinte ela continua dali, só com o que chegou de novo. Assim, uma atualização do sistema, uma mudança na agenda do Clinilink ou a virada do dia no meio da conversa não fazem ela se perder. O estado é apagado quando o agendamento é concluído (ele tem nome e CPF).\nSe o Redis não estiver configurado ou estiver fora do ar, ela volta ao jeito antigo: relê tudo o que o paciente disse nesta conversa, em ordem, e descobre em que etapa está.',
         regra: 'Considera só as mensagens do paciente das últimas 12 horas e depois do fim da última jornada concluída. Na versão de simulação, a mensagem final marca o fim da jornada, e a próxima mensagem do paciente abre uma jornada nova (sem repetir a saudação). O modo padrão é o roteiro por etapas, sem IA decidindo.',
         exemplo: 'Se o paciente já disse "cardiologia", "sim" e "Guamá", ao receber a terceira mensagem o roteiro refaz as três e sabe que falta escolher o dia.',
         seFalhar: 'Sem falha própria. Se o Clinilink falhar durante a releitura, vale o ramo de alerta "Falha ao consultar o Clinilink".',
-        tecnico: 'responder() e step() em src/agents/receptivo/script/engine.ts. Filtro das mensagens (modo scripted, janela de 12 h) em src/agents/receptivo/agent.ts. Variável AGENT_MODE (scripted é o padrão).',
+        tecnico: 'responder() e step() em src/agents/receptivo/script/engine.ts. Estado guardado em src/lib/estado.ts (Redis da Upstash; variáveis KV_REST_API_URL e KV_REST_API_TOKEN). Filtro das mensagens (modo scripted, janela de 12 h) em src/agents/receptivo/agent.ts. Variável AGENT_MODE (scripted é o padrão).',
       },
     },
     {
@@ -796,7 +796,7 @@ export const flow = {
         regra: 'O histórico da conversa vem da Inovstar a cada mensagem. Unidades, médicos, preços, datas e pacientes são lidos do Clinilink no momento da conversa (somente leitura); agenda e preços ficam guardados na memória por poucos minutos, e a consulta de pacientes nunca é guardada. Este painel também não lê banco nenhum: é um desenho estático, mantido junto do código, que não contém dados de pacientes.',
         exemplo: 'Reiniciar o agente não apaga nada: a "memória" da conversa é o histórico da própria Inovstar.',
         seFalhar: 'Sem falha própria.',
-        tecnico: 'Sem banco: estado recalculado em step() a cada mensagem (engine.ts). Cache em memória (memo) em src/integrations/clinilink.ts.',
+        tecnico: 'Estado guardado no Redis entre as mensagens (src/lib/estado.ts); sem Redis, recalculado em step() a cada mensagem (engine.ts). Cache em memória (memo) em src/integrations/clinilink.ts.',
       },
     },
     {

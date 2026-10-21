@@ -2,7 +2,8 @@ import { env } from '../../lib/env.js';
 import { describe, getHistory, ilegivel, sendText, textoRoteiro, transcribeMessage, transferToSector, type InovstarMessage, type MessageReceivedEvent } from '../../integrations/inovstar.js';
 import { analisarComprovante, type Comprovante } from '../../lib/comprovante.js';
 import { buildSystemPrompt } from './prompt.js';
-import { MARCAS_FIM, MARCA_ADEUS, MARCA_AGENDADO, MARCA_DUP, MARCA_MAIS, SEM_GPT, ehUrgencia, etapa, responder, type Pos, type Result } from './script/engine.js';
+import { MARCAS_FIM, MARCA_ADEUS, MARCA_AGENDADO, MARCA_DUP, MARCA_MAIS, SEM_GPT, ehUrgencia, estadoDepoisDaResposta, etapa, handoffDuro, responder, type Pos, type Result, type State } from './script/engine.js';
+import { apagarEstado, estadoAtivo, guardarEstado, lerEstado } from '../../lib/estado.js';
 import { fonteSimulada } from './script/catalog.js';
 import { fonteClinilink } from './script/clinilinkFonte.js';
 import { amigavelDetalhado, temPrecoZero } from '../../lib/humanizer.js';
@@ -191,7 +192,7 @@ async function processar(ev: MessageReceivedEvent) {
   // Debounce: espera o paciente terminar de digitar e só a última mensagem dispara a resposta.
   // (emergência e crise não esperam: respondem em poucos segundos)
   await sleep(ehUrgencia(ev.text ?? '') ? Math.min(env.debounceMs, 3000) : env.debounceMs);
-  const { messages: history } = await getHistory(ev.attendanceId);
+  const { messages: history } = await getHistory(ev.attendanceId, 80); // a jornada inteira (o padrão de 30 mensagens cortava o começo das conversas longas)
   const lastIn = [...history].reverse().find((m) => m.direction === 'in' && m.type !== 'system');
   if (lastIn && lastIn._id !== ev.messageId) return skip(`chegou mensagem mais nova (${lastIn._id} != ${ev.messageId}); o webhook dela responde`);
 
@@ -248,6 +249,17 @@ async function processar(ev: MessageReceivedEvent) {
     // quando o paciente começou este pedido (primeira mensagem da jornada): comprovante pago antes disso é de outro atendimento
     const primeiraDaJornada = history.find((m, i) => m.direction === 'in' && i > fimIdx && +new Date(m.createdAt) > desde && textoRoteiro(m));
     const inicioJornada = primeiraDaJornada ? new Date(primeiraDaJornada.createdAt) : undefined;
+    // Estado guardado depois da última resposta enviada: continua dali, só com as mensagens NOVAS (não reinterpreta a conversa inteira, o que
+    // muda de resposta se o código, a agenda ou a data mudaram no meio). Sem estado guardado, ou se algo não bate, reprocessa a jornada toda.
+    let retomada: { state: State; aposHandoffDuro: boolean; passos?: number; turnos: string[][] } | undefined;
+    if (primeiraDaJornada && estadoAtivo()) {
+      const salvo = await lerEstado(ev.attendanceId);
+      if (salvo && salvo.jornada === primeiraDaJornada._id && salvo.ate !== ev.messageId) {
+        const iAte = history.findIndex((m) => m._id === salvo.ate);
+        const novos = iAte >= 0 ? montarTurnos(history.slice(iAte + 1), -1, desde).turnos : [];
+        if (novos.length > 0) retomada = { state: salvo.state as State, aposHandoffDuro: salvo.duro, passos: salvo.passos, turnos: novos };
+      }
+    }
     const { conversa, confirmacao } = lerConversa(history); // lê a conversa dos dois lados antes de responder
     const textos = turnos.flat();
     // o que a Amanda acabou de dizer: o GPT varia as expressões em vez de repetir o mesmo elogio
@@ -262,7 +274,7 @@ async function processar(ev: MessageReceivedEvent) {
     if (ilg) {
       r = { state: undefined as never, reply: ilg === 'audio' ? 'Não consegui ouvir esse áudio. Escreve pra mim ou manda de novo?' : 'Recebi o arquivo, mas só leio texto e áudio por aqui. Pode me escrever?', handoff: undefined };
     } else try {
-      r = await responder(turnos, { now: new Date(), nome, tz: env.timezone, telefone: ev.to, pos, lerComprovante: lerComprovanteDe(history), interpretar: interpretarEscolha, interpretarPedido, duplicadoNosTurnos: duplicados, inicioJornada, conversa, confirmacao, contexto: entenderNoContexto }, fonte);
+      r = await responder(retomada ? retomada.turnos : turnos, { now: new Date(), nome, tz: env.timezone, telefone: ev.to, pos, lerComprovante: lerComprovanteDe(history), interpretar: interpretarEscolha, interpretarPedido, duplicadoNosTurnos: retomada ? [] : duplicados, inicioJornada, conversa, confirmacao, contexto: entenderNoContexto }, fonte, retomada && { state: retomada.state, aposHandoffDuro: retomada.aposHandoffDuro, passos: retomada.passos });
     } catch (e) {
       // Clinilink fora do ar / lento: não inventa dado, devolve para a equipe
       console.error(`${tag} falha ao consultar a fonte (${fonte.tipo}):`, (e as Error).message);
@@ -288,6 +300,7 @@ async function processar(ev: MessageReceivedEvent) {
       fonte: fonte.tipo,
       etapa: r.state ? etapa(r.state, r.handoff) : ilg ? 'mensagem ilegível (áudio sem transcrição ou arquivo)' : 'falha ao consultar a agenda',
       mensagens_na_jornada: textos.length,
+      estado: retomada ? 'guardado (continuou de onde parou)' : estadoAtivo() ? 'reprocessou a jornada' : 'reprocessou a jornada (sem estado guardado)',
       paciente_disse: ilg ? `[${ilg} ilegível]` : textos[textos.length - 1],
       roteiro: r.reply,
       enviado: msg,
@@ -306,7 +319,7 @@ async function processar(ev: MessageReceivedEvent) {
     // não é enviada (nem o resto dos balões): a mensagem nova espera o próprio tempo, lê a conversa inteira e responde uma vez só.
     const mensagemMaisNova = async (): Promise<string | undefined> => {
       try {
-        const { messages } = await getHistory(ev.attendanceId);
+        const { messages } = await getHistory(ev.attendanceId, 15);
         const l = [...messages].reverse().find((m) => m.direction === 'in' && m.type !== 'system');
         return l && l._id !== ev.messageId ? l._id : undefined;
       } catch { return undefined; } // não conseguiu conferir: envia (melhor responder do que ficar mudo)
@@ -332,14 +345,22 @@ async function processar(ev: MessageReceivedEvent) {
         else throw e;
       }
     };
+    let enviou = true;
     if (naFilaDaEquipe && !r.handoff && env.agentSectorId) {
       // o paciente voltou: devolve a conversa para a Amanda e responde
       await transferir(env.agentSectorId, 'A Amanda retomou o atendimento porque o paciente voltou a escrever.');
-      await enviar();
+      enviou = await enviar();
     } else if (r.handoff && env.humanSectorId) {
       // só transfere se a resposta foi enviada: se chegou mensagem nova, a conversa é reprocessada inteira pelo webhook dela
-      if ((await enviar()) && !naFilaDaEquipe) await transferir(env.humanSectorId, r.handoff.motivo);
-    } else await enviar();
+      enviou = await enviar();
+      if (enviou && !naFilaDaEquipe) await transferir(env.humanSectorId, r.handoff.motivo);
+    } else enviou = await enviar();
+    // Guarda o estado só depois de a resposta ter saído (se chegou mensagem nova e ela não foi enviada, o estado anterior continua valendo).
+    // Agendamento concluído: apaga (o estado carrega nome e CPF do paciente).
+    if (enviou && r.state && primeiraDaJornada && estadoAtivo()) {
+      if (r.state.fim && !r.handoff) await apagarEstado(ev.attendanceId);
+      else await guardarEstado(ev.attendanceId, { jornada: primeiraDaJornada._id, ate: ev.messageId, state: estadoDepoisDaResposta(r), duro: r.handoff ? handoffDuro(r.handoff) : Boolean(r.aposHandoffDuro), passos: r.passos });
+    }
     return;
   }
 

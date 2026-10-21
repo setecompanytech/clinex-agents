@@ -91,6 +91,7 @@ export type Result = {
   state: State; reply: string; handoff?: Handoff; silencio?: boolean;
   aposHandoffDuro?: boolean; // a conversa já passou por uma transferência que a Amanda NÃO deve desfazer (pediu humano, urgência)
   faq?: boolean; // a resposta já traz a resposta a uma dúvida (horário, valor...)
+  passos?: number; // quantas mensagens do paciente já foram processadas na conversa (varia as frases; vai junto com o estado guardado)
 };
 
 /** Etapa legível da conversa, para o painel de logs. */
@@ -1356,14 +1357,30 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
  * confirmar) é desfeito: senão a Amanda pularia o resumo, ou aceitaria um "sim" a uma pergunta que ele não viu.
  * Só o último turno pode gravar no Clinilink (os anteriores já foram respondidos de verdade).
  */
-export async function responder(entrada: (string | string[])[], ctx: Ctx, fonte: Fonte): Promise<Result | undefined> {
+/** A transferência foi a pedido do paciente (humano), urgência ou marcada como definitiva: a Amanda não retoma sozinha. */
+export const handoffDuro = (h: Handoff) => Boolean(h.urgente) || Boolean(h.duro) || /atendimento humano/i.test(h.motivo);
+/**
+ * O estado que fica guardado depois de uma resposta ENVIADA: o mesmo ajuste que o reprocessamento faz antes do turno seguinte
+ * (transferência dura recomeça a conversa; as outras seguem de onde pararam, com as tentativas zeradas).
+ */
+export function estadoDepoisDaResposta(r: Result): State {
+  const s = r.state;
+  if (!r.handoff) return s;
+  return handoffDuro(r.handoff) ? { ...novoEstado(), saudou: true } : { ...s, falhas: 0, compTent: 0, pagamento: s.pagamento === 'link' ? undefined : s.pagamento };
+}
+
+/**
+ * `inicial`: o estado guardado depois da última resposta enviada. Com ele, só as mensagens NOVAS entram em `entrada` e a conversa continua
+ * exatamente de onde parou (sem reinterpretar tudo do zero, o que muda de resposta quando o código, a agenda ou a data mudaram no meio).
+ */
+export async function responder(entrada: (string | string[])[], ctx: Ctx, fonte: Fonte, inicial?: { state: State; aposHandoffDuro?: boolean; passos?: number }): Promise<Result | undefined> {
   const turnos = entrada.map((x) => (Array.isArray(x) ? x : [x]));
-  let state = novoEstado();
-  if (ctx.pos) state = { ...state, saudou: true, pos: ctx.pos }; // a conversa já começou: logo depois de um agendamento
+  let state: State = inicial ? { ...inicial.state, cad: { ...inicial.state.cad } } : novoEstado();
+  if (!inicial && ctx.pos) state = { ...state, saudou: true, pos: ctx.pos }; // a conversa já começou: logo depois de um agendamento
   let last: Result | undefined;
   const vistas: string[] = []; // mensagens do paciente já processadas (contexto para o intérprete do pedido)
-  let i = 0;
-  let aposHandoffDuro = false;
+  let i = inicial?.passos ?? 0;
+  let aposHandoffDuro = Boolean(inicial?.aposHandoffDuro);
   for (let t = 0; t < turnos.length; t++) {
     const msgs = turnos[t];
     for (let j = 0; j < msgs.length; j++) {
@@ -1372,14 +1389,13 @@ export async function responder(entrada: (string | string[])[], ctx: Ctx, fonte:
       vistas.push(msgs[j].replace(TOKEN_MIDIA, ' ').trim());
       state = last.state;
       // no último turno, quem encerra a jornada ou transfere já é a resposta que o paciente vai receber
-      if (t === turnos.length - 1 && (last.handoff || last.state.fim)) return { ...last, aposHandoffDuro };
+      if (t === turnos.length - 1 && (last.handoff || last.state.fim)) return { ...last, aposHandoffDuro, passos: i };
       // transferência numa resposta que JÁ foi enviada. Se o paciente pediu um humano (ou foi urgência), o que vier
       // depois é jornada nova e a Amanda não retoma sozinha. Nos demais casos (comprovante, vaga, falha do sistema...)
       // a conversa CONTINUA de onde parou quando o paciente volta a escrever, com as tentativas zeradas.
       if (last.handoff && j === msgs.length - 1) {
-        const duro = Boolean(last.handoff.urgente) || Boolean(last.handoff.duro) || /atendimento humano/i.test(last.handoff.motivo);
-        aposHandoffDuro = duro;
-        state = duro ? { ...novoEstado(), saudou: true } : { ...state, falhas: 0, compTent: 0, pagamento: state.pagamento === 'link' ? undefined : state.pagamento };
+        aposHandoffDuro = handoffDuro(last.handoff);
+        state = estadoDepoisDaResposta(last);
       }
       if (j < msgs.length - 1) { // resposta descartada: desfaz o que ela marcou como dito
         state.saudou = antes.saudou;
@@ -1388,5 +1404,5 @@ export async function responder(entrada: (string | string[])[], ctx: Ctx, fonte:
       }
     }
   }
-  return last && { ...last, aposHandoffDuro };
+  return last && { ...last, aposHandoffDuro, passos: i };
 }

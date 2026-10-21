@@ -15,6 +15,10 @@ export const env = {
   // espera antes de responder, para agrupar mensagens picadas do paciente
   // espera depois da mensagem do paciente, para ele terminar de escrever ("quero tal coisa" + "mais isso" viram um pedido só)
   debounceMs: Number(process.env.DEBOUNCE_MS ?? 30000),
+  // Redis (Upstash, REST) para guardar o estado da conversa entre as mensagens. Vazio = reprocessa a conversa inteira a cada mensagem.
+  // A integração da Vercel cria KV_REST_API_URL/KV_REST_API_TOKEN; também aceita os nomes da própria Upstash.
+  redisUrl: process.env.UPSTASH_REDIS_REST_URL ?? process.env.KV_REST_API_URL ?? '',
+  redisToken: process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.KV_REST_API_TOKEN ?? '',
   // "Digitando": cada balão de resposta espera o tempo de uma pessoa ler e escrever aquele texto (~TYPING_MS_PER_CHAR por caractere),
   // nunca menos que MIN nem mais que MAX por balão. MAX = 0 desliga a espera.
   replyDelayMinMs: Number(process.env.REPLY_DELAY_MIN_MS ?? 1500),
