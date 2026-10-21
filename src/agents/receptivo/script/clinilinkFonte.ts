@@ -30,7 +30,7 @@ function pontuar(p: Procedimento, texto = '') {
 
 const slotDe = (h: Horario): Slot => {
   const inicio = h.agendaHoraInicio ?? h.hora;
-  return { ymd: h.data, turno: periodoDe(inicio), inicio, profissional: h.profissional?.nome ? titulo(h.profissional.nome) : undefined, profissionalId: h.profissional?.id };
+  return { ymd: h.data, turno: periodoDe(inicio), inicio, profissional: h.profissional?.nome ? titulo(h.profissional.nome) : undefined, profissionalId: h.profissional?.id, profissionalBruto: h.profissional?.nome };
 };
 /** Um slot por (data, período): várias horas de uma mesma agenda viram um único período. */
 function agrupar(horarios: Horario[]): Slot[] {
@@ -42,6 +42,9 @@ function agrupar(horarios: Horario[]): Slot[] {
 
 /** Preço do procedimento = SEMPRE o campo `preco` do Clinilink (nunca `precoDinheiro`). Só vale número maior que zero; senão, não há preço para citar. */
 export const precoDe = (p: Pick<Procedimento, 'preco'>): number | undefined => (typeof p.preco === 'number' && Number.isFinite(p.preco) && p.preco > 0 ? p.preco : undefined);
+
+/** Orientação de preparo cadastrada: só vale texto de verdade (o cadastro tem "0" e vazios). */
+const preparoUtil = (x?: string | null) => { const t = (x ?? '').replace(/\s+/g, ' ').trim(); return t.length > 3 && t !== '0' ? t : undefined; };
 
 async function montar(c: Cand, prof?: { id: string; nome: string }): Promise<Descoberta> {
   const ini = hojeYmd();
@@ -75,7 +78,9 @@ async function montar(c: Cand, prof?: { id: string; nome: string }): Promise<Des
     id: c.proc.id, nome, tipo: consulta ? 'consulta' : 'exame',
     frase: `${nome.replace(/^Consulta\b/, 'consulta')}${prof ? ` com ${exibir(prof.nome, { artigo: true })}` : ''}`,
     profissional: prof ? { id: prof.id, nome: titulo(prof.nome) } : undefined,
-    unidades: comAgenda.map(({ u, medicos, proc }): Unidade => ({ id: u.id, nome: nomeUnidade(u), profissionais: medicos, precoPix: precoDe(proc) })), precoTexto,
+    unidades: comAgenda.map(({ u, medicos, proc }): Unidade => ({ id: u.id, nome: nomeUnidade(u), profissionais: medicos, precoPix: precoDe(proc), nomeBruto: u.nome, endereco: u.endereco, telefone: u.telefone })), precoTexto,
+    nomeBruto: c.proc.nome,
+    preparo: preparoUtil(c.proc.preparo),
   };
   return { servico };
 }
@@ -445,7 +450,7 @@ export const fonteClinilink: Fonte = {
     for (const h of livres.slice(0, 3)) {
       const dataHora = h.dataHora ?? `${h.data}T${h.hora}:00-03:00`;
       const r = await criarAgendamento({ pacienteId, unidadeId: unidade.id, agendaId: h.agendaId, profissionalId: h.profissional?.id ?? slot.profissionalId ?? '', dataHora, procedimentoId: servico.id, observacao: p.observacao });
-      if (r.ok) return { ok: true, profissional: h.profissional?.nome ? titulo(h.profissional.nome) : slot.profissional, hora: h.agendaHoraInicio ?? h.hora, cadastrou };
+      if (r.ok) return { ok: true, profissional: h.profissional?.nome ? titulo(h.profissional.nome) : slot.profissional, profissionalBruto: h.profissional?.nome ?? slot.profissionalBruto, hora: h.agendaHoraInicio ?? h.hora, cadastrou };
       ultimo = r.codigo;
       if (r.codigo !== 'HORARIO_OCUPADO') return { ok: false, codigo: r.codigo, motivo: r.mensagem || r.codigo, incerto: r.incerto, cadastrou };
     }

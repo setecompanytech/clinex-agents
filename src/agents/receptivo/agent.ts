@@ -117,11 +117,11 @@ export function tempoDeDigitacao(texto: string, primeiro: boolean): number {
   return Math.round(Math.min(max, Math.max(min, leitura + digitando)));
 }
 
-/** Parágrafos separados por linha em branco viram balões separados (até 3), como uma pessoa que manda um texto em partes. */
+/** Parágrafos separados por linha em branco viram balões separados (até 4), como uma pessoa que manda um texto em partes. */
 export function dividirEmBaloes(texto: string): string[] {
   const partes = texto.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
-  if (partes.length <= 3) return partes.length ? partes : [texto];
-  return [partes[0], partes[1], partes.slice(2).join('\n')];
+  if (partes.length <= 4) return partes.length ? partes : [texto];
+  return [partes[0], partes[1], partes[2], partes.slice(3).join('\n')];
 }
 
 /**
@@ -167,8 +167,9 @@ export function lerConversa(history: InovstarMessage[]): { conversa: MensagemCon
     .map((m) => ({ de: (m.direction === 'in' ? 'paciente' : 'amanda') as MensagemConversa['de'], texto: limpa(textoRoteiro(m) ?? '').slice(0, 400) }))
     .filter((m) => m.texto)
     .slice(-12);
-  const conf = [...history].reverse().find((m) => m.direction === 'out' && m.text?.includes(MARCA_AGENDADO) && Date.now() - +new Date(m.createdAt) < 24 * 3600 * 1000);
-  const confirmacao = conf?.text?.match(/Ficou[\s\S]*$/)?.[0]?.trim();
+  // a confirmação é o balão com o modelo da clínica ("Paciente: ... Procedimento: ... Data: ..."), enviado até 24 h atrás
+  const conf = [...history].reverse().find((m) => m.direction === 'out' && /Paciente:[\s\S]*Procedimento:/.test(m.text ?? '') && Date.now() - +new Date(m.createdAt) < 24 * 3600 * 1000);
+  const confirmacao = conf?.text?.replace(/^\*[^*\n]+\*\s*/, '').trim();
   return { conversa, confirmacao };
 }
 

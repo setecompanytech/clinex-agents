@@ -33,7 +33,7 @@ Escrito para: Giovanny, para testar a Amanda no WhatsApp com vários cenários e
 | 1.5 | "2" | Resumo "Beleza, então fica ... por ordem de chegada ..." e **já induz o pix**, sem perguntar antes: "Pra agilizar o seu atendimento na recepção, o melhor é antecipar o pagamento por pix, o valor é R$ ...:" + a chave sozinha ("Chave pix: ...", fácil de copiar) + "Quando pagar, me manda o comprovante aqui ... Se preferir pagar na recepção ou por link de crédito, é só me falar." (três balões) |
 | 1.6 | "na recepção" (ou "não", "prefiro pagar lá") | "Sem problema nenhum o pagamento fica pra recepção no dia do atendimento. Me passa o CPF do paciente pra eu reservar?" |
 | 1.7 | CPF de paciente que já existe | "Achei aqui o cadastro de [Nome]. É esse mesmo o paciente?" (só o nome, nenhum outro dado) |
-| 1.8 | "sim" | "Agendamento confirmado! Deu tudo certo ..." com serviço, unidade, dia, período, médico com Dr./Dra. e "por ordem de chegada" |
+| 1.8 | "sim" | Mensagens separadas: "Agendamento confirmado! Deu tudo certo, [nome]." + o **modelo da clínica** (Paciente, Profissional, Procedimento, Data, Clínica, Endereço, Telefone, WhatsApp, Valor particular, Formas de pagamento; veja o Fluxo 14) + "Se puder, chega cedinho ... Quer aproveitar e agendar mais algum exame ou consulta?" |
 
 Variações para fazer o mesmo caminho:
 - 1.9 Serviço que só tem **uma unidade**: ela não pergunta a unidade, já mostra os horários.
@@ -235,7 +235,7 @@ Antes de responder, a Amanda lê a conversa inteira (os dois lados e a pergunta 
 
 | # | Você manda | Esperado |
 |---|---|---|
-| 13.1 | Depois de "Agendamento confirmado": "já tá agendado teste ergométrico então?" | "Está sim, confirmado! Ficou [serviço] no [unidade] [dia] [período] com [Dr./Dra.] ..." com os dados do agendamento. **Nunca** "Ah, então é Teste Ergométrico, né?". Depois "obrigado" → "Posso te ajudar com mais alguma coisa?" |
+| 13.1 | Depois de "Agendamento confirmado": "já tá agendado teste ergométrico então?" | "Está sim, confirmado! Olha como ficou:" e, em mensagem separada, o mesmo modelo da clínica que foi enviado na confirmação (Paciente, Profissional, Procedimento, Data ...). **Nunca** "Ah, então é Teste Ergométrico, né?". Depois "obrigado" → "Posso te ajudar com mais alguma coisa?" |
 | 13.2 | Variações depois da confirmação: "então está marcado?", "deu certo?", "ficou confirmado?", "qual o horário mesmo?" | Mesma resposta (os dados do que foi confirmado). |
 | 13.3 | No meio do agendamento (ela perguntou a unidade ou o pagamento): "então já tá agendado?" | "Ainda não está agendado. [o que falta]" + repete a pergunta pendente. Nunca diz que está agendado antes de estar. |
 | 13.4 | "quanto é mesmo?" / "e o valor?" | O valor do serviço + repete a pergunta pendente. |
@@ -249,6 +249,25 @@ Antes de responder, a Amanda lê a conversa inteira (os dois lados e a pergunta 
 | 13.12 | Depois de dois ou três minutos parado, volte com "e aí?" | Ela retoma de onde parou (não se apresenta de novo, não recomeça). |
 
 **O que nunca pode acontecer:** voltar para "Ah, então é ..., né?" quando você perguntou algo sobre o que já foi dito; repetir a lista de horários sem necessidade; se apresentar de novo no meio da conversa; dizer que algo está agendado sem estar.
+
+## Fluxo 14. Confirmação no modelo da clínica e sugestões (várias mensagens)
+
+Depois que o agendamento é gravado no Clinilink, a confirmação sai **em mensagens separadas**, cada uma com a sua pausa de digitação. O modelo da clínica leva os dados reais da unidade escolhida e do procedimento. Emoji e negrito (`*POR ORDEM DE CHEGADA*`) existem **só** nesse modelo; no resto da conversa continua sem emoji.
+
+| # | Você faz | Esperado |
+|---|---|---|
+| 14.1 | Agende uma consulta até o fim (paciente que já existe) | 3 mensagens: (1) "Agendamento confirmado! Deu tudo certo, [nome]."; (2) o modelo da clínica; (3) "Se puder, chega cedinho, que o atendimento é por ordem de chegada. Quer aproveitar e agendar mais algum exame ou consulta?" Só a primeira leva o título "Amanda (IA)". |
+| 14.2 | Confira linha por linha o modelo | `Paciente:` nome do cadastro. `Profissional:` Dr./Dra. + nome (ou o nome da sala, ex.: ".SALA DE EXAMES"). `Procedimento:` NOME DO PROCEDIMENTO - profissional. `📆 Data:` dd/mm/aaaa a partir de HH:MM *POR ORDEM DE CHEGADA*. `🏥 Clínica:` CLINEX + unidade. `📍 Endereço:`, `☎ Telefone:` e `📲 WhatsApp:` da unidade escolhida. `Valor particular:` o preço do Clinilink (nunca R$ 0,00; sem preço, "a confirmar na recepção"). |
+| 14.3 | Agende no Guamá e depois no Telégrafo | O endereço e o telefone mudam conforme a unidade. |
+| 14.4 | Paciente **novo** (cadastro feito na conversa) | A primeira mensagem diz "Cadastro de [nome completo] feito." |
+| 14.5 | Pague o pix na conversa (comprovante certo), depois conclua o agendamento | `Formas de pagamento: PAGO NO PIX (comprovante recebido)` (em vez da lista de formas). |
+| 14.6 | Pague só uma parte no pix e deixe o resto pra recepção | `Formas de pagamento: PAGO R$ X NO PIX (comprovante recebido); o restante na recepção`. |
+| 14.7 | Escolha "na recepção" (sem pix) | `Formas de pagamento: CARTÃO DE DÉBITO, CREDITO (VISA E MASTER), DINHEIRO, PIX`. |
+| 14.8 | Agende um exame que tem **orientação cadastrada** no Clinilink (ex.: teste ergométrico: "NO MÁXIMO ATÉ 70 ANOS") | Já na informação das unidades, uma mensagem separada: "Uma orientação importante pra esse atendimento: ...". Na confirmação, de novo, em mensagem própria entre o modelo e a sugestão. Procedimento sem orientação: nada é inventado. |
+| 14.9 | Peça um serviço em que a **outra unidade** tem vaga mais cedo | Depois da lista de horários, em mensagem separada: "Se for mais fácil, no [outra unidade] tenho [dia] ..., mais cedo que esses. Se quiser, é só me dizer que eu mostro os horários de lá." Responda "pode ser o Telégrafo" → mostra os horários de lá. Sem vaga mais cedo, ela não sugere nada. |
+| 14.10 | Peça, em outro agendamento, "já tá agendado?" | Veja o 13.1: ela repete o modelo da clínica, sem recomeçar. |
+
+**Limite conhecido:** a Amanda não gera OS nem faturamento (o Clinilink não tem essa função na API de parceiros). Quando você pagou o pix na conversa, a confirmação **mostra** "PAGO NO PIX", mas a baixa financeira continua com a recepção.
 
 ## Como me passar o resultado
 

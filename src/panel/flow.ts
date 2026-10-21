@@ -564,7 +564,7 @@ export const flow = {
       detail: {
         oQueFaz: 'A Amanda já tem a vaga escolhida e o paciente (existente ou novo). Falta só concluir.',
         regra: 'A Amanda consulta a agenda de novo, sem memória guardada, e pega o PRIMEIRO horário livre do período escolhido, com o mesmo médico que informou ao paciente. Se o paciente é novo, cadastra antes. Só diz "Agendamento confirmado" depois que o Clinilink responde que gravou. Se alguém ocupou o horário no meio do caminho, tenta o próximo livre (até 3). A gravação só acontece na ÚLTIMA mensagem da conversa e nunca é repetida sozinha, para não duplicar. Se a chave do Clinilink só tiver permissão de leitura, o Clinilink recusa e a Amanda passa para a equipe. Na simulação (sem chave do Clinilink), mostra uma confirmação de teste.',
-        exemplo: 'Reservado: "Agendamento confirmado! Deu tudo certo, Maria. Ficou consulta de Ginecologia no Guamá na sexta, dia 16 de outubro, de manhã com a Dra. [médica]. É por ordem de chegada a partir das 8h então vale chegar cedinho. Estamos te esperando com carinho!"\nSe falhar: "Não consegui concluir a reserva. Vou chamar alguém da equipe pra concluir. Já deixei tudo anotado. Só um instante."',
+        exemplo: 'Reservado, em mensagens separadas: (1) "Agendamento confirmado! Deu tudo certo, Maria."; (2) o modelo da clínica, com os dados reais: Paciente, Profissional, Procedimento, Data (dd/mm/aaaa, a partir de HH:MM, POR ORDEM DE CHEGADA), Clínica, Endereço, Telefone, WhatsApp, Valor particular e Formas de pagamento (se o paciente já pagou o pix na conversa, aparece "PAGO NO PIX (comprovante recebido)"); (3) se o procedimento tem orientação cadastrada no Clinilink, uma mensagem com a orientação; (4) "Se puder, chega cedinho, que o atendimento é por ordem de chegada. Quer aproveitar e agendar mais algum exame ou consulta?"\nSe falhar: "Não consegui concluir a reserva. Vou chamar alguém da equipe pra concluir. Já deixei tudo anotado. Só um instante."',
         seFalhar: 'Vaga ocupada, serviço já marcado para o mesmo dia, cadastro recusado, erro do Clinilink ou resposta que não chegou: a Amanda NÃO diz que agendou, avisa o paciente e passa para a equipe com o motivo. Quando não dá para saber se gravou (erro 500 ou sem resposta), o resumo manda CONFERIR no Clinilink antes de refazer.',
         tecnico: 'Bloco "conclui" de step() em engine.ts e reservar() em clinilinkFonte.ts. Gravação: criarPaciente() e criarAgendamento() em src/integrations/clinilink.ts (POST sem repetição). Teste: npx tsx scripts/teste-reserva.ts.',
       },
@@ -879,7 +879,9 @@ export const flow = {
         { de: 'amanda', texto: 'E esse número do WhatsApp, posso usar de contato?', etapa: 'cad_tel' },
         { de: 'paciente', texto: 'sim', etapa: 'cad_tel' },
         { de: 'nota', texto: 'Nos bastidores, a Amanda cadastra o paciente novo e reserva o horário de verdade no Clinilink.', etapa: 'conclui' },
-        { de: 'amanda', texto: 'Agendamento confirmado! Deu tudo certo, João. Cadastro de João Pereira Exemplo feito. Ficou consulta de Cardiologia no Guamá na quinta, dia 15 de outubro, à tarde com o Dr. Carlos. É por ordem de chegada a partir das 13h então vale chegar cedinho. Estamos te esperando com carinho!', etapa: 'conclui' },
+        { de: 'amanda', texto: 'Agendamento confirmado! Deu tudo certo, João. Cadastro de João Pereira Exemplo feito.', etapa: 'conclui' },
+        { de: 'amanda', texto: 'Paciente: João Pereira Exemplo\nProfissional: Dr. Carlos\nProcedimento: CONSULTA CARDIOLOGIA - Dr. Carlos\n📆 Data: 15/10/2026 a partir de 13:00 *POR ORDEM DE CHEGADA*\n🏥 Clínica: CLINEX GUAMÁ\n📍 Endereço: (endereço da unidade)\n☎ Telefone: (telefone da unidade)\n📲 WhatsApp: (telefone da unidade)\nValor particular: R$ (valor do Clinilink)\nFormas de pagamento: CARTÃO DE DÉBITO, CREDITO (VISA E MASTER), DINHEIRO, PIX', etapa: 'conclui' },
+        { de: 'amanda', texto: 'Se puder, chega cedinho, que o atendimento é por ordem de chegada. Quer aproveitar e agendar mais algum exame ou consulta?', etapa: 'conclui' },
       ],
     },
     {
@@ -900,7 +902,9 @@ export const flow = {
         { de: 'paciente', texto: '111.222.333-44 (CPF fictício)', etapa: 'consultacpf' },
         { de: 'amanda', texto: 'Achei aqui o cadastro de Maria da Silva Exemplo. É esse mesmo o paciente?', etapa: 'confirmanome' },
         { de: 'paciente', texto: 'sim', etapa: 'confirmanome' },
-        { de: 'amanda', texto: 'Agendamento confirmado! Deu tudo certo, Maria. Ficou consulta de Cardiologia no Telégrafo na quinta, dia 15 de outubro, de manhã com a Dra. Mariana. É por ordem de chegada a partir das 7h então vale chegar cedinho. Estamos te esperando com carinho!', etapa: 'conclui' },
+        { de: 'amanda', texto: 'Agendamento confirmado! Deu tudo certo, Maria.', etapa: 'conclui' },
+        { de: 'amanda', texto: 'Paciente: Maria da Silva Exemplo\nProfissional: Dra. Mariana\nProcedimento: CONSULTA CARDIOLOGIA - Dra. Mariana\n📆 Data: 15/10/2026 a partir de 07:00 *POR ORDEM DE CHEGADA*\n🏥 Clínica: CLINEX TELEGRAFO\n📍 Endereço: (endereço da unidade)\n☎ Telefone: (telefone da unidade)\n📲 WhatsApp: (telefone da unidade)\nValor particular: R$ (valor do Clinilink)\nFormas de pagamento: CARTÃO DE DÉBITO, CREDITO (VISA E MASTER), DINHEIRO, PIX', etapa: 'conclui' },
+        { de: 'amanda', texto: 'Se puder, chega cedinho, que o atendimento é por ordem de chegada. Quer aproveitar e agendar mais algum exame ou consulta?', etapa: 'conclui' },
       ],
     },
     {

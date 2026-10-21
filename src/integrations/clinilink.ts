@@ -11,7 +11,7 @@ import { evt } from '../lib/log.js';
  * O servidor do Render pode "dormir" e levar até ~1 min para acordar: timeout longo + 1 retry.
  */
 
-export type Clinica = { id: string; nome: string; horarioFuncionamento?: string };
+export type Clinica = { id: string; nome: string; horarioFuncionamento?: string; endereco?: string; telefone?: string };
 export type Procedimento = { id: string; nome: string; categoria?: string; preco?: number; /* precoDinheiro: de propósito NÃO usado, o preço é sempre `preco` */ preparo?: string | null };
 export type Horario = { data: string; hora: string; dataHora?: string; agendaId: string; agendaNome?: string; agendaHoraInicio?: string; profissional?: { id: string; nome: string }; unidade?: { id: string; nome: string } };
 

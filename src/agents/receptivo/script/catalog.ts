@@ -4,7 +4,7 @@
  * Clinilink. A fonte real fica em clinilinkFonte.ts e é escolhida quando CLINILINK_API_KEY existe.
  */
 export type Periodo = 'manhã' | 'tarde';
-export type Unidade = { id?: string; nome: string; profissionais?: string[]; precoPix?: number };
+export type Unidade = { id?: string; nome: string; profissionais?: string[]; precoPix?: number; nomeBruto?: string; endereco?: string; telefone?: string };
 
 export type Servico = {
   id: string;
@@ -15,6 +15,8 @@ export type Servico = {
   precoTexto: string; // "A consulta custa R$ 200,00, no dinheiro ou Pix." ('' se não houver valor)
   viaSintoma?: boolean; // o paciente descreveu um sintoma em vez de pedir o serviço
   profissional?: { id: string; nome: string }; // o paciente pediu um profissional específico: a agenda é só dela(e)
+  nomeBruto?: string; // como o procedimento está cadastrado ("HOLTER 24H"), para a mensagem de confirmação
+  preparo?: string; // orientação de preparo/atendimento cadastrada no Clinilink (só se for um texto útil)
 };
 
 export type Descoberta =
@@ -27,7 +29,7 @@ export type Descoberta =
   | undefined; // não achou
 
 /** Um período de atendimento (ordem de chegada) numa data. `inicio` = hora em que a agenda abre. */
-export type Slot = { ymd: string; turno: Periodo; inicio: string; profissional?: string; profissionalId?: string };
+export type Slot = { ymd: string; turno: Periodo; inicio: string; profissional?: string; profissionalId?: string; profissionalBruto?: string };
 export type PacienteInfo = { id?: string; nome: string };
 export type AgendamentoExistente = { unidade: string; hora?: string; periodo?: Periodo; profissional?: string };
 
@@ -38,7 +40,7 @@ export type PedidoReserva = {
   observacao?: string; // gravada no agendamento (forma de pagamento, comprovante)
 };
 export type ResultadoReserva =
-  | { ok: true; profissional?: string; hora: string; cadastrou: boolean }
+  | { ok: true; profissional?: string; profissionalBruto?: string; hora: string; cadastrou: boolean }
   | { ok: false; codigo: string; motivo: string; incerto?: boolean; cadastrou?: boolean };
 
 export interface Fonte {

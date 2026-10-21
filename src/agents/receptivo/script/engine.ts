@@ -435,9 +435,67 @@ function textoDuplicado(sv: Servico, ymd: string, ref: string, ex: AgendamentoEx
   return `${MARCA_DUP} ${sv.frase} marcado pra ${dataFalada(ymd, ref)} no ${ex.unidade}${ex.periodo ? ` ${periodoTxt(ex.periodo)}` : ''}${ex.hora ? ` a partir das ${hora(ex.hora)}` : ''}${ex.profissional && !sv.profissional ? ` com ${exibir(ex.profissional, { artigo: true })}` : ''}.`;
 }
 
+// ---------- mensagem de confirmação do agendamento (modelo da clínica) ----------
+export const FORMAS_PAGAMENTO = 'CARTÃO DE DÉBITO, CREDITO (VISA E MASTER), DINHEIRO, PIX';
+
+/** Profissional no modelo: sala/agenda ("SALA DE EXAMES") do jeito cadastrado; pessoa com o nome completo e Dr./Dra. (sem título se o gênero não for certo). */
+function profissionalNoModelo(bruto?: string): string {
+  const b = (bruto ?? '').trim();
+  if (!b) return '';
+  if (b.startsWith('.') || /\bsala\b/i.test(b)) return b;
+  return exibir(b, { curto: titulo(b) });
+}
+
+/**
+ * Confirmação depois da reserva feita de verdade: primeiro o aviso (é ele que marca o fim da jornada), depois o modelo da clínica com os
+ * dados do agendamento, depois as orientações do atendimento (se houver) e uma sugestão. Cada parágrafo vai como uma mensagem.
+ * "Formas de pagamento" vira "PAGO NO PIX" quando o comprovante foi recebido na conversa.
+ */
+export function mensagemConfirmacao(p: { paciente: string; novoCadastro: boolean; servico: Servico; unidade: Unidade; ymd: string; hora?: string; profissionalBruto?: string; valor?: number; pagoPix?: number; primeiroNome?: string }): string {
+  const prof = profissionalNoModelo(p.profissionalBruto);
+  const proc = `${p.servico.nomeBruto ?? p.servico.nome.toLocaleUpperCase('pt-BR')}${prof ? ` - ${prof}` : ''}`;
+  const hora = (p.hora ?? '').slice(0, 5);
+  const pago = p.pagoPix ?? 0;
+  const formas = pago <= 0 ? FORMAS_PAGAMENTO
+    : p.valor && pago + 0.005 < p.valor ? `PAGO ${reais(pago)} NO PIX (comprovante recebido); o restante na recepção`
+    : 'PAGO NO PIX (comprovante recebido)';
+  const u = p.unidade;
+  const modelo = [
+    `Paciente: ${p.paciente}`,
+    ...(prof ? [`Profissional: ${prof}`] : []),
+    `Procedimento: ${proc}`,
+    `📆 Data: ${fmtNasc(p.ymd)}${hora ? ` a partir de ${hora}` : ''} *POR ORDEM DE CHEGADA*`,
+    `🏥 Clínica: ${u.nomeBruto ?? `CLINEX ${u.nome.toLocaleUpperCase('pt-BR')}`}`,
+    ...(u.endereco ? [`📍 Endereço: ${u.endereco}`] : []),
+    ...(u.telefone ? [`☎ Telefone: ${u.telefone}`, `📲 WhatsApp: ${u.telefone}`] : []),
+    `Valor particular: ${p.valor ? reais(p.valor) : 'a confirmar na recepção'}`,
+    `Formas de pagamento: ${formas}`,
+  ].join('\n');
+  return [
+    `${MARCA_AGENDADO}! Deu tudo certo${p.primeiroNome ? `, ${p.primeiroNome}` : ''}.${p.novoCadastro ? ` Cadastro de ${p.paciente} feito.` : ''}`,
+    modelo,
+    ...(p.servico.preparo ? [`Uma orientação importante pro seu atendimento: ${p.servico.preparo}`] : []),
+    'Se puder, chega cedinho, que o atendimento é por ordem de chegada. Quer aproveitar e agendar mais algum exame ou consulta?',
+  ].join('\n\n');
+}
+
 // ---------- leitor de contexto ----------
 /** "já tá agendado?", "então está marcado?", "deu certo?": pergunta sobre o agendamento, não um pedido novo. */
 const STATUS_Q = /\b(ja|entao)\b.{0,30}\b(agendad\w*|marcad\w*|confirmad\w*)\b|\b(esta|ta|foi|ficou) (mesmo )?(agendad|marcad|confirmad)\w*|\bdeu certo\b|\bqual (e )?(o )?(horario|dia)\b.{0,20}\b(mesmo|ficou)\b/;
+
+/** O que falta, por etapa, para responder "já tá agendado?" no meio do fluxo. */
+const FALTA_DA_ETAPA: Record<string, string> = {
+  'confirmando o serviço': 'falta você confirmar o serviço',
+  'escolhendo a unidade': 'falta escolher a unidade',
+  'escolhendo data e turno': 'falta escolher o dia e o horário',
+  'escolhendo a forma de pagamento': 'falta combinar a forma de pagamento',
+  'aguardando o comprovante do pix': 'tô só esperando o comprovante do pix',
+  'pedindo o CPF': 'falta só o CPF do paciente pra eu reservar',
+  'cadastro do paciente novo': 'falta terminar o cadastro do paciente',
+  'confirmando o paciente': 'falta você confirmar se o cadastro é do paciente',
+};
+/** A mensagem tem cara de dúvida (interrogação ou começa como pergunta)? */
+const EH_PERGUNTA = /\?|^(como|quanto|qual|quais|quando|onde|por ?que|posso|pode|preciso|precisa|tem|tenho|da pra|e se|sera|aceita|existe|vai|vou|devo|isso)\b/;
 
 /** O que mudou nesta mensagem? Se nada avançou, o paciente não respondeu à pergunta pendente. */
 const marcaDeProgresso = (x: State) => JSON.stringify([
@@ -478,21 +536,25 @@ export function fatosDoEstado(s: State, ref: string, confirmacao?: string): stri
  */
 export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 0): Promise<Result> {
   const r = await stepBase(prev, texto, ctx, fonte, n);
-  if (!ctx.ultima || !ctx.contexto || r.handoff || r.silencio || !r.reply || r.state.fim || r.faq) return r;
+  if (!ctx.ultima || r.handoff || r.silencio || !r.reply || r.state.fim || r.faq) return r;
   const t = norm(texto.replace(TOKEN_MIDIA, ' '));
   if (t.length < 6 || SIM.test(t) || NAO.test(t) || SO_CUMPRIMENTO.test(t) || soAgradecimento(t) || TOKEN_MIDIA.test(texto)) return r;
   if (marcaDeProgresso(prev.fim ? novoEstado() : prev) !== marcaDeProgresso(r.state)) return r; // a conversa avançou: a mensagem era a resposta esperada
+  const antes = (extra: string): Result => {
+    const ab = r.reply.match(/^Oi[^\n]*Aqui é a Amanda, da Clinex\./); // a resposta entra depois da saudação de abertura
+    return { ...r, reply: ab ? `${ab[0]}\n${extra}${r.reply.slice(ab[0].length).replace(/^[ \n]/, '\n')}` : `${extra}\n${r.reply}` };
+  };
+  // "já tá agendado?" no meio do fluxo: a resposta é conhecida (o que falta), sem depender de modelo
+  if (STATUS_Q.test(t) && r.state.servico) return antes(`Ainda não está agendado${FALTA_DA_ETAPA[etapa(r.state)] ? `, ${FALTA_DA_ETAPA[etapa(r.state)]}` : ''}.`);
+  if (!ctx.contexto) return r;
   const c = await ctx.contexto({ conversa: ctx.conversa ?? [], mensagem: texto.replace(TOKEN_MIDIA, ' ').trim(), fatos: fatosDoEstado(r.state, hoje(ctx).ymd, ctx.confirmacao), perguntaPendente: r.reply }).catch(() => null);
-  // mensagem com "?" que o modelo chamou de comentário ("esse pix é seguro?") também é dúvida: sem fato para responder, vai para a equipe
-  if (c && ((c.tipo === 'pergunta' && !c.resposta) || (c.tipo === 'comentario' && texto.includes('?')))) {
-    // é uma dúvida e os fatos não bastam (ou a resposta não passou na validação): não inventa, deixa com a equipe e segue a pergunta pendente
-    const nao = 'Essa eu prefiro que a equipe confirme certinho pra você, pra não te falar nada errado. Se quiser é só me pedir que eu chamo alguém.';
-    const ab = r.reply.match(/^Oi[^\n]*Aqui é a Amanda, da Clinex\.[ \n]?/);
-    return { ...r, reply: ab ? `${ab[0].trimEnd()}\n${nao}\n${r.reply.slice(ab[0].length)}` : `${nao}\n${r.reply}` };
+  // dúvida de verdade (tem "?" ou começa como pergunta) que os fatos não respondem: não inventa e deixa com a equipe; segue a pergunta pendente.
+  // (uma resposta que o roteiro não entendeu, como "daqueles de sangue", não é dúvida: não recebe essa frase)
+  if (c && EH_PERGUNTA.test(t) && ((c.tipo === 'pergunta' && !c.resposta) || (c.tipo === 'comentario' && texto.includes('?')))) {
+    return antes('Essa eu prefiro que a equipe confirme certinho pra você, pra não te falar nada errado. Se quiser é só me pedir que eu chamo alguém.');
   }
   if (!c?.resposta || c.tipo !== 'pergunta') return r; // só responde PERGUNTA com fatos; desabafo e conversa solta seguem o roteiro
-  const abre = r.reply.match(/^Oi[^\n]*Aqui é a Amanda, da Clinex\.[ \n]?/); // a resposta entra depois da saudação de abertura
-  return { ...r, reply: abre ? `${abre[0].trimEnd()}\n${c.resposta}\n${r.reply.slice(abre[0].length)}` : `${c.resposta}\n${r.reply}` };
+  return antes(c.resposta);
 }
 
 // ---------- núcleo ----------
@@ -596,7 +658,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
   }
 
   // 1a) "já tá agendado?" depois de um agendamento confirmado: responde com o que foi confirmado, em vez de tratar como pedido novo
-  if (ctx.confirmacao && !s.servico && !s.opcoes && STATUS_Q.test(t)) return out(`Está sim, confirmado! ${ctx.confirmacao}`);
+  if (ctx.confirmacao && !s.servico && !s.opcoes && STATUS_Q.test(t)) return out(`Está sim, confirmado! Olha como ficou:\n\n${ctx.confirmacao}`);
 
   // 1b) logo depois de um agendamento concluído: agradecimento, "só isso" ou novo pedido
   if (s.pos) {
@@ -888,6 +950,8 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     // "Tenho sim! No Guamá com a Dra. Giovanna e a Dra. Ebenezaide, e no Telégrafo com a Dra. Ebenezaide. A consulta é R$ 150,00."
     // se ele já escolheu a unidade, fala só dela
     partes.push(`${textoUnidades(s.unidade ? { ...sv, unidades: [s.unidade] } : sv, aviso ? 'duvida' : 'resposta')}${sv.precoTexto ? ` ${sv.precoTexto}` : ''}`);
+    // orientação cadastrada para o atendimento (ex.: restrição de idade, preparo): avisa já aqui, em mensagem separada, antes de ele escolher o horário
+    if (sv.preparo) partes.push(`\nUma orientação importante pra esse atendimento: ${sv.preparo}`);
   }
   if (!s.unidade) {
     const quais = sv.unidades.length === 2 ? 'dos dois' : 'deles';
@@ -904,6 +968,18 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     const todas = (await fonte.proximas(sv, un, de, 12)).filter(naoBloqueado);
     await prepararGeneros(todas.map((x) => x.profissional));
     return (filtro ? todas.filter((x) => x.turno === filtro) : todas).slice(0, 4);
+  };
+  /** Sugestão proativa: se a OUTRA unidade tem vaga mais cedo que a lista mostrada, avisa (o paciente pode trocar de unidade só dizendo o nome). */
+  const dicaOutraUnidade = async (lista: Slot[]): Promise<string> => {
+    if (sv.unidades.length < 2 || lista.length === 0) return '';
+    let melhor: { u: Unidade; x: Slot } | undefined;
+    for (const o of sv.unidades.filter((u) => u.nome !== un.nome)) {
+      const x = (await fonte.proximas(sv, o, addDias(h.ymd, 1), 3).catch(() => [] as Slot[])).filter(naoBloqueado)[0];
+      if (x && (!melhor || x.ymd + x.inicio < melhor.x.ymd + melhor.x.inicio)) melhor = { u: o, x };
+    }
+    if (!melhor || melhor.x.ymd + melhor.x.inicio >= lista[0].ymd + lista[0].inicio) return '';
+    await prepararGeneros([melhor.x.profissional]);
+    return `Se for mais fácil, no ${melhor.u.nome} tenho ${slotFalado(melhor.x, false, h.ymd)}, mais cedo que esses. Se quiser, é só me dizer que eu mostro os horários de lá.`;
   };
   let escolhaDireta = ''; // "o mais rápido que tenho é ...": ela escolheu o horário pelo pedido do paciente (não por número)
   const escolher = (x: Slot, direta = '') => { s.slot = x; s.data = x.ymd; s.turno = x.turno; s.lista = undefined; s.rapido = undefined; s.apartir = undefined; escolhaDireta = direta; };
@@ -1000,7 +1076,8 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
       const alt = await alternativas(addDias(h.ymd, 1), s.turno);
       if (alt.length === 0) return out([...partes, 'No momento não vejo vagas abertas. Vou chamar alguém da equipe pra conferir e te retornar.'].join('\n'), { motivo: `Sem vagas para ${sv.nome} no ${un.nome}.` });
       s.lista = alt;
-      return dizer(`Consegui estes aqui:\n${numerada(alt, comMedico, h.ymd)}\nQual desses fica bom pra você? Se quiser outro dia me fala que eu vejo.`);
+      const dica = await dicaOutraUnidade(alt); // sugestão: a outra unidade tem vaga mais cedo (mensagem separada, antes da pergunta)
+      return dizer(`Consegui estes aqui:\n${numerada(alt, comMedico, h.ymd)}${dica ? `\n\n${dica}\n\n` : '\n'}Qual desses fica bom pra você? Se quiser outro dia me fala que eu vejo.`);
     }
   }
   const slot = s.slot!;
@@ -1184,8 +1261,11 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
       const med = r.profissional ?? slot.profissional;
       await prepararGeneros([med]);
       const primeiro = quem.split(' ')[0];
-      const comMed = med && !sv.profissional ? ` com ${exibir(med, { artigo: true })}` : ''; // com profissional pedido pelo nome, a frase do serviço já diz quem é
-      return out(`${MARCA_AGENDADO}! Deu tudo certo${primeiro ? `, ${primeiro}` : ''}. ${s.paciente ? '' : `Cadastro de ${quem} feito. `}Ficou ${sv.frase} no ${un.nome} ${[0, 6].includes(toDate(slot.ymd).getUTCDay()) ? 'no' : 'na'} ${dataLonga(slot.ymd)}, ${periodoTxt(slot.turno)}${comMed}. É por ordem de chegada a partir das ${hora(r.hora)} então vale chegar cedinho. Estamos te esperando com carinho!`);
+      // mensagem de confirmação no modelo da clínica (dados reais do Clinilink) + orientações e uma sugestão, em mensagens separadas
+      return out(mensagemConfirmacao({
+        paciente: quem, novoCadastro: !s.paciente, servico: sv, unidade: un, ymd: slot.ymd, hora: r.hora,
+        profissionalBruto: r.profissionalBruto ?? slot.profissionalBruto ?? med, valor: un.precoPix, pagoPix: s.pagoPix, primeiroNome: primeiro,
+      }));
     }
     const extra = r.cadastrou ? ' O cadastro do paciente FOI criado.' : '';
     if (r.incerto) return aEquipe('Não consegui confirmar a reserva agora.', `ATENÇÃO: a reserva pode ou não ter sido gravada (${r.codigo}). CONFERIR no Clinilink antes de refazer. Vaga: ${resumoVaga}. ${novo}${extra}`);

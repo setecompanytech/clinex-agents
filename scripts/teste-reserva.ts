@@ -38,13 +38,14 @@ const mk = (data: string, hora: string, inicio: string, prof = { id: MEDICO, nom
 const horarios = (ini: string, fim: string, profId?: string, unidadeId?: string) => {
   if (profId === P_REBECA) return []; // sem agenda aberta
   if ((globalThis as any).__procAgenda?.startsWith('40000000-')) return []; // teste rápido de laboratório: sem agenda
+  const semAmanhaNoGuama = (hs: any[]) => ((globalThis as any).__dicaUnidade && unidadeId === U_GUAMA ? hs.filter((h) => h.data !== dia(1)) : hs);
   if (profId === P_REB) return unidadeId === U_TELEGRAFO ? [] : [...["10:00", "10:30"].map((h) => mk(dia(3), h, "10:00", { id: P_REB, nome: "REBECCA SILVA MOURA" }))].filter((h) => h.data >= ini && h.data <= fim);
-  return [
+  return semAmanhaNoGuama([
     ...["08:00", "08:30", "09:00"].slice(modo.ocupados).map((h) => mk(dia(1), h, "08:00")),
     ...["13:30", "14:00"].map((h) => mk(dia(2), h, "13:00", { id: P_LIDUINA, nome: "LIDUINA COSTA PINTO" })),
     ...["08:00"].map((h) => mk(dia(5), h, "08:00")), ...["13:30"].map((h) => mk(dia(8), h, "13:00", { id: P_LIDUINA, nome: "LIDUINA COSTA PINTO" })),
     ...["08:00"].map((h) => mk(dia(12), h, "08:00")), ...["13:30"].map((h) => mk(dia(15), h, "13:00", { id: P_LIDUINA, nome: "LIDUINA COSTA PINTO" })),
-  ].filter((h) => h.data >= ini && h.data <= fim);
+  ].filter((h) => h.data >= ini && h.data <= fim));
 };
 
 const server = http.createServer((req, res) => {
@@ -54,12 +55,12 @@ const server = http.createServer((req, res) => {
     const corpo = raw ? JSON.parse(raw) : undefined;
     const p = url.pathname;
     if (req.method === 'GET') {
-      if (p.endsWith('/clinicas')) return j(200, { ok: true, clinicas: [{ id: U_GUAMA, nome: 'CLINEX GUAMÁ' }, { id: U_TELEGRAFO, nome: 'CLINEX TELEGRAFO' }] });
+      if (p.endsWith('/clinicas')) return j(200, { ok: true, clinicas: [{ id: U_GUAMA, nome: 'CLINEX GUAMÁ', endereco: 'Av. José Bonifácio, 2426', telefone: '91991434370' }, { id: U_TELEGRAFO, nome: 'CLINEX TELEGRAFO', endereco: 'Travessa Coronel Luís Bentes 170A-Telegrafo', telefone: '91984320406' }] });
       if (p.endsWith('/procedimentos')) {
         const b = url.searchParams.get('busca') ?? '';
         const un = url.searchParams.get('unidadeId');
         if (b === '') {
-          const c = (id: string, nome: string, categoria = 'Consulta', preco = 100) => ({ id, nome, categoria, preco, precoDinheiro: un === U_GUAMA ? 0 : 999 });
+          const c = (id: string, nome: string, categoria = 'Consulta', preco = 100) => ({ id, nome, categoria, preco, precoDinheiro: un === U_GUAMA ? 0 : 999, preparo: id.startsWith('31313131') ? 'NO MÁXIMO ATÉ 70 ANOS' : id.startsWith('26262626') ? '0' : null });
           return j(200, { ok: true, procedimentos: [
             c(PROC, 'CONSULTA GINECOLOGIA'), c(PROC2, 'CONSULTA DERMATOLOGIA'), c(PROC3, 'CONSULTA CARDIOLOGIA'), c(PROC_USG, 'USG ABDOME TOTAL', 'Exames', 150),
             c('26262626-2626-4262-8262-262626262626', 'ERGOMETRIA', 'Exames', 120), c('27272727-2727-4272-8272-272727272727', 'CONSULTA FONOAUDIOLOGIA'),
@@ -71,7 +72,7 @@ const server = http.createServer((req, res) => {
         // procedimentos "estranhos" do cadastro: a busca real é por pedaço do nome, sem acento
         const sem = (x: string) => x.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
         const extras = [{ id: '31313131-3131-4313-8313-313131313131', nome: 'TESTE ERGOMETRICO', categoria: 'Exames' }, { id: '26262626-2626-4262-8262-262626262626', nome: 'ERGOMETRIA', categoria: 'Exames' }, { id: '27272727-2727-4272-8272-272727272727', nome: 'CONSULTA FONOAUDIOLOGIA', categoria: 'Consulta' }, { id: '28282828-2828-4282-8282-282828282828', nome: 'TESTE DE ESFORCO COM ECG', categoria: 'Exames' }]
-          .filter((x) => b.length >= 4 && sem(x.nome).includes(sem(b))).map((x) => ({ ...x, preco: 120, precoDinheiro: un === U_GUAMA ? 0 : 999 })); // precoDinheiro ZERADO no Guamá e 999 no outro: nunca pode aparecer
+          .filter((x) => b.length >= 4 && sem(x.nome).includes(sem(b))).map((x) => ({ ...x, preco: 120, precoDinheiro: un === U_GUAMA ? 0 : 999, preparo: x.id.startsWith('31313131') ? 'NO MÁXIMO ATÉ 70 ANOS' : null })); // precoDinheiro ZERADO no Guamá e 999 no outro: nunca pode aparecer
         if (extras.length) return j(200, { ok: true, procedimentos: extras });
         if (/ergometrico|fonoaudiologo|audiom|hemoglob|glicada/i.test(b)) return j(200, { ok: true, procedimentos: [] });
         if (/semvalor/i.test(b)) return j(200, { ok: true, procedimentos: [{ id: '29292929-2929-4292-8292-292929292929', nome: 'CONSULTA SEMVALOR', categoria: 'Consulta', preco: 0, precoDinheiro: 0 }] });
@@ -932,11 +933,13 @@ confere('C4 sem resposta do modelo: segue como antes, sem quebrar', /Qual dos do
 k = await viaCtx(['oi', 'quero agendar ginecologista', 'hmm será que eu consigo vir?', 'sim'], { tipo: 'pergunta', resposta: 'x' });
 confere('C5 só a ÚLTIMA mensagem chama o leitor (o reprocessamento das anteriores não)', chamadasCtx.length === 0, `${chamadasCtx.length} chamadas`);
 k = await viaCtx(['bom dia quero ver como funciona isso'], { tipo: 'pergunta', resposta: 'Eu ajudo a agendar consultas e exames aqui.' }, { interpretarPedido: async () => ({ quer: 'duvida', tipo: null, termo: null, sintoma: false }) });
-confere('C6 primeira mensagem sem serviço: a resposta entra DEPOIS da saudação e antes da pergunta', /^Oi Teste, bom dia! Aqui é a Amanda, da Clinex\.\nEu ajudo a agendar consultas e exames aqui\.\n/.test(k.reply), k.reply.replace(/\n/g, ' | ').slice(0, 200));
+confere('C6 primeira mensagem sem serviço: a resposta entra DEPOIS da saudação e antes da pergunta', /^Oi Teste, (bom dia|boa tarde|boa noite)! Aqui é a Amanda, da Clinex\.\nEu ajudo a agendar consultas e exames aqui\.\n/.test(k.reply), k.reply.replace(/\n/g, ' | ').slice(0, 200));
 // "já tá agendado?" depois de um agendamento confirmado: responde com o que foi confirmado e não recomeça
 const CONF = 'Ficou consulta Ginecologia no Guamá na terça, dia 20 de outubro, de manhã com a Dra. Medica. É por ordem de chegada a partir das 8h então vale chegar cedinho. Estamos te esperando com carinho!';
 k = (await responder([['ja ta agendado teste ergometrico então?']], { ...ctx, confirmacao: CONF, pos: 'confirmado' }, fonteClinilink)) as any;
-confere('C7 "já tá agendado?" depois da confirmação: responde "Está sim, confirmado!" com os dados e NÃO recomeça a conversa', k.reply === `Está sim, confirmado! ${CONF}` && !k.state.servico && !k.state.opcoes, k.reply.replace(/\n/g, ' | ').slice(0, 200));
+confere('C7 "já tá agendado?" depois da confirmação: responde "Está sim, confirmado!" com os dados e NÃO recomeça a conversa', k.reply === `Está sim, confirmado! Olha como ficou:
+
+${CONF}` && !k.state.servico && !k.state.opcoes, k.reply.replace(/\n/g, ' | ').slice(0, 200));
 k = (await responder([['ja ta agendado teste ergometrico então?'], ['obrigado']], { ...ctx, confirmacao: CONF, pos: 'confirmado' }, fonteClinilink)) as any;
 confere('C7 e o "obrigado" seguinte continua funcionando (pergunta se precisa de mais algo)', /Posso te ajudar com mais alguma coisa/.test(k.reply), k.reply.replace(/\n/g, ' | ').slice(0, 120));
 k = (await responder([['quanto tempo depois das 8h eu posso chegar?']], { ...ctx, confirmacao: CONF }, fonteClinilink)) as any;
@@ -974,6 +977,61 @@ confere('PG6 dúvida que os fatos não respondem: não inventa, deixa com a equi
 confere('PG6 e o leitor recebeu os fatos de pagamento (formas aceitas, pix opcional, link com a equipe, ordem de chegada)', chamadasCtx.length === 1 && /dá pra pagar por pix, cartão de crédito e débito ou dinheiro em espécie/.test(chamadasCtx[0].fatos) && /Antecipar por pix é opcional/.test(chamadasCtx[0].fatos) && /link de crédito é combinado com a equipe/.test(chamadasCtx[0].fatos) && /ordem de chegada/.test(chamadasCtx[0].fatos), (chamadasCtx[0]?.fatos ?? '').slice(0, 200));
 pg = (await responder(['oi', 'quero agendar ginecologista', 'sim', 'guama amanhã', 'preciso pagar agora?'].map((z) => [z]), comContexto({ tipo: 'pergunta', resposta: 'Não precisa, antecipar por pix é opcional.' }, { conversa: conversaEx }), fonteClinilink)) as any;
 confere('PG7 dúvida respondida com os fatos ("preciso pagar agora?") + segue esperando o comprovante', /^Não precisa, antecipar por pix é opcional\./.test(pg.reply) && /aguardando o comprovante/.test(pg.reply), pg.reply.replace(/\n/g, ' | ').slice(0, 200));
+
+// ---- confirmação no modelo da clínica, com dados reais; sugestões e várias mensagens ----
+reset({ ocupados: 0 });
+let cf: any = await responder(['oi', 'quero agendar ginecologista', 'sim', 'guama amanhã', 'na recepção', '12345678909', 'Joana Teste Souza', '10/05/1990', 'feminino', 'sim'].map((x) => [x]), ctx, fonteClinilink);
+const bol = cf.reply.split(/\n\n/);
+const d1 = dia(1).split('-').reverse().join('/');
+confere('CF1 a confirmação vem em mensagens separadas: aviso, modelo da clínica e sugestão', bol.length === 3 && /^Agendamento confirmado! Deu tudo certo, Joana\. Cadastro de Joana Teste Souza feito\.$/.test(bol[0]) && /^Se puder, chega cedinho, que o atendimento é por ordem de chegada\. Quer aproveitar e agendar mais algum exame ou consulta\?$/.test(bol[2]), JSON.stringify(bol.map((x: string) => x.slice(0, 40))));
+confere('CF1 só o primeiro balão leva "Agendamento confirmado" (marca do fim da jornada); os outros não', bol[0].includes(MARCA_AGENDADO) && !bol.slice(1).some((x: string) => /Agendamento confirmado|Posso te ajudar com mais alguma coisa|Tenha um ótimo dia/.test(x)), '');
+confere('CF2 modelo da clínica: Paciente, Profissional, Procedimento, Data (dd/mm/aaaa, a partir de HH:MM, por ordem de chegada), Clínica, Endereço, Telefone, WhatsApp, Valor e Formas de pagamento', bol[1] === [
+  'Paciente: Joana Teste Souza',
+  'Profissional: Dra. Medica Teste da Silva',
+  'Procedimento: CONSULTA GINECOLOGIA - Dra. Medica Teste da Silva',
+  `📆 Data: ${d1} a partir de 08:00 *POR ORDEM DE CHEGADA*`,
+  '🏥 Clínica: CLINEX GUAMÁ',
+  '📍 Endereço: Av. José Bonifácio, 2426',
+  '☎ Telefone: 91991434370',
+  '📲 WhatsApp: 91991434370',
+  'Valor particular: R$ 100,00',
+  'Formas de pagamento: CARTÃO DE DÉBITO, CREDITO (VISA E MASTER), DINHEIRO, PIX',
+].join('\n'), bol[1]);
+cf = await responder(['oi', 'quero agendar ginecologista', 'sim', 'telegrafo amanhã', 'na recepção', '52998224725', 'sim'].map((x) => [x]), ctx, fonteClinilink);
+confere('CF3 outra unidade: endereço e telefone são os DESSA unidade (Telégrafo), nome do paciente do cadastro', /🏥 Clínica: CLINEX TELEGRAFO/.test(cf.reply) && /📍 Endereço: Travessa Coronel Luís Bentes 170A-Telegrafo/.test(cf.reply) && /☎ Telefone: 91984320406/.test(cf.reply) && /Paciente: Maria Exemplo/.test(cf.reply) && !/Cadastro de/.test(cf.reply), cf.reply.split(/\n\n/)[1]?.slice(0, 200));
+// pagou o pix na conversa: a forma de pagamento mostra que foi pago
+reset({ ocupados: 0 });
+cf = await resp([...base0, img('img-ok'), '52998224725', 'sim'].map((x) => [x]));
+confere('CF4 pagou o pix na conversa (comprovante conferido): "Formas de pagamento: PAGO NO PIX (comprovante recebido)"', cf.reply.startsWith(MARCA_AGENDADO) && /Formas de pagamento: PAGO NO PIX \(comprovante recebido\)$/m.test(cf.reply) && !/CARTÃO DE DÉBITO/.test(cf.reply), cf.reply.split(/\n\n/)[1]?.split('\n').slice(-2).join(' | '));
+cf = await resp([...base0, img('img-meio'), 'na recepção', '52998224725', 'sim'].map((x) => [x]));
+confere('CF4 pagou só uma parte: mostra quanto foi pago no pix e que o restante fica na recepção', /Formas de pagamento: PAGO R\$ 50,00 NO PIX \(comprovante recebido\); o restante na recepção/.test(cf.reply), cf.reply.split(/\n\n/)[1]?.split('\n').slice(-1)[0]);
+// orientação cadastrada (preparo) vem antes de escolher o horário E na confirmação
+reset({ ocupados: 0 });
+cf = await turnosDe(['oi', 'quero fazer um teste ergometrico', 'sim']);
+confere('CF5 serviço com orientação cadastrada: avisa já na informação das unidades, em mensagem separada (antes de escolher o horário)', /Tenho sim!/.test(cf.reply) && /\n\nUma orientação importante pra esse atendimento: NO MÁXIMO ATÉ 70 ANOS(\n|$)/.test(cf.reply), cf.reply.replace(/\n/g, ' | ').slice(0, 260));
+cf = await turnosDe(['oi', 'quero fazer um teste ergometrico', 'sim', 'guama amanhã', 'na recepção', '52998224725', 'sim']);
+confere('CF5 e repete a orientação na confirmação (mensagem própria entre o modelo e a sugestão)', cf.reply.split(/\n\n/).length === 4 && /^Uma orientação importante pro seu atendimento: NO MÁXIMO ATÉ 70 ANOS$/.test(cf.reply.split(/\n\n/)[2]) && /Procedimento: TESTE ERGOMETRICO - /.test(cf.reply), cf.reply.split(/\n\n/).map((x: string) => x.slice(0, 40)).join(' | '));
+cf = await turnosDe(['oi', 'quero agendar ginecologista', 'sim', 'guama']);
+confere('CF5 serviço sem orientação (ou com "0" no cadastro): nada de orientação inventada', !/orientação importante/.test(cf.reply), '');
+// sugestão proativa: a outra unidade tem vaga mais cedo
+(globalThis as any).__dicaUnidade = true;
+_limparCache(); // a agenda fica em memória por 2 min: refaz com o Guamá sem o dia de amanhã
+reset({ ocupados: 0 });
+cf = await turnosDe(['oi', 'quero agendar ginecologista', 'sim', 'guama']);
+const bolD = cf.reply.split(/\n\n/);
+confere('SG1 a outra unidade tem vaga mais cedo: sugere, em mensagem separada, antes da pergunta', bolD.length === 3 && /^Consegui estes aqui:/.test(bolD[0]) && /^Se for mais fácil, no Telégrafo tenho \p{L}+ dia \d{1,2} de manhã a partir das 8h, mais cedo que esses\. Se quiser, é só me dizer que eu mostro os horários de lá\.$/u.test(bolD[1]) && /^Qual desses fica bom pra você\?/.test(bolD[2]), JSON.stringify(bolD.map((x: string) => x.slice(0, 50))));
+cf = await turnosDe(['oi', 'quero agendar ginecologista', 'sim', 'guama', 'pode ser o telégrafo']);
+confere('SG1 aceitando a sugestão ("pode ser o telégrafo"), ela mostra os horários de lá (começando pelo mais cedo)', cf.state.unidade?.nome === 'Telégrafo' && /Consegui estes aqui/.test(cf.reply) && cf.state.lista?.[0]?.ymd === dia(1), `${cf.state.unidade?.nome} ${cf.state.lista?.[0]?.ymd} | ${cf.reply.replace(/\n/g, ' | ').slice(0, 100)}`);
+(globalThis as any).__dicaUnidade = false;
+_limparCache();
+reset({ ocupados: 0 });
+cf = await turnosDe(['oi', 'quero agendar ginecologista', 'sim', 'guama']);
+confere('SG2 sem vaga mais cedo na outra unidade: sem sugestão (uma mensagem só)', !/Se for mais fácil/.test(cf.reply) && cf.reply.split(/\n\n/).length === 1, '');
+// "já tá agendado?" com o modelo da clínica
+const CONF_MODELO = ['Paciente: Renato Giovanny Valente Gonçalves', 'Profissional: Dra. Ebenezaide Nascimento Perdigão', 'Procedimento: TESTE ERGOMÉTRICO - Dra. Ebenezaide Nascimento Perdigão', '📆 Data: 28/10/2026 a partir de 08:00 *POR ORDEM DE CHEGADA*', '🏥 Clínica: CLINEX GUAMÁ'].join('\n');
+cf = (await responder([['ja ta agendado teste ergometrico então?']], { ...ctx, confirmacao: CONF_MODELO, pos: 'confirmado' }, fonteClinilink)) as any;
+confere('CF6 "já tá agendado?" depois da confirmação: "Está sim, confirmado! Olha como ficou:" + o modelo da clínica, em mensagens separadas', cf.reply === `Está sim, confirmado! Olha como ficou:\n\n${CONF_MODELO}` && cf.reply.split(/\n\n/).length === 2, cf.reply.slice(0, 120));
+
 
 server.close();
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTODOS OS CENÁRIOS PASSARAM');

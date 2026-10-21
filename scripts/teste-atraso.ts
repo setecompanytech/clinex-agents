@@ -35,7 +35,7 @@ const eq = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 confere('texto sem linha em branco: um balão só', eq(dividirEmBaloes(longo), [longo]));
 confere('resposta da dúvida e pergunta do fluxo: dois balões', eq(dividirEmBaloes('Nosso horário é de segunda a sexta.\n\nQual dos dois fica melhor pra você?'), ['Nosso horário é de segunda a sexta.', 'Qual dos dois fica melhor pra você?']));
 confere('pix: três balões (a chave fica sozinha para copiar)', eq(dividirEmBaloes('Show! A chave pix é essa, o valor é R$ 100,00:\n\nChave pix: x@y.com\n\nQuando pagar, me manda o comprovante aqui, tá?'), ['Show! A chave pix é essa, o valor é R$ 100,00:', 'Chave pix: x@y.com', 'Quando pagar, me manda o comprovante aqui, tá?']));
-confere('mais de três parágrafos: os últimos se juntam', dividirEmBaloes('a\n\nb\n\nc\n\nd').length === 3 && dividirEmBaloes('a\n\nb\n\nc\n\nd')[2] === 'c\nd');
+confere('até quatro parágrafos viram quatro balões; do quinto em diante se juntam ao quarto', dividirEmBaloes('a\n\nb\n\nc\n\nd').length === 4 && dividirEmBaloes('a\n\nb\n\nc\n\nd\n\ne').length === 4 && dividirEmBaloes('a\n\nb\n\nc\n\nd\n\ne')[3] === 'd\ne');
 confere('texto vazio não quebra', dividirEmBaloes('').length === 1);
 
 console.log(ok ? '\nOK' : '\nFALHOU'); process.exit(ok ? 0 : 1);
