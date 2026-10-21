@@ -25,7 +25,7 @@ await new Promise<void>((ok) => server.listen(0, ok));
 Object.assign(process.env, {
   INOVSTAR_BASE_URL: `http://127.0.0.1:${(server.address() as any).port}`, INOVSTAR_TOKEN: 'teste', ALLOWED_NUMBERS: '+5591900000000',
   AGENT_SECTOR_ID: 'AI', HUMAN_SECTOR_ID: 'HUM', DEBOUNCE_MS: '0', REPLY_DELAY_MIN_MS: '0', REPLY_DELAY_MAX_MS: '0',
-  AGENT_TITLE: '*Amanda (IA) - Nova*', AUTO_REPLY: 'true', AGENT_MODE: 'scripted',
+  AGENT_TITLE: '*Amanda S. (Clinex):*', AUTO_REPLY: 'true', AGENT_MODE: 'scripted',
 });
 for (const k of ['OPENAI_API_KEY', 'CLINILINK_API_KEY', 'CLINILINK_API_KEY_ESCRITA', 'ANTHROPIC_API_KEY']) delete process.env[k]; // fonte simulada, sem GPT
 const { handleIncoming, montarTurnos } = await import('../src/agents/receptivo/agent.js');
@@ -35,7 +35,7 @@ let n = 0;
 const ts = () => new Date(Date.now() - (1000 - n++) * 1000).toISOString();
 const msg = (direction: 'in' | 'out', type: string, text: any) => ({ id: `m${n}`, direction, type, text, timestamp: ts(), status: direction === 'out' ? 'delivered' : 'delivered' });
 const eu = (t: string) => msg('in', 'text', { text: t });
-const amanda = (t: string) => msg('out', 'text', { body: `*Amanda (IA) - Nova*\n${t}` }); // mensagem ENVIADA: { body }
+const amanda = (t: string) => msg('out', 'text', { body: `*Amanda S. (Clinex):*\n${t}` }); // mensagem ENVIADA: { body }
 const sistema = (t: string) => msg('in', 'system', { text: t });
 const evento = (m: any, sectorId = 'AI', isAssigned = false) => ({
   deliveryId: 'd', messageId: m.id, attendanceId: 'att1', channelId: 'c', to: '+5591900000000', type: m.type, text: null,
@@ -85,6 +85,11 @@ const foto = { id: 'img-a3', direction: 'in', type: 'image', text: null, timesta
 c = await roda([...base, foto, amanda('Recebi o seu comprovante. Vou pedir pra equipe conferir. Já deixei tudo anotado. Só um instante.'), sistema('Transferido pela API para o setor Principal'), eu('já paguei o pix')], 'HUM');
 confere('A3 paciente volta na fila da equipe: a conversa é devolvida para a Amanda ANTES de responder', transfs(c)[0]?.corpo.toSectorId === 'AI' && !('message' in transfs(c)[0].corpo) && c.findIndex((x) => x.caminho.endsWith('/transfer')) < c.findIndex((x) => x.caminho.endsWith('/send/text')), c.map((x) => x.caminho.split('/').slice(-1)[0]).join(' -> '));
 confere('A3 e continua de onde parou: pede o comprovante do pix (já tinha recebido a chave)', /comprovante/.test(textos(c).join('\n')) && !/Chave pix:/.test(textos(c).join('\n')), textos(c).join(' | ').replace(/\n/g, ' ').slice(0, 160));
+confere('A3 a mensagem enviada abre com o título "*Amanda S. (Clinex):*" na primeira linha', textos(c).length > 0 && textos(c).every((t) => t.startsWith('*Amanda S. (Clinex):*\n') || !t.includes('*Amanda')) && textos(c)[0].startsWith('*Amanda S. (Clinex):*\n'), textos(c)[0]?.slice(0, 40));
+// A3a) mensagens antigas da Amanda, com o título de antes ("Amanda (IA) - Nova"), continuam sendo dela
+n = 0;
+c = await roda([...ate_o_pagamento().map((m: any) => (m.direction === 'out' ? msg('out', 'text', { body: String(m.text?.body ?? '').replace('*Amanda S. (Clinex):*', '*Amanda (IA) - Nova*') }) : m)), foto, msg('out', 'text', { body: '*Amanda (IA) - Nova*\nRecebi o seu comprovante. Vou pedir pra equipe conferir.' }), sistema('Transferido pela API para o setor Principal'), eu('já paguei o pix')], 'HUM');
+confere('A3a título antigo na conversa: a Amanda ainda reconhece como dela e retoma na fila da equipe', transfs(c)[0]?.corpo.toSectorId === 'AI', c.map((x) => x.caminho.split('/').slice(-1)[0]).join(' -> '));
 // A3b) link de crédito: a equipe assume e a Amanda NÃO retoma sozinha
 c = await roda([...base, eu('link de crédito'), amanda('Combinado! Vou passar pra equipe te enviar o link de pagamento...'), sistema('Transferido pela API para o setor Principal'), eu('na verdade vou pagar no pix')], 'HUM');
 confere('A3b link de crédito: depois da transferência para o time, se o paciente escreve a Amanda fica quieta (o time responde)', c.length === 0, `chamadas=${c.length}`);
@@ -130,9 +135,9 @@ confere('A8 áudio que não pôde ser transcrito: pede para escrever e não tran
   const { lerConversa } = await import('../src/agents/receptivo/agent.js');
   const h = (direction: 'in' | 'out', text: string, extra: any = {}) => ({ id: `x${Math.random()}`, _id: `x${Math.random()}`, direction, type: 'text', text, status: 'delivered', createdAt: new Date(Date.now() - (extra.minutosAtras ?? 1) * 60000).toISOString(), ...extra }) as any;
   const hist = [
-    h('in', 'quero agendar cardiologia'), h('out', '*Amanda (IA) - Nova*\nAh, então é consulta Cardiologia, né?'), h('in', 'sim'),
+    h('in', 'quero agendar cardiologia'), h('out', '*Amanda S. (Clinex):*\nAh, então é consulta Cardiologia, né?'), h('in', 'sim'),
     h('out', 'nota interna do time', { isWhisper: true }), h('in', 'x', { type: 'system', text: 'Transferido para o setor' }),
-    h('out', '*Amanda (IA) - Nova*\nAgendamento confirmado! Deu tudo certo, Renato.', { minutosAtras: 5 }),
+    h('out', '*Amanda S. (Clinex):*\nAgendamento confirmado! Deu tudo certo, Renato.', { minutosAtras: 5 }),
     h('out', 'Paciente: Renato Teste\nProfissional: Dra. Fernanda\nProcedimento: CONSULTA CARDIOLOGIA - Dra. Fernanda\n📆 Data: 22/10/2026 a partir de 08:00 *POR ORDEM DE CHEGADA*\n🏥 Clínica: CLINEX GUAMÁ', { minutosAtras: 5 }),
     h('out', 'Se puder, chega cedinho, que o atendimento é por ordem de chegada. Quer aproveitar e agendar mais algum exame ou consulta?', { minutosAtras: 5 }),
   ];

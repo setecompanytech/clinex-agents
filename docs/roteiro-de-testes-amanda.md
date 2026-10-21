@@ -193,7 +193,7 @@ Faça cada uma em etapas diferentes (antes do serviço, na unidade, nos horário
 - 10.10 Escrever de um número **não autorizado** → nenhuma resposta.
 - 10.11 Conversa que ficou parada **no meio** por horas ou dias e você escreve de novo: observe se ela retoma de onde parou ou recomeça, e me diga qual das duas você prefere. Depois de um agendamento concluído, uma mensagem nova abre uma jornada nova, sem se apresentar de novo.
 - 10.13 **Parece digitado:** uma resposta curta ("Claro! Qual consulta ou exame você precisa?") chega depois de uns 2 a 5 s; uma lista de horários (resposta grande) demora bem mais (até uns 12 s). Cronometre uma curta e uma longa: a longa tem que demorar visivelmente mais. (Isso vem depois da espera de cerca de 30 s para agrupar suas mensagens.)
-- 10.14 **Balões:** quando a resposta tem uma dúvida respondida + a pergunta do fluxo (ex.: "qual o horário de atendimento?" no meio do agendamento), chegam **dois balões** separados, cada um com seu tempo. O pix chega em **três balões** (a chave fica sozinha, fácil de copiar). Só o primeiro balão leva o título "Amanda (IA)".
+- 10.14 **Balões:** quando a resposta tem uma dúvida respondida + a pergunta do fluxo (ex.: "qual o horário de atendimento?" no meio do agendamento), chegam **dois balões** separados, cada um com seu tempo. O pix chega em **três balões** (a chave fica sozinha, fácil de copiar). Só o primeiro balão leva o título "Amanda S. (Clinex):".
 - 10.15 Emergência e crise **não** esperam esse tempo: respondem em poucos segundos.
 - 10.16 Demora total: do seu "oi" até a resposta, no primeiro contato do dia, deve ficar perto de 35 a 45 s (30 s de espera + digitação). Se passar de 1 minuto, me avise o horário (o Clinilink pode ter demorado a "acordar").
 - 10.12 Primeira mensagem com nome do WhatsApp esquisito (emoji, número): ela não usa o nome na saudação ("Oi, boa tarde! Aqui é a Amanda...").
@@ -256,7 +256,7 @@ Depois que o agendamento é gravado no Clinilink, a confirmação sai **em mensa
 
 | # | Você faz | Esperado |
 |---|---|---|
-| 14.1 | Agende uma consulta até o fim (paciente que já existe) | 3 mensagens: (1) "Agendamento confirmado! Deu tudo certo, [nome]."; (2) o modelo da clínica; (3) "Se puder, chega cedinho, que o atendimento é por ordem de chegada. Quer aproveitar e agendar mais algum exame ou consulta?" Só a primeira leva o título "Amanda (IA)". |
+| 14.1 | Agende uma consulta até o fim (paciente que já existe) | 3 mensagens: (1) "Agendamento confirmado! Deu tudo certo, [nome]."; (2) o modelo da clínica; (3) "Se puder, chega cedinho, que o atendimento é por ordem de chegada. Quer aproveitar e agendar mais algum exame ou consulta?" Só a primeira leva o título "Amanda S. (Clinex):". |
 | 14.2 | Confira linha por linha o modelo | `Paciente:` nome do cadastro. `Profissional:` Dr./Dra. + nome (ou o nome da sala, ex.: ".SALA DE EXAMES"). `Procedimento:` NOME DO PROCEDIMENTO - profissional. `📆 Data:` dd/mm/aaaa a partir de HH:MM *POR ORDEM DE CHEGADA*. `🏥 Clínica:` CLINEX + unidade. `📍 Endereço:`, `☎ Telefone:` e `📲 WhatsApp:` da unidade escolhida. `Valor particular:` o preço do Clinilink (nunca R$ 0,00; sem preço, "a confirmar na recepção"). |
 | 14.3 | Agende no Guamá e depois no Telégrafo | O endereço e o telefone mudam conforme a unidade. |
 | 14.4 | Paciente **novo** (cadastro feito na conversa) | A primeira mensagem diz "Cadastro de [nome completo] feito." |

@@ -200,8 +200,9 @@ async function processar(ev: MessageReceivedEvent) {
   if (last && last.direction === 'out' && last.status !== 'whisper') return skip(`última mensagem já é de saída (${last.type}); não duplica`);
 
   // Na fila da equipe só retoma conversa em que a própria Amanda já falou (nas últimas 12 h); as demais são da equipe.
-  const tituloAmanda = env.agentTitle.replace(/\*/g, '').trim();
-  if (naFilaDaEquipe && !history.some((m) => m.direction === 'out' && tituloAmanda && m.text?.includes(tituloAmanda) && Date.now() - +new Date(m.createdAt) < 12 * 3600 * 1000)) {
+  const titulosAmanda = [env.agentTitle, ...env.agentTitlesAntigos].map((t) => t.replace(/\*/g, '').trim()).filter(Boolean);
+  const eDaAmanda = (m: InovstarMessage) => m.direction === 'out' && titulosAmanda.some((t) => m.text?.includes(t));
+  if (naFilaDaEquipe && !history.some((m) => eDaAmanda(m) && Date.now() - +new Date(m.createdAt) < 12 * 3600 * 1000)) {
     return skip('conversa da fila da equipe que não é da Amanda');
   }
 
@@ -226,8 +227,7 @@ async function processar(ev: MessageReceivedEvent) {
   if (turns.length === 0 || turns[turns.length - 1].role !== 'user') return skip('sem turno do paciente para responder');
 
   // A Amanda já respondeu nesta conversa? (mensagem de saída que carrega o título da Amanda)
-  const marker = env.agentTitle.replace(/\*/g, '').trim();
-  const jaRespondeu = Boolean(marker) && history.some((m) => m.direction === 'out' && m.text?.includes(marker));
+  const jaRespondeu = history.some(eDaAmanda);
   const nome = firstName(ev.contactName);
 
   // Roteiro fixo (sem IA): reprocessa as mensagens do paciente da jornada atual e responde a última.
