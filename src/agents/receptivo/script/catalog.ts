@@ -29,7 +29,7 @@ export type Descoberta =
   | undefined; // não achou
 
 /** Um período de atendimento (ordem de chegada) numa data. `inicio` = hora em que a agenda abre. */
-export type Slot = { ymd: string; turno: Periodo; inicio: string; profissional?: string; profissionalId?: string; profissionalBruto?: string };
+export type Slot = { ymd: string; turno: Periodo; inicio: string; profissional?: string; profissionalId?: string; profissionalBruto?: string; unidade?: string /* só nas listas que misturam unidades */ };
 export type PacienteInfo = { id?: string; nome: string };
 export type AgendamentoExistente = { unidade: string; hora?: string; periodo?: Periodo; profissional?: string };
 

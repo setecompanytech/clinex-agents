@@ -132,7 +132,7 @@ Com a lista de horários na tela:
 - 6.15 "não quero antecipar", "pago lá", "depois eu pago", "só quero agendar" → recepção.
 - 6.16 "aceita cartão?" / "posso pagar no cartão?" depois da chave → explica ("Na recepção, no dia, aceitamos pix, cartão de crédito e débito e dinheiro") e segue esperando o comprovante. **Não** vira escolha de link nem transfere.
 - 6.17 Dúvidas sobre o pagamento, em linguagem solta: "preciso pagar agora?", "se eu não pagar perco a vaga?", "o pix é obrigatório?" → responde com o que a clínica informa (antecipar por pix é opcional e serve para agilizar; dá para pagar na recepção, no dia) e segue esperando o comprovante.
-- 6.18 Dúvidas que ela não tem como saber: "esse pix é seguro?", "posso parcelar em quantas vezes?" → não inventa: "Essa eu prefiro que a equipe confirme certinho pra você, pra não te falar nada errado. Se quiser é só me pedir que eu chamo alguém." e continua esperando o comprovante.
+- 6.18 Dúvidas que ela não tem como saber: "esse pix é seguro?", "posso parcelar em quantas vezes?" → não inventa: "Essa eu prefiro confirmar direitinho antes de te responder, pra não te passar nada errado. Se quiser, é só me pedir que eu chamo alguém da recepção pra te ajudar." e continua esperando o comprovante.
 - 6.19 "quanto é mesmo?" / "qual o valor?" depois da chave → responde o valor e reenvia a chave.
 - 6.20 Depois da chave, "queria outro dia" / "mudar o horário" → ela troca o horário e manda o pix de novo, já com o novo horário. "Outro dia eu pago" **não** troca o horário.
 
@@ -268,6 +268,26 @@ Depois que o agendamento é gravado no Clinilink, a confirmação sai **em mensa
 | 14.10 | Peça, em outro agendamento, "já tá agendado?" | Veja o 13.1: ela repete o modelo da clínica, sem recomeçar. |
 
 **Limite conhecido:** a Amanda não gera OS nem faturamento (o Clinilink não tem essa função na API de parceiros). Quando você pagou o pix na conversa, a confirmação **mostra** "PAGO NO PIX", mas a baixa financeira continua com a recepção.
+
+## Fluxo 15. Pedir a agenda e "um/uma" no começo da frase
+
+A Amanda não faz o paciente esperar outra mensagem para ver os horários: quando ele pergunta pela agenda, ela mostra os horários na mesma resposta. E "um/uma/dois" no começo de uma frase é artigo, não é o número da opção.
+
+| # | Você manda | Esperado |
+|---|---|---|
+| 15.1 | "boa tarde quero agendar uma consulta" e depois "um teste ergo" | Lista das consultas mais procuradas e, em seguida, "Ah, então é Teste Ergométrico, né?". **Nunca** "consulta Ginecologista" (que é a opção 1 da lista). |
+| 15.2 | Com a lista de consultas na tela: "uma consulta de cardiologia" | Entende como pedido novo (Cardiologia), não como a opção 1. |
+| 15.3 | Com a lista na tela: só "1", "um", "o dois", "opção três" | Escolhe a posição certa. |
+| 15.4 | Serviço com duas unidades: "quando tem agenda?" (ou "tem horário?", "tem vaga?", "quais as datas disponíveis?") | Na mesma resposta: o resumo (unidades, médicos, preço) **e** "Consegui estes aqui:" com os próximos horários das duas unidades, cada item dizendo a unidade. Sem "Qual dos dois fica melhor?". Termina com "Se preferir uma unidade ou outro dia, é só me falar." |
+| 15.5 | Pediu a agenda já no começo ("tem agenda de ginecologista?") e depois confirma o serviço com "sim" | Resumo e lista de horários chegam juntos (em mensagens separadas). |
+| 15.6 | Com a lista mista na tela, responda "2" | Fica com o horário e a unidade do item 2 e segue para o pix. |
+| 15.7 | Com a lista mista na tela, responda "Guamá" (ou "telégrafo") | Mostra só os horários dessa unidade, sem o nome da unidade em cada item. |
+| 15.8 | Com a lista mista na tela, responda "amanhã" | Horários de amanhã nas unidades (cada item com a unidade). Sem vaga amanhã: "Pra amanhã não tenho vaga. Mas consegui estes aqui:". |
+| 15.9 | Já escolhida a unidade e com a lista de horários na tela: "quando tem agenda?" | "Esses são os horários que tenho no [unidade]:" e a mesma lista. **Nunca** "Tenho também:" (outras datas) e **nunca** "Essa eu prefiro confirmar...". |
+| 15.10 | Só "quero agendar ginecologista" e "sim" (sem pedir agenda nem dia) | Continua como antes: resumo e "Qual dos dois fica melhor pra você?". |
+| 15.11 | "quero ginecologista amanhã de manhã" e "sim" | Como disse o dia e o período, mostra amanhã de manhã nas duas unidades (sem perguntar a unidade antes). |
+
+**O que nunca pode acontecer:** responder pergunta de agenda com "a equipe confirma" ou "chamo alguém". A Amanda é quem atende: se ela tem o horário, mostra.
 
 ## Como me passar o resultado
 

@@ -225,7 +225,7 @@ confere('11 mensagem depois do fim não regrava', nPost('/agendamentos') === 1, 
 // 12) o paciente manda "isso" e "pra amanhã" quase juntos: o resumo de unidades e médicos NÃO pode sumir
 reset({ ocupados: 0 });
 r = await responder([['quero agendar ginecologista'], ['isso', 'pra amanhã']], ctx, fonteClinilink) as any;
-confere('12 mensagens juntas: mostra o resumo e pergunta a unidade', /Tenho sim!/.test(r.reply) && /Guamá com a Dra\./.test(r.reply) && /Telégrafo com a Dra\./.test(r.reply) && /Qual dos dois fica melhor/.test(r.reply) && !/Qual dos dois você prefere/.test(r.reply), r.reply.replace(/\n/g, ' | '));
+confere('12 mensagens juntas: mostra o resumo e, como ele já disse o dia, os horários desse dia nas duas unidades (sem perguntar a unidade antes)', /Tenho sim!/.test(r.reply) && /Guamá com a Dra\./.test(r.reply) && /Telégrafo com a Dra\./.test(r.reply) && /^1\. Guamá, /m.test(r.reply) && /^2\. Telégrafo, /m.test(r.reply) && !/Qual dos dois/.test(r.reply), r.reply.replace(/\n/g, ' | '));
 confere('12 guardou o "amanhã" que ele já tinha dito', r.state.data === dia(1), String(r.state.data));
 
 // 13) "oi" + pedido juntos: a saudação não pode se perder
@@ -973,7 +973,7 @@ confere('PG5 serviço sem valor cadastrado: não induz o pix; pergunta a forma d
 // dúvidas: o leitor de contexto tem os fatos de pagamento; o que não sabe, deixa com a equipe (não inventa)
 chamadasCtx = [];
 pg = (await responder(['oi', 'quero agendar ginecologista', 'sim', 'guama amanhã', 'esse pix é seguro mesmo?'].map((z) => [z]), comContexto({ tipo: 'pergunta', resposta: null }, { conversa: conversaEx }), fonteClinilink)) as any;
-confere('PG6 dúvida que os fatos não respondem: não inventa, deixa com a equipe e continua esperando o comprovante', /Essa eu prefiro que a equipe confirme certinho pra você/.test(pg.reply) && /aguardando o comprovante/.test(pg.reply) && !pg.handoff, pg.reply.replace(/\n/g, ' | ').slice(0, 260));
+confere('PG6 dúvida que os fatos não respondem: não inventa, deixa com a equipe e continua esperando o comprovante', /^Essa eu prefiro confirmar direitinho antes de te responder/.test(pg.reply) && !/a equipe confirme/.test(pg.reply) && /aguardando o comprovante/.test(pg.reply) && !pg.handoff, pg.reply.replace(/\n/g, ' | ').slice(0, 260));
 confere('PG6 e o leitor recebeu os fatos de pagamento (formas aceitas, pix opcional, link com a equipe, ordem de chegada)', chamadasCtx.length === 1 && /dá pra pagar por pix, cartão de crédito e débito ou dinheiro em espécie/.test(chamadasCtx[0].fatos) && /Antecipar por pix é opcional/.test(chamadasCtx[0].fatos) && /link de crédito é combinado com a equipe/.test(chamadasCtx[0].fatos) && /ordem de chegada/.test(chamadasCtx[0].fatos), (chamadasCtx[0]?.fatos ?? '').slice(0, 200));
 pg = (await responder(['oi', 'quero agendar ginecologista', 'sim', 'guama amanhã', 'preciso pagar agora?'].map((z) => [z]), comContexto({ tipo: 'pergunta', resposta: 'Não precisa, antecipar por pix é opcional.' }, { conversa: conversaEx }), fonteClinilink)) as any;
 confere('PG7 dúvida respondida com os fatos ("preciso pagar agora?") + segue esperando o comprovante', /^Não precisa, antecipar por pix é opcional\./.test(pg.reply) && /aguardando o comprovante/.test(pg.reply), pg.reply.replace(/\n/g, ' | ').slice(0, 200));
@@ -1032,6 +1032,47 @@ const CONF_MODELO = ['Paciente: Renato Giovanny Valente Gonçalves', 'Profission
 cf = (await responder([['ja ta agendado teste ergometrico então?']], { ...ctx, confirmacao: CONF_MODELO, pos: 'confirmado' }, fonteClinilink)) as any;
 confere('CF6 "já tá agendado?" depois da confirmação: "Está sim, confirmado! Olha como ficou:" + o modelo da clínica, em mensagens separadas', cf.reply === `Está sim, confirmado! Olha como ficou:\n\n${CONF_MODELO}` && cf.reply.split(/\n\n/).length === 2, cf.reply.slice(0, 120));
 
+
+// ---- "Um teste ergo" não é a opção 1; pergunta pela agenda traz os horários na mesma resposta ----
+const { QUER_AGENDA } = await import('../src/agents/receptivo/script/engine.js');
+confere('AG1 "um/uma/dois" no começo de uma frase é artigo, não escolhe a opção', lerEscolha('um teste ergo', 6) === -1 && lerEscolha('uma consulta de cardiologia', 6) === -1 && lerEscolha('dois exames de sangue', 6) === -1, '');
+confere('AG1 mas sozinho (ou com "o/a", "opção", "por favor") continua escolhendo', lerEscolha('um', 6) === 0 && lerEscolha('o dois', 6) === 1 && lerEscolha('opcao tres', 6) === 2 && lerEscolha('quero a uma por favor', 6) === 0 && lerEscolha('2', 6) === 1, '');
+reset({ ocupados: 0 });
+cf = await turnosDe(['oi', 'quero agendar uma consulta']);
+confere('AG2 pedido genérico ("uma consulta"): lista das consultas mais procuradas', cf.state.opcoes?.length > 1 && !cf.state.servico, JSON.stringify(cf.state.opcoes?.map((o: any) => o.nome)));
+cf = await turnosDe(['oi', 'quero agendar uma consulta', 'Um teste ergo']);
+confere('AG2 depois da lista, "Um teste ergo" é pedido NOVO (Teste Ergométrico), não a opção 1 da lista', /ergom/i.test(cf.state.servico?.frase ?? '') && /Teste Ergom/.test(cf.reply) && !/Ginecolog/.test(cf.reply), `${cf.state.servico?.frase} | ${cf.reply.replace(/\n/g, ' | ').slice(0, 120)}`);
+confere('AG3 QUER_AGENDA pega os pedidos de agenda', ['quando tem agenda', 'tem agenda pra cardiologia?', 'tem horario?', 'quais as datas disponiveis', 'tem vaga essa semana', 'me manda os horarios', 'agenda'].every((x) => QUER_AGENDA.test(x)), ['quando tem agenda', 'tem horario?', 'quais as datas disponiveis', 'tem vaga essa semana', 'me manda os horarios', 'agenda'].filter((x) => !QUER_AGENDA.test(x)).join(' | '));
+confere('AG3 e não pega o resto da conversa', ['quero agendar cardiologia', 'vou olhar minha agenda', 'meu nascimento e 10/05/1990', 'sim', 'na recepcao', 'quero marcar um exame'].every((x) => !QUER_AGENDA.test(x)), ['quero agendar cardiologia', 'vou olhar minha agenda', 'meu nascimento e 10/05/1990', 'sim', 'na recepcao', 'quero marcar um exame'].filter((x) => QUER_AGENDA.test(x)).join(' | '));
+// perguntou pela agenda (duas unidades): o resumo e os horários das DUAS unidades vêm na mesma resposta
+reset({ ocupados: 0 });
+cf = await turnosDe(['oi', 'quero agendar ginecologista', 'sim', 'quando tem agenda?']);
+const blAg = cf.reply.split(/\n\n/);
+confere('AG4 "quando tem agenda?" (sem unidade escolhida): já mostra os horários das duas unidades, sem perguntar "qual dos dois"', /^Consegui estes aqui:/.test(cf.reply) && /^\d\. Guamá, /m.test(cf.reply) && /^\d\. Telégrafo, /m.test(cf.reply) && !/Qual dos dois/.test(cf.reply) && cf.state.listaMista === true && !cf.state.unidade, cf.reply.replace(/\n/g, ' | ').slice(0, 260));
+confere('AG4 cada item diz a unidade, o dia, o período, a hora e a médica; a pergunta final deixa trocar de unidade ou de dia', /^1\. \p{L}+, \p{L}+, dia \d{1,2}, (de manhã|à tarde), a partir das \d{1,2}h/mu.test(cf.reply) && /Se preferir uma unidade ou outro dia, é só me falar\.$/.test(cf.reply), cf.reply.split('\n')[1]);
+confere('AG4 sem "equipe" na resposta (a Amanda é quem atende)', !/equipe/i.test(cf.reply), '');
+const itensAg: any[] = cf.state.lista;
+cf = await turnosDe(['oi', 'quero agendar ginecologista', 'sim', 'quando tem agenda?', '2']);
+confere('AG5 escolher o item "2" da lista mista define a unidade e o horário daquele item, e segue para o pagamento', cf.state.unidade?.nome === itensAg[1].unidade && cf.state.slot?.ymd === itensAg[1].ymd && cf.state.slot?.inicio === itensAg[1].inicio && /pix/i.test(cf.reply) && cf.state.listaMista === false, `${cf.state.unidade?.nome} ${cf.state.slot?.ymd} ${cf.state.slot?.inicio}`);
+cf = await turnosDe(['oi', 'quero agendar ginecologista', 'sim', 'quando tem agenda?', 'telégrafo']);
+confere('AG6 dizer a unidade com a lista mista na tela: refaz a lista só dessa unidade (sem repetir a unidade em cada item)', cf.state.unidade?.nome === 'Telégrafo' && cf.state.listaMista === false && /^Consegui estes aqui:/.test(cf.reply) && !/^\d\. Telégrafo, /m.test(cf.reply) && /^1\. /m.test(cf.reply), cf.reply.replace(/\n/g, ' | ').slice(0, 160));
+cf = await turnosDe(['oi', 'quero agendar ginecologista', 'sim', 'quando tem agenda?', 'amanhã']);
+confere('AG7 dizer só o dia com a lista mista: mostra os horários desse dia nas unidades (cada item com a unidade)', cf.state.data === dia(1) && /^\d\. (Guamá|Telégrafo), /m.test(cf.reply) && cf.state.listaMista === true && cf.state.lista?.every((x: any) => x.ymd === dia(1)), cf.reply.replace(/\n/g, ' | ').slice(0, 200));
+// sem sinal de agenda, o jeito de antes: resume as unidades e pergunta qual
+cf = await turnosDe(['oi', 'quero agendar ginecologista', 'sim']);
+confere('AG8 sem pedir agenda nem dia: resume unidades e preço e pergunta a unidade (sem lista)', /Tenho sim!/.test(cf.reply) && /Qual dos dois fica melhor/.test(cf.reply) && !/Consegui estes aqui/.test(cf.reply), cf.reply.replace(/\n/g, ' | ').slice(0, 160));
+// pediu a agenda já no primeiro pedido: depois do "sim", resumo + horários na mesma resposta (duas mensagens)
+cf = await turnosDe(['oi', 'tem agenda de ginecologista?', 'sim']);
+confere('AG9 "tem agenda de ginecologista?" + "sim": resumo (unidades e preço) e a lista de horários na MESMA resposta, em mensagens separadas', /^Tenho sim!/.test(cf.reply) && cf.reply.split(/\n\n/).length >= 2 && /\n\nConsegui estes aqui:\n1\. /.test(cf.reply) && !/Qual dos dois/.test(cf.reply), cf.reply.split(/\n\n/).map((x: string) => x.slice(0, 30)).join(' | '));
+// uma unidade só: o horário já vinha junto (não muda)
+// lista na tela e "quando tem agenda?": repete a lista (não vira "outras opções") e não chama a camada de contexto
+chamadasCtx = [];
+k = await viaCtx(['oi', 'quero agendar ginecologista', 'sim', 'guama', 'quando tem agenda?'], { tipo: 'pergunta', resposta: null });
+confere('AG10 com a lista na tela, "quando tem agenda?" repete os horários ("Esses são os horários que tenho no Guamá:"), sem "Tenho também" nem frase de equipe', /^Esses são os horários que tenho no Guamá:\n1\. /.test(k.reply) && !/Tenho também|equipe|Essa eu prefiro/.test(k.reply) && chamadasCtx.length === 0, k.reply.replace(/\n/g, ' | ').slice(0, 200));
+confere('AG10 e a mesma lista continua valendo (escolher "1" funciona depois)', k.state.lista?.length >= 1 && !k.state.slot, '');
+// a frase de "não sei" não pode aparecer quando é pergunta de agenda, mesmo que o leitor de contexto diga que não tem resposta
+k = await viaCtx(['oi', 'quero agendar ginecologista', 'sim', 'quando tem agenda?'], { tipo: 'pergunta', resposta: null });
+confere('AG11 pergunta de agenda sem unidade: o leitor de contexto nem é chamado e a resposta é a lista', chamadasCtx.length === 0 && /^Consegui estes aqui:/.test(k.reply) && !/Essa eu prefiro/.test(k.reply), `${chamadasCtx.length} chamadas | ${k.reply.slice(0, 60)}`);
 
 server.close();
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTODOS OS CENÁRIOS PASSARAM');
