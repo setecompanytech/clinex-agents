@@ -245,6 +245,9 @@ async function processar(ev: MessageReceivedEvent) {
       : undefined;
     // turnos: mensagens do paciente entre duas respostas (qualquer saída que não seja nota interna)
     const { turnos, duplicados } = montarTurnos(history, fimIdx, desde);
+    // quando o paciente começou este pedido (primeira mensagem da jornada): comprovante pago antes disso é de outro atendimento
+    const primeiraDaJornada = history.find((m, i) => m.direction === 'in' && i > fimIdx && +new Date(m.createdAt) > desde && textoRoteiro(m));
+    const inicioJornada = primeiraDaJornada ? new Date(primeiraDaJornada.createdAt) : undefined;
     const { conversa, confirmacao } = lerConversa(history); // lê a conversa dos dois lados antes de responder
     const textos = turnos.flat();
     // o que a Amanda acabou de dizer: o GPT varia as expressões em vez de repetir o mesmo elogio
@@ -259,7 +262,7 @@ async function processar(ev: MessageReceivedEvent) {
     if (ilg) {
       r = { state: undefined as never, reply: ilg === 'audio' ? 'Não consegui ouvir esse áudio. Escreve pra mim ou manda de novo?' : 'Recebi o arquivo, mas só leio texto e áudio por aqui. Pode me escrever?', handoff: undefined };
     } else try {
-      r = await responder(turnos, { now: new Date(), nome, tz: env.timezone, telefone: ev.to, pos, lerComprovante: lerComprovanteDe(history), interpretar: interpretarEscolha, interpretarPedido, duplicadoNosTurnos: duplicados, conversa, confirmacao, contexto: entenderNoContexto }, fonte);
+      r = await responder(turnos, { now: new Date(), nome, tz: env.timezone, telefone: ev.to, pos, lerComprovante: lerComprovanteDe(history), interpretar: interpretarEscolha, interpretarPedido, duplicadoNosTurnos: duplicados, inicioJornada, conversa, confirmacao, contexto: entenderNoContexto }, fonte);
     } catch (e) {
       // Clinilink fora do ar / lento: não inventa dado, devolve para a equipe
       console.error(`${tag} falha ao consultar a fonte (${fonte.tipo}):`, (e as Error).message);
@@ -299,12 +302,27 @@ async function processar(ev: MessageReceivedEvent) {
     // A mensagem ao paciente vai SEMPRE como texto normal: a mensagem anexada ao endpoint de transferência não chega
     // ao paciente (o histórico mostra só a resposta automática do setor). Depois, se for o caso, transfere.
     // Cada balão espera o tempo de alguém ler e digitar aquele texto (resposta grande demora mais), e só o primeiro leva o título.
-    const enviar = async () => {
+    // Enquanto a resposta era preparada e "digitada", o paciente pode ter escrito de novo: essa resposta já nasceu desatualizada. Então ela
+    // não é enviada (nem o resto dos balões): a mensagem nova espera o próprio tempo, lê a conversa inteira e responde uma vez só.
+    const mensagemMaisNova = async (): Promise<string | undefined> => {
+      try {
+        const { messages } = await getHistory(ev.attendanceId);
+        const l = [...messages].reverse().find((m) => m.direction === 'in' && m.type !== 'system');
+        return l && l._id !== ev.messageId ? l._id : undefined;
+      } catch { return undefined; } // não conseguiu conferir: envia (melhor responder do que ficar mudo)
+    };
+    const enviar = async (): Promise<boolean> => {
       const baloes = dividirEmBaloes(texto);
       for (let i = 0; i < baloes.length; i++) {
         await pareceDigitando(inicio, Boolean(r.handoff?.urgente), baloes[i], i === 0);
+        const nova = r.handoff?.urgente ? undefined : await mensagemMaisNova(); // segurança (emergência/crise) sempre sai
+        if (nova) {
+          evt('ignorado', { motivo: `chegou mensagem nova (${nova}) enquanto a resposta era preparada: ${i} de ${baloes.length} balões enviados; o webhook da mensagem nova responde com a conversa inteira` });
+          return false;
+        }
         await sendText({ channelId: ev.channelId, to: ev.to, attendanceId: ev.attendanceId, text: i === 0 ? withTitle(baloes[i]) : baloes[i], clientMessageId: i === 0 ? `agente-receptivo-${ev.messageId}` : `agente-receptivo-${ev.messageId}-${i + 1}` });
       }
+      return true;
     };
     const transferir = async (setor: string, motivo: string) => {
       try { await transferToSector(ev.attendanceId, setor, motivo); }
@@ -319,8 +337,8 @@ async function processar(ev: MessageReceivedEvent) {
       await transferir(env.agentSectorId, 'A Amanda retomou o atendimento porque o paciente voltou a escrever.');
       await enviar();
     } else if (r.handoff && env.humanSectorId) {
-      await enviar();
-      if (!naFilaDaEquipe) await transferir(env.humanSectorId, r.handoff.motivo);
+      // só transfere se a resposta foi enviada: se chegou mensagem nova, a conversa é reprocessada inteira pelo webhook dela
+      if ((await enviar()) && !naFilaDaEquipe) await transferir(env.humanSectorId, r.handoff.motivo);
     } else await enviar();
     return;
   }

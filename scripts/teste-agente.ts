@@ -7,6 +7,8 @@ import http from 'node:http';
 
 type Chamada = { metodo: string; caminho: string; corpo: any };
 let historico: any[] = [];
+let historicoDepois: any[] | null = null;
+let leituras = 0;
 let chamadas: Chamada[] = [];
 let transcricao: { text: string | null; status: string } = { text: null, status: 'failed' };
 
@@ -15,7 +17,8 @@ const server = http.createServer((req, res) => {
     const url = new URL(req.url!, 'http://x');
     const corpo = raw ? JSON.parse(raw) : undefined;
     const j = (body: unknown) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
-    if (req.method === 'GET' && /\/history$/.test(url.pathname)) return j({ data: { messages: historico } });
+    // historicoDepois: a partir da 2ª leitura (a conferência feita antes de enviar) o paciente já escreveu de novo
+    if (req.method === 'GET' && /\/history$/.test(url.pathname)) { leituras++; return j({ data: { messages: historicoDepois && leituras > 1 ? historicoDepois : historico } }); }
     chamadas.push({ metodo: req.method!, caminho: url.pathname, corpo });
     if (/\/transcribe$/.test(url.pathname)) return j({ success: true, data: { transcription: transcricao } });
     return j({ success: true });
@@ -42,7 +45,7 @@ const evento = (m: any, sectorId = 'AI', isAssigned = false) => ({
   sectorId, isAssigned, isGroup: false, attendanceInfo: '{}', contactName: 'Teste',
 });
 async function roda(msgs: any[], sectorId = 'AI', isAssigned = false) {
-  historico = msgs; chamadas = [];
+  historico = msgs; chamadas = []; leituras = 0;
   await handleIncoming(evento(msgs[msgs.length - 1], sectorId, isAssigned));
   return chamadas;
 }
@@ -66,6 +69,22 @@ n = 0;
 let c = await roda([eu('oi'), amanda('Boa tarde! Sou a Amanda, da Clinex.'), eu('quero falar com um atendente')]);
 confere('A1 pediu atendente: envia o aviso como texto normal ANTES de transferir', c.length === 2 && c[0].caminho.endsWith('/send/text') && /equipe/.test(c[0].corpo.text) && c[1].caminho.endsWith('/transfer'), c.map((x) => x.caminho.split('/').slice(-2).join('/')).join(' -> '));
 confere('A1 a transferência vai para o setor da equipe, com o motivo e SEM mensagem anexada', transfs(c)[0]?.corpo.toSectorId === 'HUM' && /atendimento humano/.test(transfs(c)[0]?.corpo.reason) && !('message' in transfs(c)[0].corpo), JSON.stringify(transfs(c)[0]?.corpo).slice(0, 120));
+
+// A1b) o paciente escreve de novo ENQUANTO a resposta é preparada/"digitada": a resposta (já desatualizada) não sai; a mensagem nova responde
+n = 0;
+{
+  const antes = [eu('oi'), amanda('Boa tarde! Sou a Amanda, da Clinex.'), eu('quero agendar')];
+  historicoDepois = [...antes, eu('cardiologia')];
+  c = await roda(antes);
+  confere('A1b chegou mensagem nova antes de enviar: a resposta antiga NÃO é enviada', c.length === 0, `chamadas=${c.map((x) => x.caminho.split('/').slice(-2).join('/')).join(' -> ')}`);
+  const antesH = [eu('oi'), amanda('Boa tarde! Sou a Amanda, da Clinex.'), eu('quero falar com um atendente')];
+  historicoDepois = [...antesH, eu('espera')];
+  c = await roda(antesH);
+  confere('A1b e a transferência para a equipe também espera (a conversa é reprocessada pela mensagem nova)', c.length === 0, `chamadas=${c.length}`);
+  historicoDepois = null; // sem mensagem nova: responde normalmente
+  c = await roda(antesH);
+  confere('A1b sem mensagem nova: responde e transfere como antes', c.length === 2 && c[0].caminho.endsWith('/send/text') && c[1].caminho.endsWith('/transfer'), `chamadas=${c.length}`);
+}
 
 // A2) o texto das mensagens ENVIADAS ({ body }) é lido: depois do agendamento, "obrigado" é entendido
 n = 0;

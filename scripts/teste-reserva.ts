@@ -1074,6 +1074,50 @@ confere('AG10 e a mesma lista continua valendo (escolher "1" funciona depois)', 
 k = await viaCtx(['oi', 'quero agendar ginecologista', 'sim', 'quando tem agenda?'], { tipo: 'pergunta', resposta: null });
 confere('AG11 pergunta de agenda sem unidade: o leitor de contexto nem é chamado e a resposta é a lista', chamadasCtx.length === 0 && /^Consegui estes aqui:/.test(k.reply) && !/Essa eu prefiro/.test(k.reply), `${chamadasCtx.length} chamadas | ${k.reply.slice(0, 60)}`);
 
+// ---- comprovante: de hoje e feito DEPOIS do pedido do paciente; senão é de outro atendimento ----
+const ontemSP = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date(Date.now() - 24 * 3600 * 1000));
+const amanhaSP = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date(Date.now() + 24 * 3600 * 1000));
+const compBase = { tipo: 'comprovante', valor: 100, destinatario: 'CLINEX SERVICOS MEDICOS LTDA', status: 'concluido' };
+Object.assign(comprovantes, {
+  'cp-antes': { ...compBase, data: hojeSP, hora: '09:05' },
+  'cp-depois': { ...compBase, data: hojeSP, hora: '15:20' },
+  'cp-quase': { ...compBase, data: hojeSP, hora: '14:55' },
+  'cp-bem-antes': { ...compBase, data: hojeSP, hora: '14:40' },
+  'cp-sem-hora': { ...compBase, data: hojeSP },
+  'cp-ontem': { ...compBase, data: ontemSP, hora: '23:50' },
+  'cp-futuro': { ...compBase, data: amanhaSP, hora: '10:00' },
+});
+// o pedido do paciente começou hoje às 15:00 (horário de Belém/São Paulo)
+const ctxCp = { ...ctxPix, inicioJornada: new Date(`${hojeSP}T15:00:00-03:00`) };
+const compResp = async (id: string) => { reset({ ocupados: 0 }); return (await resp([...base0, 'pix', img(id)].map((x) => [x]), ctxCp)) as any; };
+r = await compResp('cp-antes');
+confere('CP1 pago hoje às 9h05, e o pedido começou às 15h: é de outro atendimento (explica e pede o de agora, sem avançar)', /Esse comprovante é de hoje às 9h05, antes da nossa conversa começar, então deve ser de outro atendimento/.test(r.reply) && /pagamento feito agora/.test(r.reply) && /pagar na recepção/.test(r.reply) && !r.handoff && !/CPF/.test(r.reply), r.reply.slice(0, 160));
+r = await compResp('cp-bem-antes');
+confere('CP2 pago 20 min antes do pedido: também é de outro atendimento', /antes da nossa conversa começar/.test(r.reply) && !/CPF/.test(r.reply), r.reply.slice(0, 100));
+r = await compResp('cp-quase');
+confere('CP3 pago 5 min antes do pedido (pagou e só então escreveu): aceita, dentro da tolerância de 10 min', /Recebi o seu comprovante, muito obrigada/.test(r.reply) && /CPF/.test(r.reply), r.reply.slice(0, 100));
+r = await compResp('cp-depois');
+confere('CP4 pago depois do pedido: aceita', /Recebi o seu comprovante, muito obrigada/.test(r.reply), r.reply.slice(0, 100));
+r = await compResp('cp-sem-hora');
+confere('CP5 comprovante de hoje sem horário visível: aceita (não tem como comparar o horário)', /Recebi o seu comprovante, muito obrigada/.test(r.reply), r.reply.slice(0, 100));
+r = await compResp('cp-ontem');
+confere('CP6 comprovante de ontem (mesmo às 23h50): é de outro atendimento, de outro dia', /Esse comprovante é de .+, então deve ser de outro atendimento\. Preciso do comprovante do pagamento de hoje, feito pra esse agendamento/.test(r.reply) && !/CPF/.test(r.reply), r.reply.slice(0, 140));
+r = await compResp('cp-futuro');
+confere('CP7 comprovante com data de amanhã: pede conferir e o de hoje', /Esse comprovante está com a data de .+\. Preciso do comprovante do pagamento de hoje/.test(r.reply) && !/outro atendimento/.test(r.reply), r.reply.slice(0, 140));
+r = await compResp('img-antigo');
+confere('CP8 comprovante de meses atrás: diz que é de outro atendimento', /então deve ser de outro atendimento/.test(r.reply), r.reply.slice(0, 140));
+// a jornada começou ontem à noite e o paciente pagou ontem à noite, depois do pedido: vale
+{
+  const ctxMadrugada = { ...ctxPix, inicioJornada: new Date(`${ontemSP}T23:30:00-03:00`) };
+  reset({ ocupados: 0 });
+  r = (await resp([...base0, 'pix', img('cp-ontem')].map((x) => [x]), ctxMadrugada)) as any;
+  confere('CP9 pedido feito ontem às 23h30 e pago ontem às 23h50 (conversa que passou da meia-noite): aceita', /Recebi o seu comprovante, muito obrigada/.test(r.reply), r.reply.slice(0, 100));
+}
+// o horário do comprovante vai na observação do agendamento (a recepção confere no extrato)
+reset({ ocupados: 0 });
+r = (await resp([...base0, 'pix', img('cp-depois'), '52998224725', 'sim'].map((x) => [x]), ctxCp)) as any;
+confere('CP10 a observação do agendamento leva o dia e a hora do comprovante', /Pix antecipado: R\$ 100,00 \(\d{2}\/\d{2}\/\d{4} 15:20\)/.test(posts.find((x) => x.rota.endsWith('/agendamentos'))?.corpo?.observacao ?? ''), posts.find((x) => x.rota.endsWith('/agendamentos'))?.corpo?.observacao ?? '(sem agendamento)');
+
 server.close();
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTODOS OS CENÁRIOS PASSARAM');
 process.exit(falhas ? 1 : 0);

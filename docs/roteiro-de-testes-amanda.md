@@ -119,7 +119,8 @@ Com a lista de horários na tela:
 - 6.2 Mandar um **comprovante certo** (hoje, valor igual ao da consulta, recebedor da Clinex) → "Recebi o seu comprovante, muito obrigada! Agora pra eu fazer a reserva pode me passar o CPF do paciente?"
 - 6.3 Comprovante com **valor maior** → aceita.
 - 6.4 Comprovante com **valor menor** → "Recebi o seu comprovante de R$ X. O valor é R$ Y, então ainda faltam R$ Z. Prefere pagar o restante agora por pix ou deixar para pagar na recepção?" Mande um segundo comprovante que complete (confirma) ou responda "na recepção" (o resto fica pra recepção).
-- 6.5 Comprovante **de dias atrás** → pede o de hoje.
+- 6.5 Comprovante **de outro dia** (ontem, dias atrás, meses atrás) → "Esse comprovante é de [dia], então deve ser de outro atendimento. Preciso do comprovante do pagamento de hoje, feito pra esse agendamento. Pode me mandar o correto?" (só vale o comprovante feito depois que você começou o pedido; conversa que atravessa a meia-noite vale).
+- 6.5b Comprovante **de hoje, mas de antes da conversa** (ex.: pago às 9h05 e você começou a falar às 15h): "Esse comprovante é de hoje às 9h05, antes da nossa conversa começar, então deve ser de outro atendimento. Pra esse agendamento preciso do pagamento feito agora, depois do seu pedido. Pode me mandar o correto? Se preferir, também dá pra pagar na recepção." Pago até 10 min antes do seu primeiro "oi" ainda vale; comprovante sem horário visível vale; comprovante com data de amanhã: pede conferir.
 - 6.6 **Mesmo comprovante duas vezes** → "Esse comprovante eu já recebi..." e não soma de novo.
 - 6.7 Comprovante para **outra pessoa/chave** → avisa que o recebedor é diferente e chama a equipe.
 - 6.8 Imagem que **não é comprovante** (uma foto qualquer) → pede o comprovante. Imagem ilegível → "Não to conseguindo ler esse comprovante, pode me mandar de novo?"
@@ -187,7 +188,7 @@ Faça cada uma em etapas diferentes (antes do serviço, na unidade, nos horário
 - 10.4 Depois do "obrigado" dela, responder "sim, quero marcar outro" → "Que bom! Me conta qual consulta ou exame você quer agendar." e o novo agendamento começa do zero.
 - 10.5 Depois da confirmação, já pedir outro serviço ("quero marcar dermatologia") → começa o novo fluxo sem apresentação de novo.
 - 10.6 Voltar depois de um tempo: "voltei, quero continuar o agendamento" → "Que bom que você voltou! Vamos retomar o seu agendamento. Qual consulta ou exame você precisa?"
-- 10.7 **Mensagens picadas**: mande 3 mensagens seguidas em menos de 30 segundos ("oi", "quero ginecologia", "pra amanhã"). Ela deve responder **uma vez só**, considerando as três.
+- 10.7 **Mensagens picadas**: mande 3 mensagens seguidas em menos de 30 segundos ("oi", "quero ginecologia", "pra amanhã"). Ela deve responder **uma vez só**, considerando as três. Se você mandar mais uma mensagem **enquanto ela está "digitando"** a resposta, essa resposta não sai (já estaria desatualizada): ela espera mais 30 s e responde uma vez, lendo tudo. Se a mensagem nova vier mais de 30 s depois da anterior, ela responde a anterior primeiro (e depois a nova).
 - 10.8 Corrigir no meio da frase ("quinta... não, sexta mesmo"): observe qual dia ela entende e me diga (esse caso não tem tratamento próprio).
 - 10.9 Só emoji (👍) no meio do fluxo: observe a reação (não deve travar nem reiniciar).
 - 10.10 Escrever de um número **não autorizado** → nenhuma resposta.

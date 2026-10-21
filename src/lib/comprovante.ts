@@ -6,6 +6,7 @@ export type Comprovante = {
   tipo: 'comprovante' | 'outro' | 'ilegivel';
   valor?: number | null;
   data?: string | null; // AAAA-MM-DD
+  hora?: string | null; // HH:MM (24 h), o horário que aparece no comprovante
   destinatario?: string | null;
   chave?: string | null;
   transacao?: string | null; // id da transação (E2E/código), para não contar o mesmo comprovante duas vezes
@@ -16,6 +17,7 @@ const PROMPT = `Você confere comprovantes de PIX brasileiros. Olhe a imagem e r
 - tipo: "comprovante" se a imagem é um comprovante/recibo de transferência PIX de banco ou aplicativo; "outro" para qualquer outra coisa.
 - valor: valor transferido em reais, como número (ex.: 150.5), ou null.
 - data: data da transferência no formato AAAA-MM-DD, ou null.
+- hora: horário da transferência no formato HH:MM (24 horas), exatamente como aparece no comprovante, ou null se não aparecer.
 - destinatario: nome de quem RECEBEU o pix, ou null.
 - chave: chave pix do recebedor, se aparecer, ou null.
 - transacao: código/ID da transação (ex.: "E00416968..."), exatamente como aparece, ou null.
@@ -45,13 +47,14 @@ export async function analisarComprovante(bytes: Buffer, mime: string): Promise<
       tipo: j.tipo === 'comprovante' ? 'comprovante' : j.tipo === 'outro' ? 'outro' : 'ilegivel',
       valor: num(j.valor),
       data: typeof j.data === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(j.data) ? j.data : null,
+      hora: typeof j.hora === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(j.hora.trim().slice(0, 5)) ? j.hora.trim().slice(0, 5) : null,
       destinatario: typeof j.destinatario === 'string' ? j.destinatario.slice(0, 80) : null,
       chave: typeof j.chave === 'string' ? j.chave.slice(0, 80) : null,
       transacao: typeof j.transacao === 'string' && j.transacao.trim() ? j.transacao.trim().slice(0, 60) : null,
       status: ['concluido', 'agendado', 'falhou'].includes(j.status) ? j.status : null,
     };
     // sem dados pessoais no log: só o resultado da leitura
-    evt('comprovante', { tipo: out.tipo, valor: out.valor, data: out.data, status: out.status, ms: Date.now() - t0 });
+    evt('comprovante', { tipo: out.tipo, valor: out.valor, data: out.data, hora: out.hora, status: out.status, ms: Date.now() - t0 });
     return out;
   } catch (e) {
     evt('comprovante', { erro: (e as Error).message.slice(0, 120), ms: Date.now() - t0 });

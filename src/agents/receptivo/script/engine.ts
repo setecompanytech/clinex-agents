@@ -83,6 +83,7 @@ export type Ctx = {
   /** Reprocessamento: a resposta que a Amanda deu a ESTA mensagem foi o aviso de "já tem esse atendimento no dia" (o agente deduz do histórico). */
   duplicadoAqui?: boolean;
   duplicadoNosTurnos?: number[]; // índices dos turnos cuja resposta foi esse aviso
+  inicioJornada?: Date; // quando o paciente começou este pedido (primeira mensagem da jornada): comprovante feito antes disso é de outro atendimento
 };
 /** `duro`: depois desta transferência a Amanda NÃO retoma sozinha (a equipe assume), como no pedido de atendente humano. */
 export type Handoff = { motivo: string; urgente?: boolean; duro?: boolean };
@@ -139,6 +140,13 @@ function hoje(ctx: Ctx) {
   const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: ctx.tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hour12: false }).formatToParts(ctx.now).map((x) => [x.type, x.value]));
   return { ymd: `${p.year}-${p.month}-${p.day}`, hora: Number(p.hour) % 24 };
 }
+/** Data e minutos do dia, no fuso da clínica, de um instante. */
+function noFuso(tz: string, d: Date) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(d).map((x) => [x.type, x.value]));
+  return { ymd: `${p.year}-${p.month}-${p.day}`, min: (Number(p.hour) % 24) * 60 + Number(p.minute) };
+}
+/** Quanto antes do pedido do paciente o pagamento ainda vale (ele pode ter pago e só então escrito; relógios de banco e de WhatsApp diferem um pouco). */
+const TOLERANCIA_COMPROVANTE_MIN = 10;
 const toDate = (ymd: string) => { const [y, m, d] = ymd.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d)); };
 const addDias = (ymd: string, n: number) => { const d = toDate(ymd); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 const diaSemana = (ymd: string) => toDate(ymd).getUTCDay(); // 0 = domingo
@@ -1189,7 +1197,15 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
         if (c.tipo === 'outro') return nova('Hmm essa imagem não parece ser um comprovante de pix. Pode me mandar o comprovante do pagamento?', 'imagem que não é comprovante');
         if (c.status && c.status !== 'concluido') return nova('O comprovante não mostra o pagamento como concluído. Pode me mandar depois que o pix for feito?', `status ${c.status}`);
         if (!c.data) return nova('Não consegui ver a data no comprovante. Pode mandar o print completo com valor e data?', 'sem data');
-        if (c.data < addDias(h.ymd, -1) || c.data > h.ymd) return nova(`Esse comprovante é de ${dataFalada(c.data, h.ymd)}. Preciso do comprovante do pagamento de hoje. Pode me mandar o correto?`, `comprovante de ${c.data}`);
+        // o comprovante tem que ser DESTE atendimento: de hoje e feito depois que o paciente começou o pedido. De outro dia, ou de bem antes da
+        // conversa, é pagamento de outro atendimento: ela explica isso em vez de só recusar.
+        const ini = ctx.inicioJornada ? noFuso(ctx.tz, ctx.inicioJornada) : undefined;
+        if (c.data > h.ymd) return nova(`Esse comprovante está com a data de ${dataFalada(c.data, h.ymd)}. Preciso do comprovante do pagamento de hoje. Pode me mandar o correto?`, `comprovante com data futura (${c.data})`);
+        if (c.data < (ini?.ymd ?? addDias(h.ymd, -1))) return nova(`Esse comprovante é de ${dataFalada(c.data, h.ymd)}, então deve ser de outro atendimento. Preciso do comprovante do pagamento de hoje, feito pra esse agendamento. Pode me mandar o correto?`, `comprovante de outro dia (${c.data})`);
+        if (ini && c.data === ini.ymd && c.hora) {
+          const [hh, mm] = c.hora.split(':').map(Number);
+          if (hh * 60 + mm < ini.min - TOLERANCIA_COMPROVANTE_MIN) return nova(`Esse comprovante é de hoje às ${hora(c.hora)}, antes da nossa conversa começar, então deve ser de outro atendimento. Pra esse agendamento preciso do pagamento feito agora, depois do seu pedido. Pode me mandar o correto? Se preferir, também dá pra pagar na recepção.`, `comprovante de hoje às ${c.hora}, antes do pedido do paciente (${String(Math.floor(ini.min / 60)).padStart(2, '0')}:${String(ini.min % 60).padStart(2, '0')})`);
+        }
         if (c.valor == null) return nova('Não consegui ver o valor no comprovante. Pode mandar o print completo com valor e data?', 'sem valor');
         // sem preço cadastrado no Clinilink não há como conferir o valor pago: a equipe confere
         if (!valorPix) return aEquipeComp('Recebi o seu comprovante.', `Comprovante de ${reais(c.valor)} recebido, mas o valor do serviço não está definido no Clinilink: conferir o valor pago.`);
@@ -1207,7 +1223,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
           s.comprovante = { valor: total, data: c.data, nota: `Pix antecipado PARCIAL de ${reais(total)} (comprovante lido pela IA; CONFERIR no extrato)` };
           return dizer(`${antes ? `Recebi mais esse comprovante, e o total pago até agora é ${reais(total)}.` : `Recebi o seu comprovante de ${reais(c.valor)}.`} O valor é ${reais(valorPix)}, então ainda faltam ${reais(valorPix - total)}. Prefere pagar o restante agora por pix ou deixar para pagar na recepção?`);
         }
-        s.comprovante = { valor: total, data: c.data, nota: `Pix antecipado: ${reais(total)} (${fmtNasc(c.data)}${s.pagoPix ? ', mais de um comprovante' : ''}) lido pela IA${alvo.trim() ? '' : ', recebedor não identificado'}; CONFERIR no extrato` };
+        s.comprovante = { valor: total, data: c.data, nota: `Pix antecipado: ${reais(total)} (${fmtNasc(c.data)}${c.hora ? ` ${c.hora}` : ''}${s.pagoPix ? ', mais de um comprovante' : ''}) lido pela IA${alvo.trim() ? '' : ', recebedor não identificado'}; CONFERIR no extrato` };
         s.pagoPix = total;
         s.pagFinal = true;
         preCpf = 'Recebi o seu comprovante, muito obrigada!';
