@@ -187,7 +187,7 @@ export function lerData(t: string, ctx: Ctx): string | undefined {
   const h = hoje(ctx);
   if (/depois de amanha/.test(t)) return addDias(h.ymd, 2);
   if (/amanha/.test(t)) return addDias(h.ymd, 1);
-  if (/\bhoje\b/.test(t)) return h.ymd;
+  if (/\bhoje\b|\bagora (pela|de|a|na|no|mesmo)\b/.test(t)) return h.ymd;
   // "quinta 22", "terça-feira, dia 27": o número é o dia do mês (este mês, ou o próximo se já passou)
   const wn = t.match(/\b(?:segunda|terca|quarta|quinta|sexta|sabado|domingo)(?:-feira)?[\s,.-]*(?:dia\s*)?(\d{1,2})\b(?![\/.-]\d)/);
   if (wn) {
@@ -238,14 +238,24 @@ const PALAVRAS_DE_CONVERSA = new Set(('pagar pago pagamento pagando pix recepcao
   + 'quero queria vamos posso podemos pode deixa deixar deixe agendado agendar marcar marcado marcada assim chegar chegando chego chegou meu minha bem nao quer querer enviar mandar manda tentar '
   + 'tenho tinha quando depois antes ainda agora entao tudo obrigado obrigada favor mais muito esse essa este esta aqui tambem claro gostaria estou seria ficar fica fico ficou horario horarios '
   + 'vaga vagas agenda disponivel disponibilidade consegue conseguir mesmo isso aquele desse unidade unidades dia essa semana pessoal gente moca moco doutor doutora senhora senhor segunda terca quarta '
-  + 'quinta sexta sabado domingo lado outro outra outros outras algum alguma qualquer tanto faz primeiro ultimo cedo rapido possivel depois eles ela ele nosso nossa vezes vez uns umas').split(' '));
+  + 'quinta sexta sabado domingo lado outro outra outros outras algum alguma qualquer tanto faz primeiro ultimo cedo rapido possivel depois eles ela ele nosso nossa vezes vez uns umas fazer realizar fazendo fazem venho vindo posso poderia ainda mesmo coisa tipo').split(' '));
 function semNomeDeServico(t: string, unidades: string[] = []): boolean {
   const resto = norm(t).replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter((w) => w.length > 3 && !PALAVRAS_DE_CONVERSA.has(w) && !unidades.some((u) => w === norm(u)));
   return resto.length === 0;
 }
 /** Palavras curtas e do dia a dia que mostram que a frase NÃO é um nome ("um minuto", "já vou mandar", "pode ser esse"). */
-const NAO_E_NOME = new Set('sim nao nem pix oi ola bom boa dia tchau vou vai ver tem ter pra por que cpf rg telefone nascimento nome completo data whatsapp numero esse essa este esta isso aguarda aguarde espera espere minuto minutinho momento segundo mande mando enviar enviei mandei comprovante paciente tambem ainda agora entao tudo obrigado obrigada favor claro certo combinado pode ser fica ficar manda mandar segue seguindo aqui'.split(' '));
-const SO_CUMPRIMENTO = /^(oi+|ola|ola+ boa|e ai|ei|bom dia|boa tarde|boa noite|teste|ola teste|agente de ia|amanda|atendimento|tudo bem\??|oie)[\s!.,?]*(teste|amanda|tudo bem\??)?[\s!.,?]*$/;
+const NAO_E_NOME = new Set('sim nao nem pix oi ola bom boa dia tchau vou vai ver tem ter pra por que cpf rg telefone nascimento nome completo data whatsapp numero esse essa este esta isso aguarda aguarde espera espere minuto minutinho momento segundo mande mando enviar enviei mandei comprovante paciente tambem ainda agora entao tudo obrigado obrigada favor claro certo combinado pode ser fica ficar manda mandar segue seguindo aqui consulta consultas exame exames medico medica doutor doutora resultado resultados laudo atestado receita orcamento valor preco quanto custa marcar agendar remarcar cancelar sangue urina fezes hemograma ultrassom usg raio tomografia ressonancia mamografia eletrocardiograma ecocardiograma endoscopia colonoscopia papanicolau preventivo realizar fazer'.split(' '));
+/** Orientação de preparo longa (várias linhas ou texto grande) vai como mensagem própria, do jeito que está cadastrada no Clinilink; a curta leva uma frase de abertura. */
+const preparoLongo = (p: string) => p.includes('\n') || p.length > 160;
+/** A mensagem tem cara de nome de pessoa ("Silmara Emanuele Sousa da Silva"): 2+ palavras de letras, sem palavra de conversa, de pedido ou de exame. */
+function pareceNome(txt: string, tn: string): boolean {
+  if (/[?\d]/.test(txt)) return false;
+  const m = limparNome(txt);
+  const toks = m.split(/\s+/).filter(Boolean);
+  const proibida = toks.some((w) => { const x = norm(w); return NAO_E_NOME.has(x) || (x.length > 3 && PALAVRAS_DE_CONVERSA.has(x)); });
+  return /^[\p{L}' ]{5,80}$/u.test(m) && toks.length >= 2 && toks.filter((w) => w.length >= 3).length >= 2 && !proibida && !SIM.test(tn) && !NAO.test(tn);
+}
+const SO_CUMPRIMENTO =/^(oi+|ola|ola+ boa|e ai|ei|bom dia|boa tarde|boa noite|teste|ola teste|agente de ia|amanda|atendimento|tudo bem\??|oie)[\s!.,?]*(teste|amanda|tudo bem\??)?[\s!.,?]*$/;
 
 const cpfDoTexto = (t: string): string | undefined => {
   const m = t.match(/\b(\d{3})\.?(\d{3})\.?(\d{3})-?(\d{2})\b/);
@@ -522,7 +532,7 @@ export function mensagemConfirmacao(p: { paciente: string; novoCadastro: boolean
   return [
     `${MARCA_AGENDADO}! Deu tudo certo${p.primeiroNome ? `, ${p.primeiroNome}` : ''}.${p.novoCadastro ? ` Cadastro de ${p.paciente} feito.` : ''}`,
     modelo,
-    ...(p.servico.preparo ? [/^PREPARO/.test(p.servico.preparo) ? p.servico.preparo : `Uma orientação importante pro seu atendimento: ${p.servico.preparo}`] : []),
+    ...(p.servico.preparo ? [preparoLongo(p.servico.preparo) ? p.servico.preparo : `Uma orientação importante pro seu atendimento: ${p.servico.preparo}`] : []),
     'Se puder, chega cedinho, que o atendimento é por ordem de chegada. Quer aproveitar e agendar mais algum exame ou consulta?',
   ].join('\n\n');
 }
@@ -646,7 +656,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
       case 'endereco': return textoEnderecos(t, s.unidade?.nome);
       case 'convenio': return `Sobre convênios a equipe confirma direitinho pra você e assim ninguém te passa informação errada.${EQUIPE}`;
       case 'preparo': {
-        if (sv?.preparo) return reply.includes(sv.preparo) ? '' : /^PREPARO/.test(sv.preparo) ? sv.preparo : `Sobre o preparo: ${sv.preparo}`;
+        if (sv?.preparo) return reply.includes(sv.preparo) ? '' : preparoLongo(sv.preparo) ? sv.preparo : `Sobre o preparo: ${sv.preparo}`;
         return 'Sobre preparo eu prefiro confirmar direitinho pra não te orientar errado. Se quiser, é só me pedir que eu chamo alguém da recepção pra te passar.';
       }
     }
@@ -905,8 +915,8 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
       const nomesUnBusca = await fonte.nomesUnidades();
       const soConversa = semNomeDeServico(t, nomesUnBusca); // só pagamento/dia/unidade/conversa: sem nome de serviço, não procura
       const emConfirmacao = Boolean(s.servico) && (!s.servicoConfirmado || !s.slot) && !SIM.test(t) && !semNomeDeServico(t.replace(NAO, ''), nomesUnBusca) && lerEscolha(t, s.lista?.length ?? 0) < 0; // "não" sozinho não traz serviço novo; "não, quero ergo" traz
-      const buscar = (!s.servico || emConfirmacao) && !faq && !soSaudacao && !soConversa;
-      let achou = await fonte.descobrir(tBusca, buscar);
+      const buscar = (!s.servico || emConfirmacao) && (!faq || (faq === 'preco' && !s.servico)) && !soSaudacao && !soConversa;
+      let achou = await fonte.descobrir(tBusca, buscar, Boolean(s.servico) || Boolean(faq)); // com serviço em andamento ou dúvida na frase: só serviço claramente citado
       // as regras não acharam, ou só concluíram "não achei" com as palavras soltas da frase ("coisa", "pé"): o intérprete entende o pedido primeiro
       if ((!achou || 'naoAchouServico' in achou) && buscar) {
         const ia = await entenderPedido();
@@ -933,11 +943,15 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
       if (NAO.test(t)) return out('Sem problema. Qual outra consulta ou exame você precisa?');
     }
     // dúvida ou "??" antes de ter serviço: responde (a resposta entra pelo out) e pergunta o que ele precisa, sem contar como "não entendi"
-    if (faq) return out(comAbertura(faq === 'preco' ? 'Pra te passar o valor certinho preciso saber qual consulta ou exame você quer. Qual é?' : faq === 'ping' ? 'Qual consulta ou exame você precisa?' : 'Posso te ajudar a agendar sim. Qual consulta ou exame você precisa?'));
+    if (faq) return { ...out(comAbertura(faq === 'preco' ? 'Pra te passar o valor certinho preciso saber qual consulta ou exame você quer. Qual é?' : faq === 'ping' ? 'Qual consulta ou exame você precisa?' : 'Posso te ajudar a agendar sim. Qual consulta ou exame você precisa?')), direta: true };
     // o paciente voltou para retomar um atendimento que ficou pela metade
     if (RETOMAR.test(t)) return out(comAbertura('Que bom que você voltou! Vamos retomar o seu agendamento. Qual consulta ou exame você precisa?'));
     // adiantou o dia, o período, a unidade ou a forma de pagamento antes de dizer o serviço: anota e pergunta o serviço
     if (adiantou) return out(comAbertura(`${adiantou} Qual consulta ou exame você precisa?`));
+    // mandou só o nome (a atendente pede "nome completo e o que você gostaria"): cumprimenta e pergunta o que ele precisa
+    if (!SO_CUMPRIMENTO.test(t) && pareceNome(texto, t)) return out(comAbertura(`Prazer, ${titulo(limparNome(texto)).split(' ')[0]}! Me conta o que você precisa?`));
+    // pediu orçamento sem dizer o quê
+    if (/\b(orcamento|orcar|cotacao)\b/.test(t)) return out(comAbertura('Claro! Me diz qual consulta ou exame você quer o valor. Se for pedido médico, pode digitar o nome dos exames que eu vejo um por um.'));
     const cumprimento = SO_CUMPRIMENTO.test(t);
     if (!cumprimento && !NAO.test(t)) s.falhas += 1;
     if (!s.saudou && cumprimento) return out(`${abertura} Me conta o que você precisa?`);
@@ -1040,7 +1054,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     // se ele já escolheu a unidade, fala só dela
     partes.push(`${textoUnidades(s.unidade ? { ...sv, unidades: [s.unidade] } : sv, aviso ? 'duvida' : 'resposta')}${sv.precoTexto ? ` ${sv.precoTexto}` : ''}`);
     // orientação cadastrada para o atendimento (ex.: restrição de idade, preparo): avisa já aqui, em mensagem separada, antes de ele escolher o horário
-    if (sv.preparo) partes.push(`\n${/^PREPARO/.test(sv.preparo) ? sv.preparo : `Uma orientação importante pra esse atendimento: ${sv.preparo}`}`);
+    if (sv.preparo) partes.push(`\n${preparoLongo(sv.preparo) ? sv.preparo : `Uma orientação importante pra esse atendimento: ${sv.preparo}`}`);
   }
   if (!s.unidade) {
     // perguntou pela agenda (ou já disse o dia/período): em vez de só perguntar a unidade, já mostra os próximos horários de todas as unidades

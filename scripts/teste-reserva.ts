@@ -18,6 +18,7 @@ const P_LIDUINA = '54545454-5454-4545-8545-545454545454'; // atende a tarde de d
 const P_REBECA = '52525252-5252-4525-8525-525252525252'; // REBECA COSTA LIMA (Cardiologia, sem agenda aberta)
 const PROC3 = '24242424-2424-4242-8242-242424242424';
 const PROC_USG = '25252525-2525-4252-8252-252525252525';
+const PREPARO_LONGO = 'PREPARO PARA O EXAME\n\nJejum: manter jejum de 8 horas antes do exame.\n\nVéspera:\n• Evite alimentos gordurosos.\n• Não mascar chiclete.';
 const AGENDA = '44444444-4444-4444-8444-444444444444';
 /** Quantos agendamentos cada serviço teve (o Clinilink simulado devolve isso em GET /agendamentos): o teste de alergia é o mais procurado dos exames. */
 const DEMANDA_PADRAO: Record<string, number> = {
@@ -60,25 +61,26 @@ const server = http.createServer((req, res) => {
         const b = url.searchParams.get('busca') ?? '';
         const un = url.searchParams.get('unidadeId');
         if (b === '') {
-          const c = (id: string, nome: string, categoria = 'Consulta', preco = 100) => ({ id, nome, categoria, preco, precoDinheiro: un === U_GUAMA ? 0 : 999, preparo: id.startsWith('31313131') ? 'NO MÁXIMO ATÉ 70 ANOS' : id.startsWith('26262626') ? '0' : null });
+          const c = (id: string, nome: string, categoria = 'Consulta', preco = 100) => ({ id, nome, categoria, preco, precoDinheiro: un === U_GUAMA ? 0 : 999, preparo: id === PROC_USG ? PREPARO_LONGO : id.startsWith('31313131') ? 'NO MÁXIMO ATÉ 70 ANOS' : id.startsWith('26262626') ? '0' : null });
           return j(200, { ok: true, procedimentos: [
             c(PROC, 'CONSULTA GINECOLOGIA'), c(PROC2, 'CONSULTA DERMATOLOGIA'), c(PROC3, 'CONSULTA CARDIOLOGIA'), c(PROC_USG, 'USG ABDOME TOTAL', 'Exames', 150),
             c('26262626-2626-4262-8262-262626262626', 'ERGOMETRIA', 'Exames', 120), c('27272727-2727-4272-8272-272727272727', 'CONSULTA FONOAUDIOLOGIA'),
             c('28282828-2828-4282-8282-282828282828', 'TESTE DE ESFORCO COM ECG', 'Exames', 120), c('29292929-2929-4292-8292-292929292929', 'CONSULTA SEMVALOR', 'Consulta', 0),
             ...['DENGUE IGG', 'DENGUE IGM', 'DENGUE ANTIGENO', 'COVID', 'HIV', 'SIFILIS', 'HEPATITE B', 'HEPATITE C', 'H PYLORI', 'INFLUENZA', 'ZIKA', 'CHIKUNGUNYA', 'MALARIA', 'TOXOPLASMOSE', 'ROTAVIRUS', 'STREPTOCOCO', 'LATEX', 'COOMBS', 'HCG', 'TROPONINA'].map((n, i) => c(`40000000-0000-4000-8000-0000000000${String(i).padStart(2, '0')}`, `TESTE RAPIDO ${n}`, 'Laboratório', 30)),
+            c('41414141-4141-4414-8414-414141414141', 'HEMOGRAMA COMPLETO', 'Laboratório', 15), c('42424242-4242-4424-8424-424242424242', 'GLICOSE', 'Laboratório', 10),
             c('31313131-3131-4313-8313-313131313131', 'TESTE ERGOMETRICO', 'Exames', 140), c('32323232-3232-4323-8323-323232323232', 'TESTE RAPIDO DE GRAVIDEZ', 'Exames', 40), c('33333333-3434-4343-8343-343434343434', 'TESTE DE ALERGIA', 'Exames', 90),
           ] });
         }
         // procedimentos "estranhos" do cadastro: a busca real é por pedaço do nome, sem acento
         const sem = (x: string) => x.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
         const extras = [{ id: '31313131-3131-4313-8313-313131313131', nome: 'TESTE ERGOMETRICO', categoria: 'Exames' }, { id: '26262626-2626-4262-8262-262626262626', nome: 'ERGOMETRIA', categoria: 'Exames' }, { id: '27272727-2727-4272-8272-272727272727', nome: 'CONSULTA FONOAUDIOLOGIA', categoria: 'Consulta' }, { id: '28282828-2828-4282-8282-282828282828', nome: 'TESTE DE ESFORCO COM ECG', categoria: 'Exames' }]
-          .filter((x) => b.length >= 4 && sem(x.nome).includes(sem(b))).map((x) => ({ ...x, preco: 120, precoDinheiro: un === U_GUAMA ? 0 : 999, preparo: x.id.startsWith('31313131') ? 'NO MÁXIMO ATÉ 70 ANOS' : null })); // precoDinheiro ZERADO no Guamá e 999 no outro: nunca pode aparecer
+          .filter((x) => b.length >= 4 && sem(x.nome).includes(sem(b))).map((x) => ({ ...x, preco: 120, precoDinheiro: un === U_GUAMA ? 0 : 999, preparo: x.id === PROC_USG ? PREPARO_LONGO : x.id.startsWith('31313131') ? 'NO MÁXIMO ATÉ 70 ANOS' : null })); // precoDinheiro ZERADO no Guamá e 999 no outro: nunca pode aparecer
         if (extras.length) return j(200, { ok: true, procedimentos: extras });
         if (/ergometrico|fonoaudiologo|audiom|hemoglob|glicada/i.test(b)) return j(200, { ok: true, procedimentos: [] });
         if (/semvalor/i.test(b)) return j(200, { ok: true, procedimentos: [{ id: '29292929-2929-4292-8292-292929292929', nome: 'CONSULTA SEMVALOR', categoria: 'Consulta', preco: 0, precoDinheiro: 0 }] });
         const consulta = (id: string, nome: string) => ({ id, nome, categoria: 'Consulta', preco: 100, precoDinheiro: un === U_GUAMA ? 0 : 100 });
         const lista = /zzz|qqq|rebec|zuleide|xavier|silva|pix/i.test(b) || /^ultrassom$/i.test(b) ? []
-          : /usg|ultrassonografia/i.test(b) ? [{ id: PROC_USG, nome: 'USG ABDOME TOTAL', categoria: 'Exames', preco: 150, precoDinheiro: 150 }]
+          : /usg|ultrassonografia/i.test(b) ? [{ id: PROC_USG, nome: 'USG ABDOME TOTAL', categoria: 'Exames', preco: 150, precoDinheiro: 150, preparo: PREPARO_LONGO }]
           : /dermat/i.test(b) ? [consulta(PROC2, 'CONSULTA DERMATOLOGIA')]
           : /cardio/i.test(b) ? [consulta(PROC3, 'CONSULTA CARDIOLOGIA')]
           : [consulta(PROC, 'CONSULTA GINECOLOGIA')];
@@ -1208,6 +1210,49 @@ confere('EN6 o texto do endereço nunca passa pelo GPT (aprovado palavra por pal
   confere('PX6 "já pode deixar pago?" com a camada de contexto ligada: só "Pode sim!" (sem "Essa eu prefiro confirmar...")', /^Pode sim! Aqui está a chave:/.test(kz.reply) && !/Essa eu prefiro/.test(kz.reply) && chamadasCtx.length === 0, kz.reply.replace(/\n/g, ' | ').slice(0, 140));
   z = await pixFalas(['preciso pagar agora?']);
   confere('PX5 "preciso pagar agora?" continua sendo dúvida (não manda a chave como se fosse "quero pagar")', !/^Pode sim! Aqui está a chave/.test(z.reply) && !z.handoff, z.reply.replace(/\n/g, ' | ').slice(0, 140));
+}
+
+// ---- casos reais da Manu e do orçamento: exame de sangue, "agora pela manhã", valor + serviço, só o nome, preparo do Clinilink ----
+{
+  reset({ ocupados: 0 });
+  let m: any = await responder([['Silmara Emanuele Sousa da Silva'], ['Eu queria realizar um exame de sangue ainda hoje']], ctx, fonteClinilink);
+  confere('MA1 "exame de sangue" sem dizer qual: mostra os exames de laboratório mais procurados (não adivinha "Sangue Oculto")', /exames de laboratório mais procurados/.test(m.reply) && /Hemograma Completo/.test(m.reply) && /Glicose/.test(m.reply) && !/Oculto/.test(m.reply), m.reply.replace(/\n/g, ' | ').slice(0, 200));
+  m = await responder([['Eu queria realizar um exame de sangue ainda hoje'], ['Sangue']], ctx, fonteClinilink);
+  confere('MA2 e se ele só responde "Sangue", a lista continua (não vira outro serviço)', Boolean(m.state.opcoes) && !m.state.servico, `${m.state.servico?.frase} | ${m.reply.replace(/\n/g, ' | ').slice(0, 100)}`);
+  m = await responder([['exame de sangue'], ['1']], ctx, fonteClinilink);
+  confere('MA3 escolhendo o 1 da lista de exames de sangue: confirma o exame', /Hemograma|Glicose/.test(m.state.servico?.frase ?? '') && /Entendi, você quer|Ah, então é|Então é/.test(m.reply), `${m.state.servico?.frase} | ${m.reply.replace(/\n/g, ' | ').slice(0, 100)}`);
+  m = await responder([['quero marcar sangue oculto']], ctx, fonteClinilink);
+  confere('MA4 exame específico com a palavra sangue não vira a lista genérica', !/exames de laboratório mais procurados/.test(m.reply), m.reply.replace(/\n/g, ' | ').slice(0, 120));
+  // serviço em confirmação + "Posso fazer agora pela manhã?": não troca de serviço, entende hoje de manhã
+  reset({ ocupados: 0 });
+  m = await responder([['quero um teste ergometrico'], ['Posso fazer agora pela manhã ?']], ctx, fonteClinilink);
+  confere('MB "Posso fazer agora pela manhã?" com o serviço pendente: continua no Teste Ergométrico (não vira Ortopedista) e guarda hoje de manhã', /Ergom/i.test(m.state.servico?.frase ?? '') && m.state.data === hojeSP && m.state.turno === 'manhã', `${m.state.servico?.frase} | ${m.state.data} ${m.state.turno}`);
+  // valor + serviço na mesma frase
+  m = await responder([['quanto custa um teste ergo?']], ctx, fonteClinilink);
+  confere('MC "quanto custa um teste ergo?": diz o valor e confirma o serviço (antes: "essa eu prefiro confirmar")', /R\$ 140,00/.test(m.reply) && /Ergom/i.test(m.reply) && !/Essa eu prefiro/.test(m.reply), m.reply.replace(/\n/g, ' | ').slice(0, 200));
+  // valor sem serviço: a camada de contexto não entra
+  chamadasCtx = [];
+  const kq = await viaCtx(['quanto custa?'], { tipo: 'pergunta', resposta: null });
+  confere('MC2 "quanto custa?" sem serviço: pede qual serviço, sem "Essa eu prefiro confirmar..."', /qual consulta ou exame você quer/.test(kq.reply) && !/Essa eu prefiro/.test(kq.reply) && chamadasCtx.length === 0, kq.reply.replace(/\n/g, ' | ').slice(0, 160));
+  // só o nome
+  m = await responder([['Silmara EMANUELE Sousa da Silva']], ctx, fonteClinilink);
+  confere('MD1 mandou só o nome completo: "Prazer, Silmara! Me conta o que você precisa?"', /Prazer, Silmara! Me conta o que você precisa\?/.test(m.reply), m.reply.replace(/\n/g, ' | ').slice(0, 160));
+  m = await responder([['consulta marcada anterior']], ctx, fonteClinilink);
+  confere('MD2 frase de pedido não vira nome ("consulta marcada anterior")', !/Prazer/.test(m.reply), m.reply.replace(/\n/g, ' | ').slice(0, 120));
+  m = await responder([['quero marcar']], ctx, fonteClinilink);
+  confere('MD3 "quero marcar" não vira nome', !/Prazer/.test(m.reply), m.reply.replace(/\n/g, ' | ').slice(0, 120));
+  // orçamento
+  m = await responder([['Solicitar Orçamento']], ctx, fonteClinilink);
+  confere('ME "Solicitar Orçamento": pergunta qual consulta ou exame e oferece digitar o pedido médico', /qual consulta ou exame você quer o valor/.test(m.reply) && /pedido médico/.test(m.reply), m.reply.replace(/\n/g, ' | ').slice(0, 200));
+  // preparo cadastrado no Clinilink (várias linhas): mensagem própria, com as quebras de linha, sem a frase de abertura
+  reset({ ocupados: 0 });
+  m = await responder([['quero uma usg de abdome total'], ['sim']], ctx, fonteClinilink);
+  confere('MF1 preparo longo do Clinilink: vem como mensagem própria, com as linhas do cadastro, depois do resumo das unidades', m.reply.includes(`\n\n${PREPARO_LONGO}\n`) || m.reply.includes(`\n\n${PREPARO_LONGO}`), m.reply.replace(/\n/g, ' | ').slice(0, 260));
+  confere('MF1 e sem a frase "Uma orientação importante" na frente', !/Uma orientação importante/.test(m.reply), '');
+  m = await responder([['quero uma usg de abdome total'], ['sim'], ['tem algum preparo?']], ctx, fonteClinilink);
+  confere('MF2 "tem algum preparo?": repete o preparo cadastrado', m.reply.includes('Jejum: manter jejum de 8 horas'), m.reply.replace(/\n/g, ' | ').slice(0, 160));
+  const { ehSala } = await import('../src/agents/receptivo/script/clinilinkFonte.js');
+  confere('MG sala/setor cadastrado como "profissional" (Coleta, Exames, .SALA DE EXAMES) não é médico; médicos continuam sendo', ['COLETA', 'Exames', '.SALA DE EXAMES', 'LABORATORIO'].every((x) => ehSala(x)) && ['FERNANDA BASTOS', 'Felipe Trindade', 'Dra. Giovanna'].every((x) => !ehSala(x)), '');
 }
 
 server.close();

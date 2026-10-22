@@ -302,8 +302,8 @@ Frases de pacientes reais, com erro de digitação, gíria e várias mensagens s
 | 16.3 | "Quero fazer uma ultrassom transvaginal" | Confirma "Usg Transvaginal" (a simples, R$ 90), **sem** listar "com Doppler", "folículos", "colo uterino". Se você pedir "com doppler", aí sim. |
 | 16.4 | Com a Ginecologista confirmada ou com a lista de horários na tela: "E a transvaginal?" | Troca para a transvaginal e segue (não responde "essa eu prefiro confirmar" nem repete a lista da Gineco). |
 | 16.5 | "Qual o valor?" no meio da conversa | Diz o valor do serviço e retoma. |
-| 16.6 | "Tem algum preparado? Eu to no final da minha menstruação" | Se o serviço tem preparo cadastrado, manda o preparo; senão, "Sobre preparo eu prefiro confirmar direitinho pra não te orientar errado. Se quiser, é só me pedir que eu chamo alguém da recepção pra te passar." (sem "a equipe"). |
-| 16.7 | USG de abdome: "quero uma usg de abdome total" e "sim" | Depois do resumo das unidades e do preço, manda **o preparo da clínica**: "PREPARO PARA O EXAME DE USG ABDOME / Jejum: ... / Véspera do exame: ..." (mensagem própria). O mesmo texto vem depois da confirmação. |
+| 16.6 | "Tem algum preparado? Eu to no final da minha menstruação" | Se o procedimento tem **preparo cadastrado no Clinilink**, manda o preparo; senão, "Sobre preparo eu prefiro confirmar direitinho pra não te orientar errado. Se quiser, é só me pedir que eu chamo alguém da recepção pra te passar." (sem "a equipe"). |
+| 16.7 | Procedimento com preparo cadastrado no Clinilink em várias linhas (jejum, véspera...) | Depois do resumo das unidades e do preço, o preparo vai como **mensagem própria, com as linhas do cadastro**, sem "Uma orientação importante" na frente (preparo curto, de uma linha, leva essa frase). O mesmo texto vem depois da confirmação. A Amanda **não tem textos de preparo próprios**: só usa o que está no Clinilink. |
 | 16.8 | "Tem horário hoje?" (durante o dia) | Mostra os horários de **hoje** que ainda restam ("hoje, à tarde, a partir das 16h"). Sem vaga hoje: "Pra hoje não tenho vaga. Mas consegui estes aqui:". As listas normais também já começam por hoje. |
 | 16.9 | No pagamento, "Já pode deixar pago?" | "Pode sim! Aqui está a chave:" + chave + valor. |
 | 16.10 | No pagamento, "Meu bem não quer enviar" (o pix não vai) | "Sem problema! Se o pix não quiser enviar, você pode pagar na recepção, no dia do atendimento, ou eu chamo alguém pra te mandar um link de pagamento." |
@@ -312,6 +312,12 @@ Frases de pacientes reais, com erro de digitação, gíria e várias mensagens s
 | 16.13 | "um minuto, já vou mandar" no meio dos dados | Não vira nome do paciente. |
 | 16.14 | CPF que já existe, mesmo mandando nome e telefone antes | Mostra só o nome para confirmar (não pede nascimento nem telefone). |
 | 16.15 | Com a lista de opções na tela, "vou pagar na recepção" ou "hoje" | Não procura serviço nessa frase (antes achava "Retenção" em "recepção"); anota e repete a pergunta. |
+| 16.16 | "Silmara EMANUELE Sousa da Silva" (só o nome, como a paciente responde ao "me diga seu nome completo e o que você gostaria") | "Prazer, Silmara! Me conta o que você precisa?" (frases de pedido como "consulta marcada anterior" ou "quero marcar" **não** viram nome). |
+| 16.17 | "Eu queria realizar um exame de sangue ainda hoje" | Lista os **exames de laboratório mais procurados com agenda** (Hemograma, Glicemia, Urina...) e pergunta qual. **Nunca** "Sangue Oculto". Depois de "Sangue" sozinho, a lista continua. "Sangue oculto" (específico) não vira a lista. |
+| 16.18 | Com um serviço pendente de confirmação: "Posso fazer agora pela manhã?" | Continua no mesmo serviço (antes virava "consulta Ortopedista", porque "posso" tem "osso") e entende **hoje de manhã**. |
+| 16.19 | "quanto custa uma transvaginal?" (valor + serviço na mesma frase) | Diz o valor ("O exame é R$ 90,00.") e confirma o serviço. "Quanto custa?" sem serviço pede qual consulta ou exame, sem "essa eu prefiro confirmar". |
+| 16.20 | "Solicitar Orçamento" | "Claro! Me diz qual consulta ou exame você quer o valor. Se for pedido médico, pode digitar o nome dos exames que eu vejo um por um." |
+| 16.21 | Serviço cujo "profissional" no Clinilink é uma sala ("Coleta", "Exames", ".SALA DE EXAMES") | Não aparece "com Coleta" nem "com Exames" (só médicos aparecem). No modelo da confirmação, o Profissional continua como está no cadastro. |
 
 **Ainda não faz (conversas reais mostram que os pacientes pedem):** combos ("Quanto tá um combo?", "AGENDAR III"); gerar o recibo/OS em PDF depois do pagamento; mandar só o horário mais próximo em vez de lista (hoje manda até 4 opções).
 

@@ -51,7 +51,8 @@ export interface Fonte {
   reservar?(pedido: PedidoReserva): Promise<ResultadoReserva>;
   nomesUnidades(): Promise<string[]>;
   /** `buscando` = ainda não há serviço na conversa (permite busca por palavra solta). */
-  descobrir(textoNormalizado: string, buscando: boolean): Promise<Descoberta>;
+  /** `forte`: só aceita um serviço claramente citado (raiz conhecida ou palavra do nome); sem o palpite por palavras soltas. Usado quando já há serviço em andamento. */
+  descobrir(textoNormalizado: string, buscando: boolean, forte?: boolean): Promise<Descoberta>;
   resolver(id: string): Promise<Descoberta>;
   /** Períodos com vaga em uma data. */
   periodos(sv: Servico, un: Unidade, ymd: string): Promise<Slot[]>;
@@ -104,6 +105,11 @@ export const RAIZES: { re: RegExp; busca: string; alt?: string[]; sintoma?: RegE
   { re: /geriatr/, busca: 'geriatr', nome: 'geriatria' },
   { re: /vascular|angiolog/, busca: 'vascular', nome: 'cirurgia vascular' },
 ];
+// as raízes valem a partir do começo da palavra: "posso" não é "osso" (ortopedia) e "dor" não está em "corredor"
+for (const r of RAIZES) {
+  r.re = new RegExp(`\\b(?:${r.re.source})`, r.re.flags);
+  if (r.sintoma) r.sintoma = new RegExp(`\\b(?:${r.sintoma.source})`, r.sintoma.flags);
+}
 
 // ------------------------- FONTE SIMULADA -------------------------
 type Sim = { id: string; nome: string; tipo: 'consulta' | 'exame'; busca: string; unidades: string[]; preco: string; retornoDias?: number };

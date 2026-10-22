@@ -2,7 +2,6 @@ import { criarAgendamento, criarPaciente, demandaPorProcedimento, getPacientePor
 import { env } from '../../../lib/env.js';
 import { exibir, prepararGeneros } from '../../../lib/genero.js';
 import { evt } from '../../../lib/log.js';
-import { preparoPadrao } from './preparos.js';
 import { RAIZES, type PedidoReserva, type ResultadoReserva, type Descoberta, type Fonte, type Periodo, type Servico, type Slot, type Unidade } from './catalog.js';
 
 /** Fonte REAL: unidades, médicos, preços, agenda e pacientes vêm do Clinilink. Reservar/cadastrar só com credencial rw. */
@@ -33,7 +32,7 @@ function pontuar(p: Procedimento, texto = '') {
 const inicioMostrado = (h: Horario) => { const bloco = h.agendaHoraInicio ?? h.hora; return h.data === hojeYmd() && h.hora > bloco ? h.hora : bloco; };
 const slotDe = (h: Horario): Slot => {
   const inicio = inicioMostrado(h);
-  return { ymd: h.data, turno: periodoDe(h.agendaHoraInicio ?? h.hora), inicio, profissional: h.profissional?.nome ? titulo(h.profissional.nome) : undefined, profissionalId: h.profissional?.id, profissionalBruto: h.profissional?.nome };
+  return { ymd: h.data, turno: periodoDe(h.agendaHoraInicio ?? h.hora), inicio, profissional: nomeDePessoa(h.profissional?.nome), profissionalId: h.profissional?.id, profissionalBruto: h.profissional?.nome };
 };
 /** Um slot por (data, período): várias horas de uma mesma agenda viram um único período. */
 function agrupar(horarios: Horario[]): Slot[] {
@@ -47,7 +46,7 @@ function agrupar(horarios: Horario[]): Slot[] {
 export const precoDe = (p: Pick<Procedimento, 'preco'>): number | undefined => (typeof p.preco === 'number' && Number.isFinite(p.preco) && p.preco > 0 ? p.preco : undefined);
 
 /** Orientação de preparo cadastrada: só vale texto de verdade (o cadastro tem "0" e vazios). */
-const preparoUtil = (x?: string | null) => { const t = (x ?? '').replace(/\s+/g, ' ').trim(); return t.length > 3 && t !== '0' ? t : undefined; };
+const preparoUtil = (x?: string | null) => { const t = (x ?? '').replace(/\r\n?/g, '\n').replace(/[ \t]+/g, ' ').replace(/ ?\n ?/g, '\n').replace(/\n{3,}/g, '\n\n').trim(); return t.length > 3 && t !== '0' ? t : undefined; }; // mantém as quebras de linha do cadastro
 
 async function montar(c: Cand, prof?: { id: string; nome: string }): Promise<Descoberta> {
   const ini = hojeYmd();
@@ -56,7 +55,7 @@ async function montar(c: Cand, prof?: { id: string; nome: string }): Promise<Des
   const comAgenda: { u: Clinica; proc: Procedimento; medicos: string[] }[] = [];
   await Promise.all(c.clinicas.map(async (u) => {
     const h = await listAgenda({ unidadeId: u.id, dataInicial: ini, dataFinal: fim, procedimentoId: c.proc.id, profissionalId: prof?.id });
-    if (h.length > 0) comAgenda.push({ u, proc: c.proc, medicos: prof ? [titulo(prof.nome)] : [...new Set(h.map((x) => x.profissional?.nome).filter((x): x is string => Boolean(x)).map(titulo))].slice(0, 3) });
+    if (h.length > 0) comAgenda.push({ u, proc: c.proc, medicos: prof ? [titulo(prof.nome)] : [...new Set(h.map((x) => x.profissional?.nome).filter((x): x is string => Boolean(x) && !ehSala(x)).map(titulo))].slice(0, 3) });
   }));
   const nome = titulo(c.proc.nome);
   if (comAgenda.length === 0) return { semAgenda: nome };
@@ -83,7 +82,7 @@ async function montar(c: Cand, prof?: { id: string; nome: string }): Promise<Des
     profissional: prof ? { id: prof.id, nome: titulo(prof.nome) } : undefined,
     unidades: comAgenda.map(({ u, medicos, proc }): Unidade => ({ id: u.id, nome: nomeUnidade(u), profissionais: medicos, precoPix: precoDe(proc), nomeBruto: u.nome, endereco: u.endereco, telefone: u.telefone })), precoTexto,
     nomeBruto: c.proc.nome,
-    preparo: preparoUtil(c.proc.preparo) ?? preparoPadrao(c.proc.nome),
+    preparo: preparoUtil(c.proc.preparo),
   };
   return { servico };
 }
@@ -364,6 +363,37 @@ async function sugerirPorTipo(tipo: 'exame' | 'consulta'): Promise<Descoberta> {
   };
 }
 
+const SO_GENERICAS_DE_SANGUE = new Set(['sangue', 'laboratorial', 'laboratorio', 'laboratoriais', 'coleta', 'realizar', 'exame', 'exames', 'teste', 'testes']);
+/**
+ * "Quero fazer um exame de sangue": mostra os exames laboratoriais mais procurados que têm agenda (como a atendente pergunta "qual exame de sangue?"),
+ * em vez de adivinhar um nome parecido.
+ */
+async function sugerirLaboratorio(): Promise<Descoberta> {
+  const [itens, dem] = await Promise.all([catalogo(), demandaPorProcedimento()]);
+  const demanda = (c: Cand) => dem.get(c.proc.id) ?? 0;
+  const fila = canonizar(itens.map((i) => i.cand)
+    .filter((c) => /laborat/i.test(c.proc.categoria ?? '') && !/\b(teste rapido|rapido)\b/i.test(norm(c.proc.nome)))
+    .sort((a, b) => demanda(b) - demanda(a) || a.proc.nome.localeCompare(b.proc.nome)), (c) => c.proc.nome, '', true);
+  const achados: Cand[] = [];
+  for (let i = 0; i < fila.length && i < 36 && achados.length < 6; i += 12) {
+    const bloco = fila.slice(i, i + 12);
+    const vagas = await Promise.all(bloco.map((c) => vagasAbertas(c)));
+    bloco.forEach((c, k) => { if (vagas[k] > 0 && achados.length < 6) achados.push(c); });
+  }
+  if (achados.length === 0) return undefined;
+  for (const c of achados) conhecidos.set(c.proc.id, c);
+  if (achados.length === 1) return montar(achados[0]);
+  return {
+    opcoes: achados.map((c) => ({ id: c.proc.id, nome: titulo(c.proc.nome) })),
+    intro: 'Claro! Estes são os exames de laboratório mais procurados que tenho com agenda:',
+    pergunta: 'Qual deles você precisa? Se for outro, me diz o nome.',
+  };
+}
+
+/** Nome de sala ou setor cadastrado como "profissional" ("Coleta", "Exames", ".SALA DE EXAMES"): não é médico, não aparece como "com Fulano". */
+export const ehSala = (nome?: string | null) => Boolean(nome) && /^\.?\s*(sala|coleta|exames?|laborat\w*|recepc\w*|triagem|ultrassom|usg)\b/.test(norm(nome!));
+const nomeDePessoa = (nome?: string | null) => (nome && !ehSala(nome) ? titulo(nome) : undefined);
+
 export const fonteClinilink: Fonte = {
   tipo: 'clinilink',
   /** O paciente já tem este serviço neste dia? Procura nas unidades e devolve só o que vai para a conversa (unidade, hora, médico). */
@@ -382,15 +412,20 @@ export const fonteClinilink: Fonte = {
   async aquecer() { await Promise.allSettled([listClinicas().then(() => catalogo()), demandaPorProcedimento()]); },
   async nomesUnidades() { return (await listClinicas()).map(nomeUnidade); },
 
-  async descobrir(t, buscando) {
+  async descobrir(t, buscando, forte = false) {
     // pediu uma pessoa pelo nome ("com a dra Rebecca")? acha a pessoa e o atendimento dela com agenda
     const pessoa = await descobrirProfissional(t);
     if (pessoa) return pessoa;
     const raizes = RAIZES.filter((r) => r.re.test(t));
     const termos = raizes.flatMap((r) => [r.busca, ...(r.alt ?? [])]); // ex.: ultrassom -> usg -> ultrassonografia
     const palavras = palavrasDoPedido(t);
+    // "exame de sangue" sem dizer qual: como a atendente, mostra os exames de laboratório mais procurados (não adivinha "Sangue Oculto")
+    if (buscando && /\b(sangue|laboratori\w*|coleta)\b/.test(t) && palavras.filter((w) => !SO_GENERICAS_DE_SANGUE.has(w)).length === 0) {
+      const lab = await sugerirLaboratorio();
+      if (lab) return lab;
+    }
     // pedido genérico: quer AGENDAR um exame (ou uma consulta) e não disse qual -> mostra os que têm agenda
-    if (buscando && termos.length === 0 && palavras.length === 0) {
+    if (buscando && !forte && termos.length === 0 && palavras.length === 0) {
       const exame = /\b(exames?)\b/.test(t); const consulta = /\b(consultas?)\b/.test(t);
       const querAgendar = /\b(marcar|agendar|agendamento|marcacao|quero|queria|preciso|precisando|gostaria|fazer|realizar|tem vaga|disponivel|horario)\b/.test(t);
       const outroAssunto = /\b(remarc\w*|reagend\w*|desmarc\w*|cancel\w*|resultado|laudo|retorno)\b/.test(t);
@@ -433,7 +468,7 @@ export const fonteClinilink: Fonte = {
       return decidir(pont, viaSintoma, t);
     }
     // a busca exata não achou: procura no catálogo inteiro por nome igual ou PARECIDO (abreviação, erro de digitação, radical)
-    if (palavras.length) {
+    if (palavras.length && !forte) {
       const sim = await buscarSimilares(t, palavras, viaSintoma, false);
       if (sim) return sim;
     }
@@ -487,7 +522,7 @@ export const fonteClinilink: Fonte = {
     for (const h of livres.slice(0, 3)) {
       const dataHora = h.dataHora ?? `${h.data}T${h.hora}:00-03:00`;
       const r = await criarAgendamento({ pacienteId, unidadeId: unidade.id, agendaId: h.agendaId, profissionalId: h.profissional?.id ?? slot.profissionalId ?? '', dataHora, procedimentoId: servico.id, observacao: p.observacao });
-      if (r.ok) return { ok: true, profissional: h.profissional?.nome ? titulo(h.profissional.nome) : slot.profissional, profissionalBruto: h.profissional?.nome ?? slot.profissionalBruto, hora: inicioMostrado(h), cadastrou };
+      if (r.ok) return { ok: true, profissional: nomeDePessoa(h.profissional?.nome) ?? slot.profissional, profissionalBruto: h.profissional?.nome ?? slot.profissionalBruto, hora: inicioMostrado(h), cadastrou };
       ultimo = r.codigo;
       if (r.codigo !== 'HORARIO_OCUPADO') return { ok: false, codigo: r.codigo, motivo: r.mensagem || r.codigo, incerto: r.incerto, cadastrou };
     }
