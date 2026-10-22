@@ -291,6 +291,30 @@ A Amanda não faz o paciente esperar outra mensagem para ver os horários: quand
 
 **O que nunca pode acontecer:** responder pergunta de agenda com "a equipe confirma" ou "chamo alguém". A Amanda é quem atende: se ela tem o horário, mostra.
 
+## Fluxo 16. Do jeito que os pacientes escrevem no dia a dia (baseado em duas conversas reais das atendentes)
+
+Frases de pacientes reais, com erro de digitação, gíria e várias mensagens seguidas. A Amanda tem que se comportar como a atendente: escolher o serviço certo sem perguntar o óbvio, responder o que foi perguntado e seguir.
+
+| # | Você manda | Esperado |
+|---|---|---|
+| 16.1 | "Crônico geral" (erro de "clínico geral") | "Ah, então é Clinico Geral Consulta, né?" (uma só, **sem** lista com duas opções iguais). |
+| 16.2 | "Meu bem vocês teriam disponibilidade para essa semana de consulta com a ginecologista" | Confirma "consulta Ginecologista" (**sem** "Retorno" na lista). Depois do "sim": se não houver vaga essa semana, "Pra essa semana não tenho horário. Mas consegui estes aqui:". |
+| 16.3 | "Quero fazer uma ultrassom transvaginal" | Confirma "Usg Transvaginal" (a simples, R$ 90), **sem** listar "com Doppler", "folículos", "colo uterino". Se você pedir "com doppler", aí sim. |
+| 16.4 | Com a Ginecologista confirmada ou com a lista de horários na tela: "E a transvaginal?" | Troca para a transvaginal e segue (não responde "essa eu prefiro confirmar" nem repete a lista da Gineco). |
+| 16.5 | "Qual o valor?" no meio da conversa | Diz o valor do serviço e retoma. |
+| 16.6 | "Tem algum preparado? Eu to no final da minha menstruação" | Se o serviço tem preparo cadastrado, manda o preparo; senão, "Sobre preparo eu prefiro confirmar direitinho pra não te orientar errado. Se quiser, é só me pedir que eu chamo alguém da recepção pra te passar." (sem "a equipe"). |
+| 16.7 | USG de abdome: "quero uma usg de abdome total" e "sim" | Depois do resumo das unidades e do preço, manda **o preparo da clínica**: "PREPARO PARA O EXAME DE USG ABDOME / Jejum: ... / Véspera do exame: ..." (mensagem própria). O mesmo texto vem depois da confirmação. |
+| 16.8 | "Tem horário hoje?" (durante o dia) | Mostra os horários de **hoje** que ainda restam ("hoje, à tarde, a partir das 16h"). Sem vaga hoje: "Pra hoje não tenho vaga. Mas consegui estes aqui:". As listas normais também já começam por hoje. |
+| 16.9 | No pagamento, "Já pode deixar pago?" | "Pode sim! Aqui está a chave:" + chave + valor. |
+| 16.10 | No pagamento, "Meu bem não quer enviar" (o pix não vai) | "Sem problema! Se o pix não quiser enviar, você pode pagar na recepção, no dia do atendimento, ou eu chamo alguém pra te mandar um link de pagamento." |
+| 16.11 | "Eu pago assim que chegar aí" / "Mas pode deixar agendado" | Entende como pagar na recepção e segue para o CPF. |
+| 16.12 | Depois do CPF novo, mandar numa rajada: nome, telefone, CPF (ou qualquer ordem, ou um por vez) | Anota tudo, o sexo sai do primeiro nome (Joana = feminino; nome que ela não conhece, ela pergunta) e só pede o que falta: "Falta só a data de nascimento." |
+| 16.13 | "um minuto, já vou mandar" no meio dos dados | Não vira nome do paciente. |
+| 16.14 | CPF que já existe, mesmo mandando nome e telefone antes | Mostra só o nome para confirmar (não pede nascimento nem telefone). |
+| 16.15 | Com a lista de opções na tela, "vou pagar na recepção" ou "hoje" | Não procura serviço nessa frase (antes achava "Retenção" em "recepção"); anota e repete a pergunta. |
+
+**Ainda não faz (conversas reais mostram que os pacientes pedem):** combos ("Quanto tá um combo?", "AGENDAR III"); gerar o recibo/OS em PDF depois do pagamento; mandar só o horário mais próximo em vez de lista (hoje manda até 4 opções).
+
 ## Como me passar o resultado
 
 Para cada cenário que falhar ou ficar estranho, me mande o número (ex.: **4.10**), o que você escreveu e o que ela respondeu (print ou texto). Se puder, cole também a linha do `/painel/logs`. Assim eu corrijo e acrescento o caso nos testes automáticos.

@@ -2,6 +2,7 @@ import { criarAgendamento, criarPaciente, demandaPorProcedimento, getPacientePor
 import { env } from '../../../lib/env.js';
 import { exibir, prepararGeneros } from '../../../lib/genero.js';
 import { evt } from '../../../lib/log.js';
+import { preparoPadrao } from './preparos.js';
 import { RAIZES, type PedidoReserva, type ResultadoReserva, type Descoberta, type Fonte, type Periodo, type Servico, type Slot, type Unidade } from './catalog.js';
 
 /** Fonte REAL: unidades, médicos, preços, agenda e pacientes vêm do Clinilink. Reservar/cadastrar só com credencial rw. */
@@ -28,13 +29,15 @@ function pontuar(p: Procedimento, texto = '') {
   return (n.includes('consulta') ? 2 : 0) + (p.categoria && /consulta/i.test(p.categoria) ? 1 : 0) - (/^retorno|\bretorno\b/.test(n) ? 5 : 0) + (citou ? 6 : 0);
 }
 
+/** Hoje o começo da agenda (ex.: 14h) já passou: vale o primeiro horário livre que sobrou. Nos outros dias, o começo da agenda (ordem de chegada). */
+const inicioMostrado = (h: Horario) => { const bloco = h.agendaHoraInicio ?? h.hora; return h.data === hojeYmd() && h.hora > bloco ? h.hora : bloco; };
 const slotDe = (h: Horario): Slot => {
-  const inicio = h.agendaHoraInicio ?? h.hora;
-  return { ymd: h.data, turno: periodoDe(inicio), inicio, profissional: h.profissional?.nome ? titulo(h.profissional.nome) : undefined, profissionalId: h.profissional?.id, profissionalBruto: h.profissional?.nome };
+  const inicio = inicioMostrado(h);
+  return { ymd: h.data, turno: periodoDe(h.agendaHoraInicio ?? h.hora), inicio, profissional: h.profissional?.nome ? titulo(h.profissional.nome) : undefined, profissionalId: h.profissional?.id, profissionalBruto: h.profissional?.nome };
 };
 /** Um slot por (data, período): várias horas de uma mesma agenda viram um único período. */
 function agrupar(horarios: Horario[]): Slot[] {
-  const ordenados = [...horarios].sort((a, b) => (a.data + (a.agendaHoraInicio ?? a.hora)).localeCompare(b.data + (b.agendaHoraInicio ?? b.hora)));
+  const ordenados = [...horarios].sort((a, b) => (a.data + (a.agendaHoraInicio ?? a.hora) + a.hora).localeCompare(b.data + (b.agendaHoraInicio ?? b.hora) + b.hora));
   const vistos = new Set<string>(); const out: Slot[] = [];
   for (const h of ordenados) { const s = slotDe(h); const k = `${s.ymd}|${s.turno}`; if (!vistos.has(k)) { vistos.add(k); out.push(s); } }
   return out;
@@ -80,7 +83,7 @@ async function montar(c: Cand, prof?: { id: string; nome: string }): Promise<Des
     profissional: prof ? { id: prof.id, nome: titulo(prof.nome) } : undefined,
     unidades: comAgenda.map(({ u, medicos, proc }): Unidade => ({ id: u.id, nome: nomeUnidade(u), profissionais: medicos, precoPix: precoDe(proc), nomeBruto: u.nome, endereco: u.endereco, telefone: u.telefone })), precoTexto,
     nomeBruto: c.proc.nome,
-    preparo: preparoUtil(c.proc.preparo),
+    preparo: preparoUtil(c.proc.preparo) ?? preparoPadrao(c.proc.nome),
   };
   return { servico };
 }
@@ -235,6 +238,37 @@ function ranquear(cands: Cand[], palavras: string[], t: string) {
   }).sort((x, y) => y.hits - x.hits || y.score - x.score || pontuar(y.cand.proc, t) - pontuar(x.cand.proc, t));
 }
 
+const PALAVRAS_FRACAS = new Set(['com', 'para', 'por', 'sem', 'dos', 'das', 'uma', 'uns', 'umas', 'ou']);
+const palavrasDoNome = (s: string) => norm(s).split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !PALAVRAS_FRACAS.has(w));
+
+/**
+ * Como a atendente: não pergunta "qual das duas" quando uma é claramente a certa.
+ *  - "Retorno" só vale se o paciente pediu retorno;
+ *  - cadastros repetidos com as mesmas palavras em outra ordem ("Clinico Geral Consulta" = "Consulta Clínico Geral") viram um só (o primeiro, que já vem
+ *    ordenado pela demanda da clínica);
+ *  - o serviço "puro" ("Usg Transvaginal") ganha das versões com qualificador que o paciente não citou ("... Com Doppler", "... Contagem de Folículos").
+ * `soDuplicatas`: só junta os repetidos (para listas genéricas de "consultas mais procuradas").
+ */
+export function canonizar<T>(itens: T[], nome: (x: T) => string, pedido: string, soDuplicatas = false): T[] {
+  let lista = itens;
+  if (!soDuplicatas && !/\b(retorno|retornar|reconsulta)\b/.test(norm(pedido))) {
+    const sem = lista.filter((x) => !/\bretorno\b/.test(norm(nome(x))));
+    if (sem.length) lista = sem;
+  }
+  const vistos = new Set<string>();
+  lista = lista.filter((x) => { const k = [...new Set(palavrasDoNome(nome(x)))].sort().join(' '); if (vistos.has(k)) return false; vistos.add(k); return true; });
+  if (!soDuplicatas && lista.length > 1) {
+    const q = new Set(palavrasDoNome(pedido));
+    const toks = lista.map((x) => new Set(palavrasDoNome(nome(x))));
+    const puro = toks.findIndex((a, i) => a.size > 0 && toks.every((b, j) => j === i || [...a].every((w) => b.has(w))));
+    if (puro >= 0) {
+      const pediuQualificador = toks.some((b, j) => j !== puro && [...b].some((w) => !toks[puro].has(w) && q.has(w)));
+      if (!pediuQualificador) lista = [lista[puro]];
+    }
+  }
+  return lista;
+}
+
 /** Serviços que a clínica mais agenda: na hora de sugerir, passam na frente dos exames raros. */
 const PRINCIPAIS = /ergometr|esforco|eletrocardio|\becg\b|ecocardio|holter|\bmapa\b|ultrassom|\busg\b|ultrassonograf|raio ?x|radiograf|tomograf|resson|mamograf|densitom|endosc|colonosc|espirom|audiom|papanicolau|preventivo|\bconsulta\b/;
 
@@ -251,7 +285,7 @@ const temAgenda = async (c: Cand): Promise<boolean> => (await vagasAbertas(c)) >
  * Um vencedor claro vira o serviço; vários parecidos (ex.: só "teste") viram até 5 sugestões, escolhidas com inteligência:
  * só o que tem agenda aberta (se houver), os serviços principais primeiro (ergométrico antes de teste rápido de laboratório).
  */
-async function decidir(pont: ReturnType<typeof ranquear>, viaSintoma: boolean): Promise<Descoberta> {
+async function decidir(pont: ReturnType<typeof ranquear>, viaSintoma: boolean, pedido = ''): Promise<Descoberta> {
   const topo = pont[0]; const seg = pont[1];
   for (const x of pont.slice(0, 8)) conhecidos.set(x.cand.proc.id, x.cand);
   if (!seg || topo.hits > seg.hits || topo.score - seg.score >= 1.5) {
@@ -274,7 +308,8 @@ async function decidir(pont: ReturnType<typeof ranquear>, viaSintoma: boolean): 
     if (itens.filter((it) => it.ag).length >= 5) break;
   }
   const visiveis = itens.some((i) => i.ag) ? itens.filter((i) => i.ag) : itens;
-  const top = visiveis.sort((a, b) => demanda(b.x) - demanda(a.x) || principal(b.x) - principal(a.x) || b.x.score - a.x.score || pontuar(b.x.cand.proc) - pontuar(a.x.cand.proc)).slice(0, 5);
+  const ordenados = visiveis.sort((a, b) => demanda(b.x) - demanda(a.x) || principal(b.x) - principal(a.x) || b.x.score - a.x.score || pontuar(b.x.cand.proc) - pontuar(a.x.cand.proc));
+  const top = canonizar(ordenados, (i) => i.x.cand.proc.nome, pedido).slice(0, 5); // sem "retorno", sem repetidos, sem qualificador que ele não pediu
   if (top.length === 1) {
     const d = await montar(top[0].x.cand);
     return d && 'servico' in d ? { servico: { ...d.servico, viaSintoma } } : d;
@@ -289,7 +324,7 @@ async function decidir(pont: ReturnType<typeof ranquear>, viaSintoma: boolean): 
 async function buscarSimilares(t: string, palavras: string[], viaSintoma: boolean, forte: boolean): Promise<Descoberta> {
   const itens = await catalogo();
   const pont = ranquear(itens.map((x) => x.cand), palavras, t).filter((x) => x.hits > 0 && (!forte || x.forte >= 2.5));
-  return pont.length ? decidir(pont, viaSintoma) : undefined;
+  return pont.length ? decidir(pont, viaSintoma, t) : undefined;
 }
 
 /**
@@ -302,9 +337,9 @@ async function sugerirPorTipo(tipo: 'exame' | 'consulta'): Promise<Descoberta> {
   const demanda = (c: Cand) => dem.get(c.proc.id) ?? 0;
   const principal = (c: Cand) => (PRINCIPAIS.test(norm(c.proc.nome)) ? 1 : 0);
   // o que a clínica mais agenda primeiro (últimos 30 dias); sem esse dado, os serviços principais
-  const fila = itens.map((i) => i.cand)
+  const fila = canonizar(itens.map((i) => i.cand)
     .filter((c) => (tipo === 'consulta' ? ehConsulta(c) : !ehConsulta(c)) && !/\bretorno\b/i.test(c.proc.nome))
-    .sort((a, b) => demanda(b) - demanda(a) || principal(b) - principal(a) || pontuar(b.proc) - pontuar(a.proc) || a.proc.nome.localeCompare(b.proc.nome));
+    .sort((a, b) => demanda(b) - demanda(a) || principal(b) - principal(a) || pontuar(b.proc) - pontuar(a.proc) || a.proc.nome.localeCompare(b.proc.nome)), (c) => c.proc.nome, '', true); // sem cadastros repetidos ("Clinico Geral Consulta" e "Consulta Clínico Geral")
   const achados: Cand[] = []; const pulados: Cand[] = []; const porCategoria = new Map<string, number>();
   // olha a agenda em blocos de 12 (os mais agendados primeiro) até juntar 6 com horário aberto; nos exames, no máximo 2 por categoria
   // (senão a lista fica só de laboratório e some o ultrassom, o eletrocardiograma...)
@@ -391,9 +426,11 @@ export const fonteClinilink: Fonte = {
       if (iguais.length > 1) {
         const dem = await demandaPorProcedimento();
         iguais.sort((a, b) => (dem.get(b.cand.proc.id) ?? 0) - (dem.get(a.cand.proc.id) ?? 0));
-        return { opcoes: iguais.slice(0, 5).map((x) => ({ id: x.cand.proc.id, nome: titulo(x.cand.proc.nome) })) };
+        const unicos = canonizar(iguais, (x) => x.cand.proc.nome, t);
+        if (unicos.length === 1) { const d = await montar(unicos[0].cand); return d && 'servico' in d ? { servico: { ...d.servico, viaSintoma } } : d; }
+        return { opcoes: unicos.slice(0, 5).map((x) => ({ id: x.cand.proc.id, nome: titulo(x.cand.proc.nome) })) };
       }
-      return decidir(pont, viaSintoma);
+      return decidir(pont, viaSintoma, t);
     }
     // a busca exata não achou: procura no catálogo inteiro por nome igual ou PARECIDO (abreviação, erro de digitação, radical)
     if (palavras.length) {
@@ -450,7 +487,7 @@ export const fonteClinilink: Fonte = {
     for (const h of livres.slice(0, 3)) {
       const dataHora = h.dataHora ?? `${h.data}T${h.hora}:00-03:00`;
       const r = await criarAgendamento({ pacienteId, unidadeId: unidade.id, agendaId: h.agendaId, profissionalId: h.profissional?.id ?? slot.profissionalId ?? '', dataHora, procedimentoId: servico.id, observacao: p.observacao });
-      if (r.ok) return { ok: true, profissional: h.profissional?.nome ? titulo(h.profissional.nome) : slot.profissional, profissionalBruto: h.profissional?.nome ?? slot.profissionalBruto, hora: h.agendaHoraInicio ?? h.hora, cadastrou };
+      if (r.ok) return { ok: true, profissional: h.profissional?.nome ? titulo(h.profissional.nome) : slot.profissional, profissionalBruto: h.profissional?.nome ?? slot.profissionalBruto, hora: inicioMostrado(h), cadastrou };
       ultimo = r.codigo;
       if (r.codigo !== 'HORARIO_OCUPADO') return { ok: false, codigo: r.codigo, motivo: r.mensagem || r.codigo, incerto: r.incerto, cadastrou };
     }

@@ -40,6 +40,15 @@ export function generoSync(nomeCompleto: string): Genero | undefined {
   return undefined;
 }
 
+/** Gênero só quando o nome está nas listas ou o modelo já confirmou (sem palpite pela terminação): serve para campo de cadastro. */
+export function generoConfirmado(nomeCompleto: string): Genero | undefined {
+  const p = primeiroToken(nomeCompleto);
+  if (!p) return undefined;
+  if (FEMININOS.has(p)) return 'F';
+  if (MASCULINOS.has(p)) return 'M';
+  return cache.get(p) ?? undefined;
+}
+
 /** O nome está nas listas de nomes conhecidos? Se não está, a terminação é só um palpite e vale confirmar. */
 const conhecido = (p: string) => FEMININOS.has(p) || MASCULINOS.has(p);
 

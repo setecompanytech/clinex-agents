@@ -1,6 +1,6 @@
 import type { Comprovante } from '../../../lib/comprovante.js';
 import { env } from '../../../lib/env.js';
-import { exibir, exibirLista, prepararGeneros } from '../../../lib/genero.js';
+import { exibir, exibirLista, generoConfirmado, prepararGeneros } from '../../../lib/genero.js';
 import type { PedidoInterpretado } from '../../../lib/interpretarPedido.js';
 import type { MensagemConversa, RespostaContextual } from '../../../lib/contexto.js';
 import { RAIZES, type AgendamentoExistente, type Fonte, type PacienteInfo, type Periodo, type Servico, type Slot, type Unidade } from './catalog.js';
@@ -47,6 +47,7 @@ export type State = {
   comprovante?: { valor: number; data: string; nota: string };
   rapido?: boolean; // pediu "o mais rápido possível" antes de ver a lista: escolhe o primeiro horário quando chegar a hora
   apartir?: string; // pediu "semana que vem", "depois do dia 25"...: a lista de horários começa nessa data
+  ate?: string; // pediu "essa semana", "até dia 25"...: só vale horário até essa data (senão ela diz que não tem e mostra o mais próximo)
   ofereceuEquipe?: string; // serviço pedido que não foi encontrado: ela ofereceu chamar a equipe e espera a resposta
   preUnidade?: string; // unidade citada antes de o serviço ser conhecido (aplicada quando ele for)
   pagPref?: 'pix' | 'link' | 'recepcao'; // forma de pagamento adiantada pelo paciente, antes de a pergunta ser feita
@@ -91,6 +92,7 @@ export type Result = {
   state: State; reply: string; handoff?: Handoff; silencio?: boolean;
   aposHandoffDuro?: boolean; // a conversa já passou por uma transferência que a Amanda NÃO deve desfazer (pediu humano, urgência)
   faq?: boolean; // a resposta já traz a resposta a uma dúvida (horário, valor...)
+  direta?: boolean; // o roteiro respondeu exatamente o que o paciente disse (ex.: "já pode deixar pago?"): a camada de contexto não entra
   passos?: number; // quantas mensagens do paciente já foram processadas na conversa (varia as frases; vai junto com o estado guardado)
 };
 
@@ -157,19 +159,21 @@ const periodoTxt = (t: Periodo) => (t === 'manhã' ? 'de manhã' : 'à tarde');
 const NOMES_MES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
 const SEM_CURTA = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
 /** "quinta, dia 22" (ou "quinta, dia 5 de novembro" quando é em outro mês). `ref` = hoje. */
-const dataCurta = (ymd: string, ref: string) => { const d = toDate(ymd); return `${SEM_CURTA[d.getUTCDay()]}, dia ${d.getUTCDate()}${ymd.slice(0, 7) === ref.slice(0, 7) ? '' : ` de ${NOMES_MES[d.getUTCMonth()]}`}`; };
+const dataCurta = (ymd: string, ref: string) => { if (ymd === ref) return 'hoje'; const d = toDate(ymd); return `${SEM_CURTA[d.getUTCDay()]}, dia ${d.getUTCDate()}${ymd.slice(0, 7) === ref.slice(0, 7) ? '' : ` de ${NOMES_MES[d.getUTCMonth()]}`}`; };
 /** "quinta (22)" / "terça (3/11)": para o resumo. */
-const dataResumo = (ymd: string, ref: string) => { const d = toDate(ymd); return `${SEM_CURTA[d.getUTCDay()]} (${d.getUTCDate()}${ymd.slice(0, 7) === ref.slice(0, 7) ? '' : `/${d.getUTCMonth() + 1}`})`; };
+const dataResumo = (ymd: string, ref: string) => { if (ymd === ref) return 'hoje'; const d = toDate(ymd); return `${SEM_CURTA[d.getUTCDay()]} (${d.getUTCDate()}${ymd.slice(0, 7) === ref.slice(0, 7) ? '' : `/${d.getUTCMonth() + 1}`})`; };
 /** "quinta dia 22": para frase corrida, sem vírgula. */
 const dataFalada = (ymd: string, ref: string) => dataCurta(ymd, ref).replace(',', '');
 /** "na quinta (22)" / "no sábado (24)": para o resumo falado. */
-const diaResumo = (ymd: string, ref: string) => `${[0, 6].includes(toDate(ymd).getUTCDay()) ? 'no' : 'na'} ${dataResumo(ymd, ref)}`;
+const diaResumo = (ymd: string, ref: string) => ymd === ref ? 'hoje' : `${[0, 6].includes(toDate(ymd).getUTCDay()) ? 'no' : 'na'} ${dataResumo(ymd, ref)}`;
 /** "quinta, dia 22 de outubro": sempre com o mês, para a confirmação final não deixar dúvida. */
 const dataLonga = (ymd: string) => { const d = toDate(ymd); return `${SEM_CURTA[d.getUTCDay()]}, dia ${d.getUTCDate()} de ${NOMES_MES[d.getUTCMonth()]}`; };
 /** Nomes de médicos na conversa: "a Dra. Fernanda" / "o Dr. Armando" (nome completo só se dois tiverem o mesmo primeiro nome). */
 const nomesExib = (nomes: (string | undefined)[]) => { const u = [...new Set(nomes.filter((x): x is string => Boolean(x)))]; const ex = exibirLista(u, { artigo: true }); return new Map(u.map((n, i) => [n, ex[i]])); };
 /** "a Dra. Fernanda e o Dr. Armando". */
 const juntar = (itens: string[]) => (itens.length <= 1 ? (itens[0] ?? '') : `${itens.slice(0, -1).join(', ')} e ${itens[itens.length - 1]}`);
+/** Uma lista de horários com um item só vira pergunta de sim ou não ("Esse horário fica bom?"), como a atendente faz. */
+const fechoLista = (n: number) => (n === 1 ? 'Esse horário fica bom pra você?' : 'Qual desses fica bom pra você?');
 const numerada = (slots: Slot[], comMedico: boolean, ref: string) => {
   const nomes = nomesExib(slots.map((x) => x.profissional));
   return slots.map((s, i) => `${i + 1}. ${cap(dataCurta(s.ymd, ref))}, ${periodoTxt(s.turno)}, a partir das ${hora(s.inicio)}${comMedico && s.profissional ? `, com ${nomes.get(s.profissional)}` : ''}`).join('\n');
@@ -226,6 +230,21 @@ const HUMANO = /atendente|humano|pessoa de verdade|falar com alguem|falar com um
 const SIM = /^(s+i+m+|s|pode|pode (sim|reservar|agendar|marcar|confirmar|fazer|seguir|continuar|ser)|quero|quero sim|ok|okay|isso|isso (mesmo|ai|a)|e isso|e isso mesmo|e esse|e esse mesmo|esse (mesmo|ai)|ele mesmo|ela mesma|exato|exatamente|confirmo|confirma|confirmado|fechado|fechou|combinado|bora|vamos|vamo|vai la|manda ver|claro|claro que sim|mas claro|com certeza|por favor|ta bom|ta certo|ta otimo|ta|tudo bem|correto|certo|certinho|perfeito|otimo|beleza|blz|demorou|uhum|aham|u+h+u+m+|positivo|afirmativo|yes|sim senhora|sim senhor|sou eu|sou eu mesmo)\b/;
 const RETOMAR = /\b(retom\w*|continu\w*|dar continuidade|voltei|ainda quero|onde (a gente )?parou|de onde paramos|seguir com (o|meu) agendamento)\b/;
 const NAO = /^(nao|n|nope|nao quero|nao obrigad|nao e|nao era|nao eh|nao mesmo|nao senhora|nao senhor|negativo|nada disso|nem|nenhum|nenhuma|errado|errei|incorreto|ta errado|de jeito nenhum|jamais|outro|outra|prefiro outro|prefiro outra)\b/;
+/**
+ * Palavras de conversa, pagamento, dia, período e agenda: uma mensagem feita só delas ("na recepção", "hoje", "meu bem não quer enviar",
+ * "eu pago assim que chegar aí") NÃO traz nome de serviço, então não se procura serviço nela (a busca por parecido achava "Retenção" em "recepção").
+ */
+const PALAVRAS_DE_CONVERSA = new Set(('pagar pago pagamento pagando pix recepcao clinica link credito debito cartao dinheiro hoje amanha manha tarde noite semana proxima proximo proximos dias '
+  + 'quero queria vamos posso podemos pode deixa deixar deixe agendado agendar marcar marcado marcada assim chegar chegando chego chegou meu minha bem nao quer querer enviar mandar manda tentar '
+  + 'tenho tinha quando depois antes ainda agora entao tudo obrigado obrigada favor mais muito esse essa este esta aqui tambem claro gostaria estou seria ficar fica fico ficou horario horarios '
+  + 'vaga vagas agenda disponivel disponibilidade consegue conseguir mesmo isso aquele desse unidade unidades dia essa semana pessoal gente moca moco doutor doutora senhora senhor segunda terca quarta '
+  + 'quinta sexta sabado domingo lado outro outra outros outras algum alguma qualquer tanto faz primeiro ultimo cedo rapido possivel depois eles ela ele nosso nossa vezes vez uns umas').split(' '));
+function semNomeDeServico(t: string, unidades: string[] = []): boolean {
+  const resto = norm(t).replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter((w) => w.length > 3 && !PALAVRAS_DE_CONVERSA.has(w) && !unidades.some((u) => w === norm(u)));
+  return resto.length === 0;
+}
+/** Palavras curtas e do dia a dia que mostram que a frase NÃO é um nome ("um minuto", "já vou mandar", "pode ser esse"). */
+const NAO_E_NOME = new Set('sim nao nem pix oi ola bom boa dia tchau vou vai ver tem ter pra por que cpf rg telefone nascimento nome completo data whatsapp numero esse essa este esta isso aguarda aguarde espera espere minuto minutinho momento segundo mande mando enviar enviei mandei comprovante paciente tambem ainda agora entao tudo obrigado obrigada favor claro certo combinado pode ser fica ficar manda mandar segue seguindo aqui'.split(' '));
 const SO_CUMPRIMENTO = /^(oi+|ola|ola+ boa|e ai|ei|bom dia|boa tarde|boa noite|teste|ola teste|agente de ia|amanda|atendimento|tudo bem\??|oie)[\s!.,?]*(teste|amanda|tudo bem\??)?[\s!.,?]*$/;
 
 const cpfDoTexto = (t: string): string | undefined => {
@@ -278,7 +297,7 @@ const reais = (n: number) => `R$ ${n.toLocaleString('pt-BR', { minimumFractionDi
 /** Mídia enviada pelo paciente chega ao roteiro como [[midia:tipo:id]] (o agente troca a imagem por esta marca). */
 export const TOKEN_MIDIA = /\[\[midia:(image|document):([^\]]+)\]\]/;
 
-const RECEPCAO = /nao (quero|vou|precisa|preciso|pretendo)( mais)?( de)? (pagar|antecipar|adiantar)|(so|apenas|somente)( quero| queria| preciso)? agendar|pagar (la|na recepcao|na clinica|na hora|no dia|depois|presencial)|pago (la|na recepcao|na clinica|na hora|no dia|depois)|\bna recepcao\b|\bna clinica\b|presencial|pessoalmente|\bdinheiro\b|\bdebito\b|depois eu pago|na hora que chegar/;
+const RECEPCAO = /nao (quero|vou|precisa|preciso|pretendo)( mais)?( de)? (pagar|antecipar|adiantar)|(so|apenas|somente)( quero| queria| preciso)? agendar|pagar (la|na recepcao|na clinica|na hora|no dia|depois|presencial)|pago (la|na recepcao|na clinica|na hora|no dia|depois)|\bna recepcao\b|\bna clinica\b|presencial|pessoalmente|\bdinheiro\b|\bdebito\b|depois eu pago|na hora que chegar|pag(o|ar|aria|arei) (assim que|quando|ao) (chegar|chego|eu chegar)|pago (ai|aqui)\b|(pode )?deix(a|ar|e) (so )?(agendado|marcado|reservado)\b/;
 const PIX = /\bpix\b/;
 const LINK = /(link|credito|cartao|parcel)/;
 /** Forma de pagamento citada pelo paciente; undefined = não deu para entender. */
@@ -338,7 +357,7 @@ const FAQ: [Faq, RegExp][] = [
   ['unidades', /\b(quais|que|onde)\b.{0,15}\b(unidades?|clinicas?)\b|\bunidades? (voces )?(tem|possuem)\b/],
   ['endereco', /\b(endereco|localizacao|ponto de referencia|como (eu )?(chego|chegar)|onde (fica|ficam|e a|e o|voces ficam))\b/],
   ['convenio', /\b(convenio|convenios|plano de saude|unimed|amil|hapvida|bradesco saude|sulamerica|cassi)\b/],
-  ['preparo', /\b(jejum|preparo|o que levar|preciso levar|levar (algum |algum outro )?(exame|documento|documentos)|que documentos?)\b/],
+  ['preparo', /\b(jejum|preparo|preparad[oa]s?|preparacao|preparar|o que levar|preciso levar|levar (algum |algum outro )?(exame|documento|documentos)|que documentos?)\b/],
 ];
 /** "??", "tá aí?", "tem alguém?": o paciente só está chamando. */
 const PING = /^(\?+|oi+\s*\?+|ola\s*\?+|alo\s*\??|ta ai\s*\??|tem alguem( ai)?\s*\??|cade\s*\??|voce (esta|ta) ai\s*\??|e entao\s*\??|ei\s*\??|hello\s*\??)[\s!.?]*$/;
@@ -503,7 +522,7 @@ export function mensagemConfirmacao(p: { paciente: string; novoCadastro: boolean
   return [
     `${MARCA_AGENDADO}! Deu tudo certo${p.primeiroNome ? `, ${p.primeiroNome}` : ''}.${p.novoCadastro ? ` Cadastro de ${p.paciente} feito.` : ''}`,
     modelo,
-    ...(p.servico.preparo ? [`Uma orientação importante pro seu atendimento: ${p.servico.preparo}`] : []),
+    ...(p.servico.preparo ? [/^PREPARO/.test(p.servico.preparo) ? p.servico.preparo : `Uma orientação importante pro seu atendimento: ${p.servico.preparo}`] : []),
     'Se puder, chega cedinho, que o atendimento é por ordem de chegada. Quer aproveitar e agendar mais algum exame ou consulta?',
   ].join('\n\n');
 }
@@ -531,7 +550,7 @@ const marcaDeProgresso = (x: State) => JSON.stringify([
   x.servico?.id, x.servico?.profissional?.id, x.servicoConfirmado, x.confirmPerguntado, x.unidadesInformadas, x.opcoes?.length ?? 0, x.unidade?.nome, x.lista?.length ?? 0,
   x.slot ? `${x.slot.ymd}${x.slot.inicio}` : null, x.pagPerguntado, x.pagamento, x.pagFinal, x.pixEnviado, x.pagoPix, x.cpf,
   x.paciente === undefined ? 'u' : x.paciente === null ? 'n' : x.paciente.nome, x.pacienteConfirmado, x.cad, x.dup?.tent, x.dup?.esclareceu,
-  x.ofereceuEquipe, x.data, x.turno, x.rapido, x.apartir,
+  x.ofereceuEquipe, x.data, x.turno, x.rapido, x.apartir, x.ate,
 ]);
 
 /** Os fatos VERIFICADOS da conversa (só o que o roteiro já sabe), de onde o leitor de contexto pode tirar a resposta. */
@@ -565,7 +584,7 @@ export function fatosDoEstado(s: State, ref: string, confirmacao?: string): stri
  */
 export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 0): Promise<Result> {
   const r = await stepBase(prev, texto, ctx, fonte, n);
-  if (!ctx.ultima || r.handoff || r.silencio || !r.reply || r.state.fim || r.faq) return r;
+  if (!ctx.ultima || r.handoff || r.silencio || !r.reply || r.state.fim || r.faq || r.direta) return r;
   const t = norm(texto.replace(TOKEN_MIDIA, ' '));
   if (t.length < 6 || SIM.test(t) || NAO.test(t) || SO_CUMPRIMENTO.test(t) || soAgradecimento(t) || TOKEN_MIDIA.test(texto)) return r;
   if (QUER_AGENDA.test(t)) return r; // pergunta pela agenda: o roteiro responde com os horários (a camada de contexto não entra)
@@ -626,7 +645,10 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
       // o que eu não sei com segurança, não invento: a equipe confirma
       case 'endereco': return textoEnderecos(t, s.unidade?.nome);
       case 'convenio': return `Sobre convênios a equipe confirma direitinho pra você e assim ninguém te passa informação errada.${EQUIPE}`;
-      case 'preparo': return `Sobre preparo e o que levar a equipe te orienta certinho pro seu atendimento.${EQUIPE}`;
+      case 'preparo': {
+        if (sv?.preparo) return reply.includes(sv.preparo) ? '' : /^PREPARO/.test(sv.preparo) ? sv.preparo : `Sobre o preparo: ${sv.preparo}`;
+        return 'Sobre preparo eu prefiro confirmar direitinho pra não te orientar errado. Se quiser, é só me pedir que eu chamo alguém da recepção pra te passar.';
+      }
     }
   };
   /** Põe a resposta da dúvida depois da saudação de abertura (se houver) e antes do resto. */
@@ -649,15 +671,35 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
    * (`primeiraVez`), o que ele adiantou (dia, período, "o mais rápido") fica para valer no serviço que acabou de ser entendido.
    */
   const reiniciaDepoisDoServico = (primeiraVez = false) => {
-    const adiantado = primeiraVez ? { data: s.data, turno: s.turno, rapido: s.rapido, apartir: s.apartir } : {};
+    const adiantado = primeiraVez ? { data: s.data, turno: s.turno, rapido: s.rapido, apartir: s.apartir, ate: s.ate } : {};
     s.confirmPerguntado = false; s.servicoConfirmado = false; s.unidadesInformadas = false; s.unidade = undefined;
-    s.lista = undefined; s.data = undefined; s.turno = undefined; s.slot = undefined; s.rapido = undefined; s.apartir = undefined;
+    s.lista = undefined; s.data = undefined; s.turno = undefined; s.slot = undefined; s.rapido = undefined; s.apartir = undefined; s.ate = undefined;
     if (!primeiraVez) s.preUnidade = undefined;
     s.pagPerguntado = false; s.pagamento = undefined; s.pixEnviado = false; s.pagFinal = false; s.compTent = 0; s.comprovante = undefined; s.pagoPix = undefined; s.transacoes = undefined;
     Object.assign(s, adiantado);
   };
   /** O horário mudou e nada foi pago ainda: o pagamento recomeça (a Amanda induz o pix de novo, já com o novo horário). */
   const refazPagamento = () => { if (!s.pagFinal && !s.pagoPix) { s.pagamento = undefined; s.pixEnviado = false; s.pagPerguntado = false; s.comprovante = undefined; } };
+  /**
+   * Dados do paciente que chegam em qualquer ordem (e às vezes todos de uma vez): nascimento, telefone, nome e sexo. O CPF é lido à parte.
+   * "algo": a mensagem trouxe algum dado (então não é "CPF ilegível"); "telefone": o número da mensagem era um telefone, não um CPF.
+   */
+  const capturaDados = (txt: string, tn: string): { algo: boolean; telefone: boolean } => {
+    const c = s.cad; const r = { algo: false, telefone: false };
+    if (!c.nascimento) { const nsc = lerNascimento(txt); if (nsc) { c.nascimento = nsc; r.algo = true; } }
+    const dig = txt.replace(/\D/g, '');
+    const soNumero = /^[\d\s().+-]+$/.test(txt.trim());
+    // telefone: 10 a 13 dígitos; CPF válido não conta; 11 dígitos só como celular (o terceiro dígito é 9) ou se já falta só ele
+    if (!c.telefone && soNumero && dig.length >= 10 && dig.length <= 13 && !(dig.length === 11 && cpfValido(dig)) && (dig.length !== 11 || dig[2] === '9' || Boolean(s.cpf))) { c.telefone = dig; r.algo = true; r.telefone = true; }
+    if (!c.nome && !/[?\d]/.test(txt)) {
+      const m = limparNome(txt);
+      const toks = m.split(/\s+/).filter(Boolean);
+      const proibida = toks.some((w) => { const x = norm(w); return NAO_E_NOME.has(x) || (x.length > 3 && PALAVRAS_DE_CONVERSA.has(x)); });
+      if (/^[\p{L}' ]{5,80}$/u.test(m) && toks.length >= 2 && toks.filter((w) => w.length >= 3).length >= 2 && !proibida && !SIM.test(tn) && !NAO.test(tn) && !faq) { c.nome = titulo(m); r.algo = true; }
+    }
+    if (!c.sexo) { if (/\b(feminino|mulher)\b/.test(tn)) { c.sexo = 'feminino'; r.algo = true; } else if (/\b(masculino|homem)\b/.test(tn)) { c.sexo = 'masculino'; r.algo = true; } }
+    return r;
+  };
   /** Guarda o que o paciente adiantou antes de dizer o serviço (dia, período, unidade, "o mais rápido", forma de pagamento). Devolve o que anotou ('' = nada). */
   const guardaAdiantado = async (): Promise<string> => {
     if (faq) return '';
@@ -666,6 +708,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     const it = lerIntencao(t, ctx);
     if (it?.primeiro) s.rapido = true;
     if (it?.apartir) s.apartir = it.apartir;
+    if (it?.ate) s.ate = it.ate;
     const d = it ? undefined : lerData(t, ctx);
     if (d) s.data = d;
     const tn = lerTurno(t);
@@ -719,7 +762,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     if (DUP_NOVO.test(t)) {
       // marcar MAIS UM em outro dia: segue o fluxo normal (lista de horários), sem oferecer o dia que já está ocupado
       s.dup = undefined; s.diasBloqueados = [...(s.diasBloqueados ?? []), d.ymd];
-      s.slot = undefined; s.lista = undefined; s.data = undefined; s.turno = undefined; s.rapido = undefined; s.apartir = undefined; s.fim = false;
+      s.slot = undefined; s.lista = undefined; s.data = undefined; s.turno = undefined; s.rapido = undefined; s.apartir = undefined; s.ate = undefined; s.fim = false;
       partes.push('Beleza, vamos marcar mais um em outro dia.');
     } else if (DUP_REMARCAR.test(t)) {
       return paraEquipe('Combinado!', 'O paciente quer remarcar o agendamento que já existe.');
@@ -758,7 +801,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     return out(comAbertura('Os combos eu ainda não consigo agendar por aqui. Vou chamar alguém da equipe pra te ajudar com isso. Só um instante.'), { duro: true, motivo: 'Paciente quer agendar um combo/pacote (a Amanda ainda não agenda combos). Mensagem: ' + texto.replace(TOKEN_MIDIA, ' ').trim().slice(0, 200) });
   }
   if (!faq && QUER_AGENDA.test(t)) s.querAgenda = true; // pediu a agenda: assim que houver serviço, os horários já vêm junto
-  const adiantou = !s.servico && !s.opcoes ? await guardaAdiantado() : '';
+  const adiantou = !s.servico ? await guardaAdiantado() : ''; // com a lista de opções na tela também: o que ele adiantar (dia, unidade, pagamento) fica anotado
   /** As regras não acharam o serviço: o intérprete (IA) entende o pedido no contexto da conversa e o roteiro procura o termo no Clinilink. */
   const entenderPedido = async (): Promise<Awaited<ReturnType<Fonte['descobrir']>> | 'nao'> => {
     if (!ctx.interpretarPedido || faq || t.length < 3 || SIM.test(t) || NAO.test(t) || soAgradecimento(t) || SO_CUMPRIMENTO.test(t)) return undefined;
@@ -844,20 +887,25 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
       if (!escolhida) {
         // não foi "1", "2"...: pode ser um pedido NOVO ("teste ergométrico") ou o nome de uma das opções. Pedido novo primeiro:
         // senão a palavra genérica "teste" casaria com a primeira opção ("Dengue Igg, Teste Rápido").
-        const novo = await fonte.descobrir(tBusca, !faq && !(SO_CUMPRIMENTO.test(t) && !/\bteste\b/.test(t)));
+        const soConversa = semNomeDeServico(t, await fonte.nomesUnidades()); // "na recepção", "hoje", "meu bem não quer enviar": não tem nome de serviço, não procura
+        const novo = soConversa ? undefined : await fonte.descobrir(tBusca, !faq && !(SO_CUMPRIMENTO.test(t) && !/\bteste\b/.test(t)));
         if (novo && ('servico' in novo || 'opcoes' in novo || 'semAgendaProfissional' in novo)) { const r = aplicar(novo); if (r) return r; }
         else {
           const GENERICAS = new Set(['teste', 'exame', 'consulta', 'rapido', 'total']);
           escolhida = s.opcoes.find((o) => norm(o.nome).split(/[^a-z]+/).filter((w) => w.length > 3 && !GENERICAS.has(w)).some((w) => t.includes(w)));
           if (!escolhida && novo) { const r = aplicar(novo); if (r) return r; }
-          if (!escolhida && !novo) { const ia = await entenderPedido(); const r = aplicar(ia === 'nao' ? undefined : ia); if (r) return r; }
+          if (!escolhida && !novo && !soConversa) { const ia = await entenderPedido(); const r = aplicar(ia === 'nao' ? undefined : ia); if (r) return r; }
         }
       }
       if (escolhida) { const r = aplicar(await fonte.resolver(escolhida.id)); if (r) return r; }
     } else {
       // dúvida ("funciona sábado?", "qual o horário de atendimento?"): sem busca solta por palavras, para não "achar" um serviço sem querer
       const soSaudacao = SO_CUMPRIMENTO.test(t) && !/\bteste\b/.test(t); // "oi", "bom dia": não procura serviço; "teste" pode ser o começo de "teste ergométrico"
-      const buscar = !s.servico && !faq && !soSaudacao;
+      // o serviço já foi entendido mas ainda não confirmado, e ele diz outra coisa ("e a transvaginal?", "na verdade quero ergo"): é outro pedido
+      const nomesUnBusca = await fonte.nomesUnidades();
+      const soConversa = semNomeDeServico(t, nomesUnBusca); // só pagamento/dia/unidade/conversa: sem nome de serviço, não procura
+      const emConfirmacao = Boolean(s.servico) && (!s.servicoConfirmado || !s.slot) && !SIM.test(t) && !semNomeDeServico(t.replace(NAO, ''), nomesUnBusca) && lerEscolha(t, s.lista?.length ?? 0) < 0; // "não" sozinho não traz serviço novo; "não, quero ergo" traz
+      const buscar = (!s.servico || emConfirmacao) && !faq && !soSaudacao && !soConversa;
       let achou = await fonte.descobrir(tBusca, buscar);
       // as regras não acharam, ou só concluíram "não achei" com as palavras soltas da frase ("coisa", "pé"): o intérprete entende o pedido primeiro
       if ((!achou || 'naoAchouServico' in achou) && buscar) {
@@ -919,6 +967,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
       const iAd = faq ? undefined : lerIntencao(t, ctx); // "o mais rápido possível", "semana que vem"...: guarda para quando chegar a hora dos horários
       if (iAd?.primeiro) s.rapido = true;
       if (iAd?.apartir) s.apartir = iAd.apartir;
+      if (iAd?.ate) s.ate = iAd.ate;
       const dAd = iAd || faq ? undefined : lerData(t, ctx); const tAd = faq ? undefined : lerTurno(t);
       if (dAd) s.data = dAd;
       if (tAd && tAd !== 'noite') s.turno = tAd;
@@ -954,14 +1003,15 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     intencao = lerIntencao(t, ctx, s.lista?.length ?? 0);
     if (intencao?.primeiro && !s.lista?.length) s.rapido = true;
     if (intencao?.apartir && !s.lista?.length) s.apartir = intencao.apartir;
+    if (intencao?.ate && !s.lista?.length) s.ate = intencao.ate;
     // sem preferência de unidade ("tanto faz", "a que tiver mais cedo"): a unidade com o horário mais próximo
     if (!s.unidade && sv.unidades.length > 1 && (intencao?.primeiro || /tanto faz|qualquer|a mais proxima|o mais proximo/.test(t))) {
-      const cand = await Promise.all(sv.unidades.map(async (u) => ({ u, p: (await fonte.proximas(sv, u, s.apartir ?? addDias(h.ymd, 1), 1))[0] })));
+      const cand = await Promise.all(sv.unidades.map(async (u) => ({ u, p: (await fonte.proximas(sv, u, s.apartir ?? h.ymd, 1))[0] })));
       const melhor = cand.filter((x) => x.p).sort((a, b) => (a.p!.ymd + a.p!.inicio).localeCompare(b.p!.ymd + b.p!.inicio))[0];
       s.unidade = melhor?.u ?? sv.unidades[0];
     }
     if (!s.unidade && sv.unidades.length === 1) s.unidade = sv.unidades[0];
-    const posicao = s.lista?.length ? lerEscolha(t, s.lista.length) : -1;
+    const posicao = s.lista?.length ? (lerEscolha(t, s.lista.length) >= 0 ? lerEscolha(t, s.lista.length) : s.lista.length === 1 && s.listaMista && SIM.test(t) ? 0 : -1) : -1;
     const escolhaLista = posicao >= 0 && posicao < (s.lista?.length ?? 0) ? posicao : -1; // posição que não existe na lista não é escolha
     // a lista da tela misturava unidades: escolher um item define a unidade; dizer a unidade (ou "tanto faz") descarta a mistura e refaz a lista dela
     if (s.listaMista) {
@@ -990,21 +1040,28 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     // se ele já escolheu a unidade, fala só dela
     partes.push(`${textoUnidades(s.unidade ? { ...sv, unidades: [s.unidade] } : sv, aviso ? 'duvida' : 'resposta')}${sv.precoTexto ? ` ${sv.precoTexto}` : ''}`);
     // orientação cadastrada para o atendimento (ex.: restrição de idade, preparo): avisa já aqui, em mensagem separada, antes de ele escolher o horário
-    if (sv.preparo) partes.push(`\nUma orientação importante pra esse atendimento: ${sv.preparo}`);
+    if (sv.preparo) partes.push(`\n${/^PREPARO/.test(sv.preparo) ? sv.preparo : `Uma orientação importante pra esse atendimento: ${sv.preparo}`}`);
   }
   if (!s.unidade) {
     // perguntou pela agenda (ou já disse o dia/período): em vez de só perguntar a unidade, já mostra os próximos horários de todas as unidades
-    if (sv.unidades.length > 1 && (s.querAgenda || s.data || s.turno || s.apartir)) {
+    if (sv.unidades.length > 1 && (s.querAgenda || s.data || s.turno || s.apartir || s.ate)) {
       const turnoPedido = s.turno;
-      const livre = (x: Slot) => !s.diasBloqueados?.includes(x.ymd) && (!turnoPedido || x.turno === turnoPedido);
+      const ateData = s.ate;
+      let comLimite = true; // o "até" (essa semana...) vale na primeira busca; se não houver nada, mostra o mais próximo
+      const livre = (x: Slot) => !s.diasBloqueados?.includes(x.ymd) && (!turnoPedido || x.turno === turnoPedido) && (!comLimite || !ateData || x.ymd <= ateData);
       const buscar = async (u: Unidade, doDia?: string): Promise<Slot[]> =>
-        (doDia ? await fonte.periodos(sv, u, doDia) : await fonte.proximas(sv, u, s.apartir ?? addDias(h.ymd, 1), 8)).filter(livre).map((x) => ({ ...x, unidade: u.nome }));
+        (doDia ? await fonte.periodos(sv, u, doDia) : await fonte.proximas(sv, u, s.apartir ?? h.ymd, 8)).filter(livre).map((x) => ({ ...x, unidade: u.nome }));
       let porUnidade = await Promise.all(sv.unidades.map((u) => buscar(u, s.data)));
       let titulo = 'Consegui estes aqui:';
       if (s.data && porUnidade.every((l) => l.length === 0)) {
         // sem vaga na data pedida: diz isso e mostra o que existe
         titulo = `Pra ${dataFalada(s.data, h.ymd)}${turnoPedido ? ` ${periodoTxt(turnoPedido)}` : ''} não tenho vaga. Mas consegui estes aqui:`;
         s.data = undefined; s.turno = undefined;
+        porUnidade = await Promise.all(sv.unidades.map((u) => buscar(u)));
+      }
+      if (ateData && !s.data && porUnidade.every((l) => l.length === 0)) {
+        comLimite = false;
+        titulo = `Pra ${ateData === addDias(h.ymd, (7 - diaSemana(h.ymd)) % 7) ? 'essa semana' : `até ${dataFalada(ateData, h.ymd)}`} não tenho horário. Mas consegui estes aqui:`;
         porUnidade = await Promise.all(sv.unidades.map((u) => buscar(u)));
       }
       const fila = porUnidade.map((l) => [...l].sort((a, b) => (a.ymd + a.inicio).localeCompare(b.ymd + b.inicio)));
@@ -1016,7 +1073,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
         const nomes = nomesExib(escolhidos.map((x) => x.profissional));
         const linhas = escolhidos.map((x, i) => `${i + 1}. ${x.unidade}, ${dataCurta(x.ymd, h.ymd)}, ${periodoTxt(x.turno)}, a partir das ${hora(x.inicio)}${x.profissional ? `, com ${nomes.get(x.profissional)}` : ''}`).join('\n');
         s.lista = escolhidos; s.listaMista = true;
-        return dizer(`${partes.length ? '\n' : ''}${titulo}\n${linhas}\nQual desses fica bom pra você? Se preferir uma unidade ou outro dia, é só me falar.`);
+        return dizer(`${partes.length ? '\n' : ''}${titulo}\n${linhas}\n${fechoLista(escolhidos.length)} Se preferir uma unidade ou outro dia, é só me falar.`);
       }
     }
     const quais = sv.unidades.length === 2 ? 'dos dois' : 'deles';
@@ -1039,7 +1096,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     if (sv.unidades.length < 2 || lista.length === 0) return '';
     let melhor: { u: Unidade; x: Slot } | undefined;
     for (const o of sv.unidades.filter((u) => u.nome !== un.nome)) {
-      const x = (await fonte.proximas(sv, o, addDias(h.ymd, 1), 3).catch(() => [] as Slot[])).filter(naoBloqueado)[0];
+      const x = (await fonte.proximas(sv, o, h.ymd, 3).catch(() => [] as Slot[])).filter(naoBloqueado)[0];
       if (x && (!melhor || x.ymd + x.inicio < melhor.x.ymd + melhor.x.inicio)) melhor = { u: o, x };
     }
     if (!melhor || melhor.x.ymd + melhor.x.inicio >= lista[0].ymd + lista[0].inicio) return '';
@@ -1047,14 +1104,14 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     return `Se for mais fácil, no ${melhor.u.nome} tenho ${slotFalado(melhor.x, false, h.ymd)}, mais cedo que esses. Se quiser, é só me dizer que eu mostro os horários de lá.`;
   };
   let escolhaDireta = ''; // "o mais rápido que tenho é ...": ela escolheu o horário pelo pedido do paciente (não por número)
-  const escolher = (x: Slot, direta = '') => { s.slot = x; s.data = x.ymd; s.turno = x.turno; s.lista = undefined; s.rapido = undefined; s.apartir = undefined; escolhaDireta = direta; };
+  const escolher = (x: Slot, direta = '') => { s.slot = x; s.data = x.ymd; s.turno = x.turno; s.lista = undefined; s.rapido = undefined; s.apartir = undefined; s.ate = undefined; escolhaDireta = direta; };
   /** Aplica o que o paciente quer fazer com os horários: escolhe o mais rápido/último, filtra (até uma data, período, hora) ou mostra outras opções. */
   const aplicarIntencao = async (it: IntLista): Promise<Result | undefined> => {
     const tp = lerTurno(t); const turnoPedido = tp && tp !== 'noite' ? tp : s.turno;
     const naTela = s.lista?.length ? s.lista : undefined;
     let pool: Slot[];
     if (naTela && !it.apartir && !it.mais) pool = [...naTela];
-    else pool = await fonte.proximas(sv, un, it.apartir ?? (it.mais && naTela ? addDias(naTela[naTela.length - 1].ymd, 1) : (s.apartir ?? addDias(h.ymd, 1))), 12);
+    else pool = await fonte.proximas(sv, un, it.apartir ?? (it.mais && naTela ? addDias(naTela[naTela.length - 1].ymd, 1) : (s.apartir ?? h.ymd)), 12);
     pool = pool.filter(naoBloqueado);
     await prepararGeneros(pool.map((x) => x.profissional));
     if (it.ate) pool = pool.filter((x) => x.ymd <= it.ate!);
@@ -1062,11 +1119,11 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     if (it.hora != null) pool = pool.filter((x) => [it.hora!, it.hora! + 12].includes(horaCheia(x.inicio)));
     if (pool.length === 0) {
       // nada com esse pedido: diz o que pediu e mostra o que existe
-      const pediu = [it.ate ? `até ${dataFalada(it.ate, h.ymd)}` : '', turnoPedido ? periodoTxt(turnoPedido) : '', it.hora != null ? `às ${it.hora}h` : ''].filter(Boolean).join(' ');
-      const alt = await alternativas(it.apartir ?? s.apartir ?? addDias(h.ymd, 1));
+      const pediu = [it.ate ? (it.ate === addDias(h.ymd, (7 - diaSemana(h.ymd)) % 7) ? 'essa semana' : `até ${dataFalada(it.ate, h.ymd)}`) : '', turnoPedido ? periodoTxt(turnoPedido) : '', it.hora != null ? `às ${it.hora}h` : ''].filter(Boolean).join(' ');
+      const alt = await alternativas(it.apartir ?? s.apartir ?? h.ymd);
       if (alt.length === 0) return out([...partes, 'No momento não vejo vagas abertas. Vou chamar alguém da equipe pra conferir e te retornar.'].join('\n'), { motivo: `Sem vagas para ${sv.nome} no ${un.nome}.` });
       s.lista = alt;
-      return dizer(`${pediu ? `Não tenho horário ${pediu}. ` : ''}Mas consegui estes aqui:\n${numerada(alt, comMedico, h.ymd)}\nQual desses fica bom pra você?`);
+      return dizer(`${pediu ? `Não tenho horário ${pediu}. ` : ''}Mas consegui estes aqui:\n${numerada(alt, comMedico, h.ymd)}\n${fechoLista(alt.length)}`);
     }
     if (it.primeiro || (s.rapido && !naTela)) { escolher(pool[0], `O mais rápido que tenho é ${slotFalado(pool[0], !sv.profissional, h.ymd)}. Já separo esse pra você.`); return undefined; }
     if (it.ultimo && naTela) { const u = pool[pool.length - 1]; escolher(u, `O último que tenho é ${slotFalado(u, !sv.profissional, h.ymd)}. Já separo esse pra você.`); return undefined; }
@@ -1074,7 +1131,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     if (pool.length === 1) { escolher(pool[0]); return undefined; }
     s.lista = pool.slice(0, 4);
     const intro = it.mais ? 'Sem problema. Tenho também:' : it.apartir ? `A partir de ${dataFalada(it.apartir, h.ymd)} tenho:` : it.ate ? `Até ${dataFalada(it.ate, h.ymd)} tenho:` : 'Consegui estes aqui:';
-    return dizer(`${intro}\n${numerada(s.lista, comMedico, h.ymd)}\nQual desses fica bom pra você?`);
+    return dizer(`${intro}\n${numerada(s.lista, comMedico, h.ymd)}\n${fechoLista(s.lista.length)}`);
   };
   if (!s.slot) {
     // resposta por número a uma lista anterior
@@ -1087,16 +1144,16 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
         if (med) {
           const dela = s.lista.filter((x) => x.profissional === med);
           if (dela.length === 1) { s.slot = dela[0]; s.data = dela[0].ymd; s.turno = dela[0].turno; s.lista = undefined; }
-          else { s.lista = dela; return dizer(`Com ${exibir(med, { artigo: true })} tenho:\n${numerada(dela, false, h.ymd)}\nQual desses fica bom pra você?`); }
+          else { s.lista = dela; return dizer(`Com ${exibir(med, { artigo: true })} tenho:\n${numerada(dela, false, h.ymd)}\n${fechoLista(dela.length)}`); }
         }
       }
     }
     // "o mais rápido possível", "a próxima", "outro dia", "semana que vem", "depois do dia 25", "às 15h"... (com ou sem lista na tela)
-    if (!s.slot && !s.data && (intencao || s.rapido || s.apartir)) { const rr = await aplicarIntencao(intencao ?? {}); if (rr) return rr; }
+    if (!s.slot && !s.data && (intencao || s.rapido || s.apartir || s.ate)) { const rr = await aplicarIntencao(intencao ?? (s.ate ? { ate: s.ate } : {})); if (rr) return rr; }
     // "quando tem agenda?", "tem horário?" com a lista na tela: é o pedido dos horários, então mostra a lista de novo (não vira "outras opções")
     if (!s.slot && listaAnterior?.length && !entendeuHorario && !faq && QUER_AGENDA.test(t)) {
       s.lista = listaAnterior;
-      return dizer(`Esses são os horários que tenho no ${un.nome}:\n${numerada(listaAnterior, comMedico, h.ymd)}\nQual desses fica bom pra você? Se quiser ver outro dia, é só me falar.`);
+      return dizer(`Esses são os horários que tenho no ${un.nome}:\n${numerada(listaAnterior, comMedico, h.ymd)}\n${fechoLista(listaAnterior.length)} Se quiser ver outro dia, é só me falar.`);
     }
     // as regras não entenderam a resposta à lista: o intérprete de apoio (IA) tenta, e tudo que ele devolve é validado
     if (!s.slot && listaAnterior?.length && !entendeuHorario && ctx.interpretar) {
@@ -1123,19 +1180,19 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
       if (certos.length === 1) { s.slot = certos[0]; s.turno = certos[0].turno; s.lista = undefined; }
       else if (certos.length > 1) {
         s.lista = certos;
-        return dizer(`Pra ${dataFalada(s.data, h.ymd)} tenho:\n${numerada(certos, comMedico, h.ymd)}\nQual desses fica bom pra você?`);
+        return dizer(`Pra ${dataFalada(s.data, h.ymd)} tenho:\n${numerada(certos, comMedico, h.ymd)}\n${fechoLista(certos.length)}`);
       } else {
         const pedido = `${dataFalada(s.data, h.ymd)}${s.turno ? ` ${periodoTxt(s.turno)}` : ''}`;
         // sem vaga nessa data: mostra o que existe depois dela (no período pedido, depois em qualquer período) e, se não houver nada depois, o que existe a partir de amanhã
         let alt: Slot[] = [];
-        for (const [de, filtro] of [[s.data, s.turno], [s.data, undefined], [addDias(h.ymd, 1), s.turno], [addDias(h.ymd, 1), undefined]] as [string, Periodo | undefined][]) {
+        for (const [de, filtro] of [[s.data, s.turno], [s.data, undefined], [h.ymd, s.turno], [h.ymd, undefined]] as [string, Periodo | undefined][]) {
           alt = await alternativas(de, filtro);
           if (alt.length) break;
         }
         s.data = undefined; s.turno = undefined;
         if (alt.length === 0) return out([...partes, 'Pra essa data não achei vaga e no momento não vejo outras datas abertas. Vou chamar alguém da equipe pra conferir e te retornar.'].join('\n'), { motivo: `Sem vagas para ${sv.nome} no ${un.nome}.` });
         s.lista = alt;
-        return dizer(`Pra ${pedido} não tenho vaga. Mas consegui estes aqui:\n${numerada(alt, comMedico, h.ymd)}\nQual desses fica bom pra você?`);
+        return dizer(`Pra ${pedido} não tenho vaga. Mas consegui estes aqui:\n${numerada(alt, comMedico, h.ymd)}\n${fechoLista(alt.length)}`);
       }
     } else {
       // a lista já estava na tela e eu não entendi a resposta: pergunta de outro jeito, em vez de repetir a lista em silêncio
@@ -1143,11 +1200,11 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
         s.lista = listaAnterior;
         return dizer(`Não peguei qual horário você quer. Pode ser o número, o dia ou "o mais rápido"?\n${numerada(listaAnterior, comMedico, h.ymd)}`);
       }
-      const alt = await alternativas(addDias(h.ymd, 1), s.turno);
+      const alt = await alternativas(h.ymd, s.turno);
       if (alt.length === 0) return out([...partes, 'No momento não vejo vagas abertas. Vou chamar alguém da equipe pra conferir e te retornar.'].join('\n'), { motivo: `Sem vagas para ${sv.nome} no ${un.nome}.` });
       s.lista = alt;
       const dica = await dicaOutraUnidade(alt); // sugestão: a outra unidade tem vaga mais cedo (mensagem separada, antes da pergunta)
-      return dizer(`Consegui estes aqui:\n${numerada(alt, comMedico, h.ymd)}${dica ? `\n\n${dica}\n\n` : '\n'}Qual desses fica bom pra você? Se quiser outro dia me fala que eu vejo.`);
+      return dizer(`Consegui estes aqui:\n${numerada(alt, comMedico, h.ymd)}${dica ? `\n\n${dica}\n\n` : '\n'}${fechoLista(alt.length)} Se quiser outro dia me fala que eu vejo.`);
     }
   }
   const slot = s.slot!;
@@ -1240,6 +1297,8 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
         s.pagFinal = true;
         preCpf = 'Recebi o seu comprovante, muito obrigada!';
       }
+      else if (/\bdeixa(r)? pago\b|\b(posso|quero|vou|queria|gostaria de) pagar (agora|ja)\b|\bpago agora\b/.test(t)) return { ...dizer(`Pode sim! Aqui está a chave:\n${MARCA_PIX} ${env.pixKey}${valorPix ? `\nValor${s.pagoPix ? ' que falta' : ''}: ${reais(falta || valorPix)}` : ''}\nQuando pagar, me manda o comprovante aqui, tá?`), direta: true };
+      else if (/nao (quer|esta|ta|consigo|vai|deu|foi) (enviar|mandar|passar|funcionar|fazer|pagar|certo)|deu erro|nao abre|nao carrega|problema (no|com o) (pix|app|aplicativo)/.test(t)) return { ...dizer('Sem problema! Se o pix não quiser enviar, você pode pagar na recepção, no dia do atendimento, ou eu chamo alguém pra te mandar um link de pagamento. O que fica melhor pra você?'), direta: true };
       else if (/pagu|fiz o pix|transferi|ja fiz|efetuei|enviei|mandei/.test(t)) return dizer('Que bom! Me manda o comprovante (foto ou print) pra eu conferir e seguir com o seu agendamento.');
       else if (/chave|copia e cola|qr|valor|quanto/.test(t) || (s.pagoPix && (PIX.test(t) || /agora|restante|diferenca|falta/.test(t)))) return dizer(`Aqui está!\n${MARCA_PIX} ${env.pixKey}${valorPix ? `\nValor${s.pagoPix ? ' que falta' : ''}: ${reais(falta || valorPix)}` : ''}\nQuando pagar, me manda o comprovante aqui, tá?`);
       else if (s.pagoPix) {
@@ -1270,12 +1329,14 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     } else return dizer('Tô aguardando o comprovante do pix pra seguir com o agendamento.');
   }
 
-  // 8) CPF
+  // 8) dados do paciente: o CPF e o que mais ele mandar (nome, nascimento, telefone), em qualquer ordem, em várias mensagens ou numa só
   const slotAntes = Boolean(base.slot && base.pagFinal);
+  const anotado = slotAntes ? capturaDados(texto, t) : { algo: false, telefone: false };
   if (!s.cpf) {
-    const cpf = slotAntes ? cpfDoTexto(t) : undefined;
+    const cpf = slotAntes && !anotado.telefone ? cpfDoTexto(t) : undefined;
     if (cpf && !cpfValido(cpf)) return dizer('Acho que algum número do CPF escapou, dá uma olhadinha e me manda de novo os 11 números?');
     if (cpf) s.cpf = cpf;
+    else if (anotado.algo) return dizer('Anotei! Me passa também o CPF do paciente?');
     else if (slotAntes && /\d{2,}/.test(t)) return dizer('Não consegui ler o CPF. Pode me mandar os 11 números?');
     else return dizer(pick([PERG_CPF, 'Qual o CPF do paciente? Preciso dele pra fazer a reserva.'], n));
   }
@@ -1285,7 +1346,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
   if (s.paciente === undefined) {
     s.paciente = await fonte.paciente(s.cpf);
     if (s.paciente) return dizer(`Achei aqui o cadastro de ${titulo(s.paciente.nome)}. É esse mesmo o paciente?`);
-    return dizer('Esse CPF ainda não tá no cadastro, vou fazer agora. Qual o nome completo do paciente?');
+    // CPF novo: segue para o passo 10, que pede de uma vez tudo o que ainda falta (ele pode já ter mandado nome, nascimento e telefone)
   }
   if (s.paciente && !s.pacienteConfirmado) {
     if (SIM.test(t)) s.pacienteConfirmado = true;
@@ -1293,26 +1354,27 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     else return dizer(`Esse cadastro é de ${titulo(s.paciente.nome)}. É esse mesmo o paciente?`);
   }
 
-  // 10) CPF novo: coleta o cadastro, um dado por mensagem
+  // 10) CPF novo: o cadastro (nome, nascimento, telefone) é pedido de uma vez e vale em qualquer ordem; o sexo sai do primeiro nome quando ele é conhecido
   if (s.paciente === null) {
     const c = s.cad;
-    if (!acabouDeConsultar) {
-      if (!c.nome) { const m = limparNome(texto); if (/^[\p{L}' ]{5,80}$/u.test(m) && m.includes(' ') && !SIM.test(t) && !NAO.test(t) && !faq) c.nome = titulo(m); }
-      else if (!c.nascimento) { const nsc = lerNascimento(texto); if (nsc) c.nascimento = nsc; }
-      else if (!c.sexo) { if (/fem|mulher/.test(t)) c.sexo = 'feminino'; else if (/masc|homem/.test(t)) c.sexo = 'masculino'; }
-      else if (!c.telefone) {
-        const dig = texto.replace(/\D/g, '');
-        if (c.pediuTelefone && dig.length >= 10 && dig.length <= 13) c.telefone = dig;
-        else if (!c.pediuTelefone) { /* ainda vai perguntar */ }
-        else if (SIM.test(t) && ctx.telefone) c.telefone = ctx.telefone.replace(/\D/g, '');
-      }
+    // "pode ser esse número": usa o WhatsApp do paciente
+    if (!acabouDeConsultar && c.pediuTelefone && !c.telefone && ctx.telefone && !anotado.telefone && (SIM.test(t) || /\b(esse|este|mesmo|whats\w*)\b/.test(t))) c.telefone = ctx.telefone.replace(/\D/g, '');
+    if (c.nome && !c.sexo) {
+      await prepararGeneros([c.nome]);
+      const g = generoConfirmado(c.nome);
+      if (g) c.sexo = g === 'F' ? 'feminino' : 'masculino';
     }
-    if (!c.nome) return dizer(!acabouDeConsultar ? 'Preciso do nome completo do paciente como está no documento. Qual é?' : 'Qual o nome completo do paciente?');
-    if (!c.nascimento) return dizer(`Prazer, ${c.nome.split(' ')[0]}! E a data de nascimento? Pode ser dia/mês/ano.`);
-    if (!c.sexo) return dizer('O cadastro pede o sexo: feminino ou masculino?');
-    if (!c.telefone) {
-      const primeira = !c.pediuTelefone; c.pediuTelefone = true;
-      return dizer(primeira ? 'E esse número do WhatsApp, posso usar de contato?' : 'Qual o telefone com DDD pra contato?');
+    const faltam: string[] = [];
+    if (!c.nome) faltam.push('o nome completo do paciente');
+    if (!c.nascimento) faltam.push('a data de nascimento');
+    if (!c.telefone) faltam.push('o telefone com DDD');
+    if (c.nome && !c.sexo) faltam.push('se o paciente é do sexo feminino ou masculino');
+    if (faltam.length) {
+      const pedeTelefone = !c.telefone;
+      if (pedeTelefone) c.pediuTelefone = true;
+      const dica = pedeTelefone ? ' (se for esse mesmo número do WhatsApp, é só me avisar)' : '';
+      if (acabouDeConsultar) return dizer(`Esse CPF ainda não tá no cadastro, vou fazer agora. Me manda ${juntar(faltam)}${dica}.`);
+      return dizer(`${faltam.length > 1 ? 'Faltam' : 'Falta'} só ${juntar(faltam)}${dica}.`);
     }
   }
 

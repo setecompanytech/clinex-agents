@@ -787,7 +787,7 @@ confere('O2 a unidade vale para o serviço escolhido depois: não pergunta de no
 
 o = await turnosDe(['oi', 'quero agendar ginecologista', 'sim', 'guama', 'na verdade quero com a dra rebecca']);
 confere('O3 pediu a médica pelo nome DEPOIS de ver os horários: mesma consulta, só dela, sem confirmar de novo', o.state.servico?.profissional?.id === P_REB && o.state.servicoConfirmado === true && o.state.unidade?.nome === 'Guamá' && !/(Ah, então é|Entendi, você quer)/.test(o.reply), `${o.state.servico?.profissional?.nome} | ${o.reply.replace(/\n/g, ' | ').slice(0, 220)}`);
-confere('O3 e mostra os horários dela, com Dra.', /Dra\. Rebecca/.test(o.reply) && /10h|10:00/.test(o.reply) && /Qual desses|Beleza, então fica|O mais rápido/.test(o.reply), o.reply.replace(/\n/g, ' | ').slice(0, 260));
+confere('O3 e mostra os horários dela, com Dra.', /Dra\. Rebecca/.test(o.reply) && /10h|10:00/.test(o.reply) && /Qual desses|Esse horário fica bom|Beleza, então fica|O mais rápido/.test(o.reply), o.reply.replace(/\n/g, ' | ').slice(0, 260));
 
 o = await turnosDe(['oi, quero ginecologia, meu cpf é 529.982.247-25']);
 confere('O4 CPF dito cedo fica guardado', o.state.cpf === '52998224725', String(o.state.cpf));
@@ -1134,6 +1134,81 @@ confere('EN4 já escolheu o Guamá e pergunta o endereço: manda o do Guamá (a 
 r = (await resp([...ate3.map(um), um('qual o endereço do telégrafo?')])) as any;
 confere('EN5 pergunta o do Telégrafo antes de escolher a unidade: manda o do Telégrafo e retoma a pergunta', r.reply.startsWith(END_TELEGRAFO) && /Qual dos dois/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 240));
 confere('EN6 o texto do endereço nunca passa pelo GPT (aprovado palavra por palavra)', SEM_GPT_LISTA.some((x: string) => r.reply.includes(x)), '');
+
+// ---- dados do paciente em qualquer ordem e de uma vez (como os pacientes mandam no dia a dia) ----
+{
+  const turnosBase = base.map((x: string) => [x]);
+  reset({ ocupados: 0 });
+  let d: any = await responder([...turnosBase, ['Joana Teste Souza', '91981990849', '12345678909']], ctx, fonteClinilink);
+  confere('DD1 nome + telefone + CPF numa rajada: anota tudo, o sexo sai do nome (Joana) e só pede o que falta (nascimento)', /Esse CPF ainda não tá no cadastro/.test(d.reply) && /Me manda a data de nascimento\./.test(d.reply) && !/nome completo/.test(d.reply) && !/telefone/.test(d.reply) && d.state.cad?.nome === 'Joana Teste Souza' && d.state.cad?.telefone === '91981990849' && d.state.cad?.sexo === 'feminino', `${d.reply.replace(/\n/g, ' | ').slice(0, 160)} | ${JSON.stringify(d.state.cad)}`);
+  reset({ ocupados: 0 });
+  d = await responder([...turnosBase, ['Joana Teste Souza', '91981990849', '12345678909'], ['10/05/1990']], ctx, fonteClinilink);
+  const cadDd = posts.find((x) => x.rota.endsWith('/pacientes'))?.corpo;
+  confere('DD2 mandou o nascimento: agenda de verdade e cadastra com os dados da rajada (telefone certo, sexo do nome)', d.reply.startsWith(MARCA_AGENDADO) && /Cadastro de Joana Teste Souza feito\./.test(d.reply) && cadDd?.nome === 'Joana Teste Souza' && cadDd?.dataNascimento === '1990-05-10' && cadDd?.sexo === 'feminino' && String(cadDd?.telefone).endsWith('91981990849') && nPost('/agendamentos') === 1, `${d.reply.slice(0, 80)} | ${JSON.stringify({ ...cadDd, cpf: '***' })}`);
+  // em qualquer ordem: nascimento primeiro, depois o nome, depois o telefone formatado, o CPF por último
+  reset({ ocupados: 0 });
+  d = await responder([...turnosBase, ['02/09/1977'], ['Maria Aparecida Teste'], ['(91) 98199-0849'], ['12345678909']], ctx, fonteClinilink);
+  confere('DD3 ordem trocada (nascimento, nome, telefone com máscara, CPF): agenda sem pedir de novo', d.reply.startsWith(MARCA_AGENDADO) && nPost('/agendamentos') === 1, d.reply.replace(/\n/g, ' | ').slice(0, 120));
+  reset({ ocupados: 0 });
+  d = await responder([...turnosBase, ['Joana Teste Souza']], ctx, fonteClinilink);
+  confere('DD4 mandou só o nome antes do CPF: "Anotei!" e pede o CPF (não repete a pergunta como se não tivesse entendido)', /^Anotei! Me passa também o CPF do paciente\?/.test(d.reply) && d.state.cad?.nome === 'Joana Teste Souza', d.reply.slice(0, 90));
+  // frases de conversa NÃO viram nome
+  reset({ ocupados: 0 });
+  d = await responder([...turnosBase, ['um minuto, já vou mandar'], ['pode ser esse número mesmo']], ctx, fonteClinilink);
+  confere('DD5 "um minuto, já vou mandar" e "pode ser esse número mesmo" não viram o nome do paciente', !d.state.cad?.nome && !d.state.cad?.telefone, JSON.stringify(d.state.cad));
+  // nome fora das listas: o sexo não é chutado, ela pergunta
+  reset({ ocupados: 0 });
+  d = await responder([...turnosBase, ['Xuxu Teste Souza', '91981990849', '12345678909'], ['10/05/1990']], ctx, fonteClinilink);
+  confere('DD6 nome que ela não conhece (Xuxu): não chuta o sexo, pergunta feminino ou masculino', /feminino ou masculino/.test(d.reply) && !d.state.cad?.sexo && nPost('/pacientes') === 0, d.reply.replace(/\n/g, ' | ').slice(0, 140));
+  d = await responder([...turnosBase, ['Xuxu Teste Souza', '91981990849', '12345678909'], ['10/05/1990'], ['masculino']], ctx, fonteClinilink);
+  confere('DD6 respondendo "masculino": conclui e cadastra com o sexo informado', d.reply.startsWith(MARCA_AGENDADO) && posts.find((x) => x.rota.endsWith('/pacientes'))?.corpo?.sexo === 'masculino', d.reply.slice(0, 80));
+  // CPF de paciente que já existe: só o nome para confirmar (não pede nascimento nem telefone), mesmo que ele tenha mandado os outros dados
+  reset({ ocupados: 0 });
+  d = await responder([...turnosBase, ['Maria Exemplo', '91981990849', '52998224725']], ctx, fonteClinilink);
+  confere('DD7 CPF que já tem cadastro: mostra só o nome para confirmar', /Achei aqui o cadastro de Maria Exemplo/.test(d.reply) && !/nascimento|telefone/.test(d.reply), d.reply.slice(0, 100));
+  // telefone: "pode ser esse número do WhatsApp" quando ela pediu junto com o resto
+  reset({ ocupados: 0 });
+  d = await responder([...turnosBase, ['Joana Teste Souza', '10/05/1990', '12345678909']], ctx, fonteClinilink);
+  confere('DD8 faltou só o telefone: pede, oferecendo o número do WhatsApp', /Me manda o telefone com DDD \(se for esse mesmo número do WhatsApp, é só me avisar\)\./.test(d.reply), d.reply.replace(/\n/g, ' | ').slice(0, 160));
+  d = await responder([...turnosBase, ['Joana Teste Souza', '10/05/1990', '12345678909'], ['pode ser esse mesmo']], ctx, fonteClinilink);
+  confere('DD8 "pode ser esse mesmo": usa o WhatsApp do paciente e agenda', d.reply.startsWith(MARCA_AGENDADO) && String(posts.find((x) => x.rota.endsWith('/pacientes'))?.corpo?.telefone).endsWith('999990000'), `${d.reply.slice(0, 60)} | ${posts.find((x) => x.rota.endsWith('/pacientes'))?.corpo?.telefone}`);
+}
+// ---- hoje, retorno, repetidos e serviço "puro" (como a atendente escolhe) ----
+{
+  const { canonizar } = await import('../src/agents/receptivo/script/clinilinkFonte.js');
+  const nm = (x: string) => x;
+  confere('CN1 "Retorno" só vale se ele pediu retorno', JSON.stringify(canonizar(['Consulta Ginecologista', 'Consulta Ginecologista - Retorno'], nm, 'consulta com a ginecologista')) === JSON.stringify(['Consulta Ginecologista']) && canonizar(['Consulta Ginecologista', 'Consulta Ginecologista - Retorno'], nm, 'quero marcar o retorno da ginecologista').length === 2, '');
+  confere('CN2 cadastros repetidos com as mesmas palavras em outra ordem viram um só (o primeiro)', JSON.stringify(canonizar(['Clinico Geral Consulta', 'Consulta Clínico Geral'], nm, 'clinico geral')) === JSON.stringify(['Clinico Geral Consulta']), '');
+  confere('CN3 o serviço "puro" ganha das versões com qualificador que ele não pediu (USG Transvaginal x com Doppler, folículos...)', JSON.stringify(canonizar(['Usg Transvaginal', 'Usg Transvaginal Com Doppler', 'Usg Transvaginal Para Contagem de Folículos'], nm, 'ultrassom transvaginal')) === JSON.stringify(['Usg Transvaginal']), '');
+  confere('CN4 mas se ele pediu o qualificador ("com doppler"), não escolhe o puro', canonizar(['Usg Transvaginal', 'Usg Transvaginal Com Doppler'], nm, 'transvaginal com doppler').length === 2, '');
+  confere('CN5 serviços diferentes continuam sendo opções (nada some)', canonizar(['Consulta Cardiologista', 'Consulta Dermatologista'], nm, 'consulta').length === 2, '');
+}
+// "na recepção", "hoje" e conversa solta NÃO viram busca de serviço (antes "recepção" achava "Retenção")
+{
+  const { PALAVRAS_TESTE } = { PALAVRAS_TESTE: 1 };
+  reset({ ocupados: 0 });
+  let q: any = await responder([['quero marcar consulta'], ['vou pagar na recepção']], ctx, fonteClinilink);
+  confere('LG1 com a lista de opções na tela, "vou pagar na recepção" não procura serviço (continua nas opções) e anota a forma de pagamento', Boolean(q.state.opcoes) && !q.state.servico && q.state.pagPref === 'recepcao', `${q.state.servico?.frase} | ${q.reply.replace(/\n/g, ' | ').slice(0, 100)}`);
+  void PALAVRAS_TESTE;
+}
+// pagamento: como os pacientes falam
+{
+  const pixFalas = async (falas: string[]) => { reset({ ocupados: 0 }); return (await resp([...base0, 'pix', ...falas].map((x) => [x]))) as any; };
+  let z = await pixFalas(['Já pode deixar pago?']);
+  confere('PX1 "já pode deixar pago?": responde que pode e manda a chave de novo', /^Pode sim! Aqui está a chave:/.test(z.reply) && /Chave pix: clinicaclinex@gmail\.com/.test(z.reply) && !/Essa eu prefiro/.test(z.reply), z.reply.replace(/\n/g, ' | ').slice(0, 160));
+  z = await pixFalas(['Meu bem não quer enviar']);
+  confere('PX2 "não quer enviar" (o pix falhou): oferece pagar na recepção ou o link, sem repetir "aguardando o comprovante"', /Se o pix não quiser enviar/.test(z.reply) && /recepção/.test(z.reply) && /link/.test(z.reply) && !/aguardando/.test(z.reply) && !z.handoff, z.reply.slice(0, 160));
+  z = await pixFalas(['Eu pago assim que chegar aí']);
+  confere('PX3 "eu pago assim que chegar aí": paga na recepção e segue para o CPF', z.state.pagamento === 'recepcao' && /CPF/.test(z.reply), z.reply.replace(/\n/g, ' | ').slice(0, 140));
+  z = await pixFalas(['Mas pode deixar agendado']);
+  confere('PX4 "pode deixar agendado": entende como pagar na recepção', z.state.pagamento === 'recepcao' && /CPF/.test(z.reply), z.reply.replace(/\n/g, ' | ').slice(0, 140));
+  // a camada de contexto não entra quando o roteiro já respondeu ("Pode sim!"): antes saía "Essa eu prefiro confirmar..." seguido de "Pode sim!"
+  chamadasCtx = [];
+  const kz = await viaCtx([...base0, 'pix', 'Já pode deixar pago?'], { tipo: 'pergunta', resposta: null });
+  confere('PX6 "já pode deixar pago?" com a camada de contexto ligada: só "Pode sim!" (sem "Essa eu prefiro confirmar...")', /^Pode sim! Aqui está a chave:/.test(kz.reply) && !/Essa eu prefiro/.test(kz.reply) && chamadasCtx.length === 0, kz.reply.replace(/\n/g, ' | ').slice(0, 140));
+  z = await pixFalas(['preciso pagar agora?']);
+  confere('PX5 "preciso pagar agora?" continua sendo dúvida (não manda a chave como se fosse "quero pagar")', !/^Pode sim! Aqui está a chave/.test(z.reply) && !z.handoff, z.reply.replace(/\n/g, ' | ').slice(0, 140));
+}
 
 server.close();
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTODOS OS CENÁRIOS PASSARAM');
