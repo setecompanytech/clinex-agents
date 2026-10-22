@@ -30,10 +30,10 @@ Escrito para: Giovanny, para testar a Amanda no WhatsApp com vários cenários e
 | 1.2 | "quero agendar cardiologia" | Confirma o serviço: "Ah, então é consulta ... né?" (ou "Entendi, você quer ..., é isso?") |
 | 1.3 | "sim" | "Tenho sim! No Guamá com a Dra. ... e no Telégrafo com ..." + preço "A consulta é R$ ..." + "Qual dos dois fica melhor pra você?" |
 | 1.4 | "Guamá" | "Consegui estes aqui:" com até 4 opções numeradas (dia da semana, dia, período, "a partir das Xh", médico se houver mais de um) |
-| 1.5 | "2" | Resumo "Beleza, então fica ... por ordem de chegada ..." e **já induz o pix**, sem perguntar antes: "Pra agilizar o seu atendimento na recepção, o melhor é antecipar o pagamento por pix, o valor é R$ ...:" + a chave sozinha ("Chave pix: ...", fácil de copiar) + "Quando pagar, me manda o comprovante aqui ... Se preferir pagar na recepção ou por link de crédito, é só me falar." (três balões) |
-| 1.6 | "na recepção" (ou "não", "prefiro pagar lá") | "Sem problema nenhum o pagamento fica pra recepção no dia do atendimento. Me passa o CPF do paciente pra eu reservar?" |
-| 1.7 | CPF de paciente que já existe | "Achei aqui o cadastro de [Nome]. É esse mesmo o paciente?" (só o nome, nenhum outro dado) |
-| 1.8 | "sim" | Mensagens separadas: "Agendamento confirmado! Deu tudo certo, [nome]." + o **modelo da clínica** (Paciente, Profissional, Procedimento, Data, Clínica, Endereço, Telefone, WhatsApp, Valor particular, Formas de pagamento; veja o Fluxo 14) + "Se puder, chega cedinho ... Quer aproveitar e agendar mais algum exame ou consulta?" |
+| 1.5 | "2" | Resumo do que ficou combinado ("Beleza, então fica ... por ordem de chegada ... com a Dra. ...") e, em outra mensagem, **o pedido dos dados do paciente**: "Pra gerar o agendamento, me manda por favor os dados do paciente:" com Nome completo, Data de nascimento, Telefone para contato (pode ser esse número do WhatsApp) e CPF. **Ainda não** fala de pagamento. |
+| 1.6 | CPF de paciente que já existe (pode mandar os 4 dados juntos, em várias mensagens, em qualquer ordem) | "Achei aqui o cadastro de [Nome]. É esse mesmo o paciente?" (só o nome, nenhum outro dado) |
+| 1.7 | "sim" | **Agora** a forma de pagamento: "Como você prefere pagar? Dá pra antecipar o pagamento por pix (o valor é R$ ...), que agiliza o seu atendimento na recepção, pagar na recepção, no dia do atendimento, ou por link de crédito." |
+| 1.8 | "na recepção" (ou "pix" + comprovante) | Agenda: mensagens separadas "Agendamento confirmado! Deu tudo certo, [nome]." + o **modelo da clínica** (Paciente, Profissional, Procedimento, Data, Clínica, Endereço, Telefone, WhatsApp, Valor particular, Formas de pagamento; veja o Fluxo 14) + "Se puder, chega cedinho ... Quer aproveitar e agendar mais algum exame ou consulta?" Com pix: a chave sozinha, o comprovante conferido e "Formas de pagamento: PAGO NO PIX". |
 
 Variações para fazer o mesmo caminho:
 - 1.9 Serviço que só tem **uma unidade**: ela não pergunta a unidade, já mostra os horários.
@@ -115,8 +115,8 @@ Com a lista de horários na tela:
 
 ## Fluxo 6. Pagamento
 
-- 6.1 Assim que você escolhe o horário, ela manda o pix sem você pedir: "Pra agilizar o seu atendimento na recepção, o melhor é antecipar o pagamento por pix, o valor é R$ ...:" + "Chave pix: ..." + pede o comprovante. Quem já disse antes que paga na recepção (ou por link) **não** é empurrado para o pix. Serviço sem valor cadastrado: ela não induz o pix e pergunta a forma de pagamento.
-- 6.2 Mandar um **comprovante certo** (hoje, valor igual ao da consulta, recebedor da Clinex) → "Recebi o seu comprovante, muito obrigada! Agora pra eu fazer a reserva pode me passar o CPF do paciente?"
+- 6.1 **A ordem é: horário → dados do paciente → forma de pagamento → agendamento.** Só depois de ter os dados (e o nome confirmado, se o paciente já existe) ela pergunta "Como você prefere pagar?" e oferece o pix com o valor. A chave pix só sai quando você escolhe pix. Quem já disse antes como quer pagar (na recepção, link, pix) **não** é perguntado de novo. Paciente **novo**: o cadastro no Clinilink só é criado no fim, junto do agendamento (quem desiste no meio não deixa cadastro pela metade).
+- 6.2 Mandar um **comprovante certo** (hoje, valor igual ao da consulta, recebedor da Clinex) → como os dados já foram dados, **agenda na hora** e a confirmação mostra "Formas de pagamento: PAGO NO PIX (comprovante recebido)".
 - 6.3 Comprovante com **valor maior** → aceita.
 - 6.4 Comprovante com **valor menor** → "Recebi o seu comprovante de R$ X. O valor é R$ Y, então ainda faltam R$ Z. Prefere pagar o restante agora por pix ou deixar para pagar na recepção?" Mande um segundo comprovante que complete (confirma) ou responda "na recepção" (o resto fica pra recepção).
 - 6.5 Comprovante **de outro dia** (ontem, dias atrás, meses atrás) → "Esse comprovante é de [dia], então deve ser de outro atendimento. Preciso do comprovante do pagamento de hoje, feito pra esse agendamento. Pode me mandar o correto?" (só vale o comprovante feito depois que você começou o pedido; conversa que atravessa a meia-noite vale).
@@ -138,6 +138,8 @@ Com a lista de horários na tela:
 - 6.20 Depois da chave, "queria outro dia" / "mudar o horário" → ela troca o horário e manda o pix de novo, já com o novo horário. "Outro dia eu pago" **não** troca o horário.
 
 ## Fluxo 7. CPF, paciente e cadastro
+
+Esses dados vêm **antes** do pagamento: assim que o dia está escolhido ela pede nome completo, data de nascimento, telefone e CPF de uma vez. Pode mandar numa mensagem só, em várias ou fora de ordem; ela anota o que veio e pede só o que falta ("Falta só a data de nascimento."). O sexo sai do primeiro nome quando ela conhece o nome (Joana = feminino); nome desconhecido, ela pergunta. Até o pagamento ser resolvido dá para mudar de unidade ou dia sem perder os dados.
 
 - 7.1 CPF com pontos e traço, só números, com espaços ("123 456 789 09") e falado em áudio.
 - 7.2 CPF com um dígito errado → "Acho que algum número do CPF escapou, dá uma olhadinha e me manda de novo os 11 números?" Não consulta o cadastro.

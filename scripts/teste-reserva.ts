@@ -285,7 +285,7 @@ reset({ ocupados: 0 });
 r = await responder([['Oi, bom dia! Eu queria marcar uma consulta com a ginecologista, por favor.'], ['Isso mesmo.'], ['Guamá.']], ctx, fonteClinilink) as any;
 confere('17 áudio: pedido longo, confirmação e unidade falados', /Consegui estes aqui|Pra .* tenho/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 120));
 r = await responder([['Oi, bom dia! Eu queria marcar uma consulta com a ginecologista, por favor.'], ['Isso mesmo.'], ['Guamá.'], ['Pode ser a segunda opção.']], ctx, fonteClinilink) as any;
-confere('17 áudio: "a segunda opção" escolhe a 2ª da lista (não é segunda-feira)', /pagamento/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 120));
+confere('17 áudio: "a segunda opção" escolhe a 2ª da lista (não é segunda-feira)', /dados do paciente/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 120));
 reset({ ocupados: 0 });
 r = await responder([...base.map((x) => [x]), ['O meu CPF é 123 456 789 09.'], ['Meu nome é Joana Teste Souza.'], ['Nasci em 10 de maio de 1990.'], ['Sou mulher.'], ['Pode sim.']], ctx, fonteClinilink) as any;
 confere('17 áudio: CPF espaçado, nome com "meu nome é", nascimento por extenso, "sou mulher" -> agenda', r.reply.startsWith(MARCA_AGENDADO) && nPost('/agendamentos') === 1, r.reply.replace(/\n/g, ' | ').slice(0, 100));
@@ -305,42 +305,46 @@ const comprovantes: Record<string, any> = {
 };
 const ctxPix = { ...ctx, lerComprovante: async (id: string) => comprovantes[id] ?? { tipo: 'ilegivel' } };
 const base0 = ['oi', 'quero agendar ginecologista', 'sim', 'guama amanhã'];
+const baseP = [...base0, '52998224725', 'sim']; // serviço, dia, dados do paciente (já cadastrado) e confirmação do nome: a próxima pergunta é a forma de pagamento
 const img = (id: string) => `[[midia:image:${id}]]`;
 const resp = async (turnos: (string | string[])[], c: any = ctxPix) => (await responder(turnos, c, fonteClinilink)) as any;
 
-// P1) depois de escolher o horário, a pergunta é a forma de pagamento (e não o CPF)
+// P1) depois de escolher o horário: confirma o que ficou combinado e já pede os dados do paciente; só depois dos dados vem a forma de pagamento
 reset({ ocupados: 0 });
 r = await resp(base0.map((x) => [x]));
-confere('P1 assim que o horário é escolhido, ela JÁ induz o pix: manda o valor e a chave, sem perguntar antes', /Pra agilizar o seu atendimento na recepção, o melhor é antecipar o pagamento por pix, o valor é R\$ 100,00:/.test(r.reply) && /Chave pix: clinicaclinex@gmail\.com/.test(r.reply) && !/pix ou link de crédito\?/.test(r.reply) && !/CPF/.test(r.reply) && r.state.pagamento === 'pix' && r.state.pixEnviado === true, r.reply.replace(/\n/g, ' | ').slice(-260));
-confere('P1 e deixa a saída aberta: quem prefere pagar na recepção ou por link é só avisar', /Se preferir pagar na recepção ou por link de crédito, é só me falar\./.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(-110));
+confere('P1 assim que o horário é escolhido: resumo (dia, médica...) e, em outra mensagem, o pedido dos dados (nome, nascimento, telefone, CPF); nada de pix ainda', /Show, então fica consulta Ginecologia no Guamá/.test(r.reply) && /Pra gerar o agendamento, me manda por favor os dados do paciente:\n• Nome completo\n• Data de nascimento\n• Telefone para contato \(pode ser esse número do WhatsApp\)\n• CPF$/.test(r.reply) && !/Chave pix/.test(r.reply) && !r.state.pagPerguntado && !r.state.pixEnviado, r.reply.replace(/\n/g, ' | ').slice(0, 330));
+r = await resp(baseP.map((x) => [x]));
+confere('P1 com os dados completos (paciente já cadastrado, nome confirmado): pergunta como ele prefere pagar, oferecendo o pix com o valor', /^Como você prefere pagar\? Dá pra antecipar o pagamento por pix \(o valor é R\$ 100,00\), que agiliza o seu atendimento na recepção, pagar na recepção, no dia do atendimento, ou por link de crédito\.$/.test(r.reply) && !/Chave pix/.test(r.reply) && r.state.pagPerguntado === true && !r.state.pixEnviado, r.reply.replace(/\n/g, ' | '));
 
 // P2) "na recepção" não é pedido de atendente; segue para o CPF e registra na observação
 reset({ ocupados: 0 });
 r = await resp([...base0, 'vou pagar na recepção'].map((x) => [x]));
-confere('P2 "na recepção" segue para o CPF (não transfere)', !r.handoff && /CPF/.test(r.reply) && /recepção/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 110));
+confere('P2 "na recepção" dito antes dos dados fica anotado e segue para o CPF (não transfere)', !r.handoff && /CPF/.test(r.reply) && /recepção/.test(r.reply) && r.state.pagPref === 'recepcao', r.reply.replace(/\n/g, ' | ').slice(0, 110));
 r = await resp([...base0, 'na recepção', '52998224725', 'sim'].map((x) => [x]));
 confere('P2 agendou e a observação diz "Pagamento na recepção"', r.reply.startsWith(MARCA_AGENDADO) && /Pagamento na recepção/.test(posts.find((x) => x.rota.endsWith('/agendamentos'))!.corpo.observacao), posts.find((x) => x.rota.endsWith('/agendamentos'))?.corpo.observacao);
-
-// P3) pix: manda a chave e o valor, e ESPERA o comprovante (nada de CPF nem reserva)
 reset({ ocupados: 0 });
-r = await resp(base0.map((x) => [x]));
-confere('P3 pix: envia a chave com o valor e pede o comprovante', /Chave pix: clinicaclinex@gmail\.com/.test(r.reply) && /R\$ 100,00/.test(r.reply) && /comprovante/.test(r.reply), r.reply.replace(/\n/g, ' | '));
-r = await resp([...base0, 'pix', 'já paguei'].map((x) => [x]));
+r = await resp([...baseP, 'na recepção'].map((x) => [x]));
+confere('P2 respondendo "na recepção" à pergunta do pagamento: agenda (sem pix, sem pedir nada de novo)', r.reply.startsWith(MARCA_AGENDADO) && nPost('/agendamentos') === 1 && /Pagamento na recepção/.test(posts.find((x) => x.rota.endsWith('/agendamentos'))!.corpo.observacao), r.reply.slice(0, 60));
+
+// P3) pix: só sai a chave quando ele escolhe pix; manda a chave e o valor, e ESPERA o comprovante (nada de reserva antes)
+reset({ ocupados: 0 });
+r = await resp([...baseP, 'pix'].map((x) => [x]));
+confere('P3 pix: envia a chave com o valor e pede o comprovante', /Chave pix: clinicaclinex@gmail\.com/.test(r.reply) && /R\$ 100,00/.test(r.reply) && /comprovante/.test(r.reply) && posts.length === 0, r.reply.replace(/\n/g, ' | '));
+r = await resp([...baseP, 'pix', 'já paguei'].map((x) => [x]));
 confere('P3 "já paguei" sem imagem: pede o comprovante', /Me manda o comprovante/.test(r.reply) && !/CPF/.test(r.reply), r.reply);
-r = await resp([...base0, 'pix', 'e aí, tudo bem?', 'qual o endereço?'].map((x) => [x]));
+r = await resp([...baseP, 'pix', 'e aí, tudo bem?', 'qual o endereço?'].map((x) => [x]));
 confere('P3 outras mensagens: continua esperando o comprovante, sem avançar', /aguardando o comprovante/.test(r.reply) && !/CPF/.test(r.reply) && posts.length === 0, r.reply);
-r = await resp([...base0, 'pix', 'qual a chave mesmo?'].map((x) => [x]));
+r = await resp([...baseP, 'pix', 'qual a chave mesmo?'].map((x) => [x]));
 confere('P3 pediu a chave de novo: reenvia', /Chave pix: clinicaclinex@gmail\.com/.test(r.reply), r.reply.replace(/\n/g, ' | '));
 
-// P4) pix + comprovante certo: confirma o pagamento, pede o CPF, e só então reserva
+// P4) pix + comprovante certo: os dados já foram dados, então o comprovante conferido fecha o agendamento (e a confirmação mostra que foi pago)
 reset({ ocupados: 0 });
-r = await resp([...base0, 'pix', img('img-ok')].map((x) => [x]));
-confere('P4 comprovante certo: confirma o pagamento e pede o CPF', /Recebi o seu comprovante, muito obrigada/.test(r.reply) && /CPF/.test(r.reply) && posts.length === 0, r.reply.replace(/\n/g, ' | '));
-r = await resp([...base0, 'pix', img('img-ok'), '52998224725', 'sim'].map((x) => [x]));
-confere('P4 agenda depois do pix e registra o comprovante na observação', r.reply.startsWith(MARCA_AGENDADO) && /Pix antecipado: R\$ 100,00/.test(posts.find((x) => x.rota.endsWith('/agendamentos'))!.corpo.observacao), posts.find((x) => x.rota.endsWith('/agendamentos'))?.corpo.observacao);
+r = await resp([...baseP, 'pix', img('img-ok')].map((x) => [x]));
+confere('P4 comprovante certo: agenda na hora e a confirmação mostra "PAGO NO PIX"', r.reply.startsWith(MARCA_AGENDADO) && /Formas de pagamento: PAGO NO PIX \(comprovante recebido\)/.test(r.reply) && nPost('/agendamentos') === 1, r.reply.replace(/\n/g, ' | ').slice(0, 120));
+confere('P4 registra o comprovante na observação do agendamento', /Pix antecipado: R\$ 100,00/.test(posts.find((x) => x.rota.endsWith('/agendamentos'))!.corpo.observacao), posts.find((x) => x.rota.endsWith('/agendamentos'))?.corpo.observacao);
 reset({ ocupados: 0 });
-r = await resp([...base0, 'pix', img('img-maior')].map((x) => [x]));
-confere('P4 valor maior que o da consulta é aceito', /Recebi o seu comprovante, muito obrigada/.test(r.reply));
+r = await resp([...baseP, 'pix', img('img-maior')].map((x) => [x]));
+confere('P4 valor maior que o da consulta é aceito', r.reply.startsWith(MARCA_AGENDADO) && /PAGO NO PIX/.test(r.reply));
 
 // P5) comprovantes que NÃO servem
 for (const [id, esperado, nome] of [
@@ -350,33 +354,33 @@ for (const [id, esperado, nome] of [
   ['desconhecida', /Não to conseguindo ler esse comprovante/, 'imagem ilegível'],
 ] as const) {
   reset({ ocupados: 0 });
-  r = await resp([...base0, 'pix', img(id)].map((x) => [x]));
-  confere(`P5 ${nome}: pede outro comprovante e não avança`, esperado.test(r.reply) && !r.handoff && !/CPF/.test(r.reply), r.reply.slice(0, 90));
+  r = await resp([...baseP, 'pix', img(id)].map((x) => [x]));
+  confere(`P5 ${nome}: pede outro comprovante e não avança`, esperado.test(r.reply) && !r.handoff && nPost('/agendamentos') === 0, r.reply.slice(0, 90));
 }
-r = await resp([...base0, 'pix', img('img-outro-recebedor')].map((x) => [x]));
+r = await resp([...baseP, 'pix', img('img-outro-recebedor')].map((x) => [x]));
 confere('P5 recebedor diferente: transfere para a equipe', Boolean(r.handoff) && /recebedor/.test(r.handoff.motivo), r.handoff?.motivo.slice(0, 100));
-r = await resp([...base0, 'pix', img('img-foto'), img('img-foto'), img('img-foto')].map((x) => [x]));
+r = await resp([...baseP, 'pix', img('img-foto'), img('img-foto'), img('img-foto')].map((x) => [x]));
 confere('P5 três imagens que não servem: transfere', Boolean(r.handoff), r.reply);
-r = await resp([...base0, 'pix', img('img-ok')].map((x) => [x]), { ...ctx });
+r = await resp([...baseP, 'pix', img('img-ok')].map((x) => [x]), { ...ctx });
 confere('P5 sem leitura automática: transfere para conferir a imagem', Boolean(r.handoff) && /conferir a imagem/.test(r.handoff.motivo), r.handoff?.motivo.slice(0, 100));
 
-// P6) desistiu do pix e quer só agendar: segue sem comprovante
+// P6) desistiu do pix e quer só agendar: agenda sem comprovante, pagando na recepção
 reset({ ocupados: 0 });
-r = await resp([...base0, 'pix', 'não vou pagar no pix, só quero agendar'].map((x) => [x]));
-confere('P6 desistiu do pix: segue para o CPF', !r.handoff && /CPF/.test(r.reply) && /recepção/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 110));
-r = await resp([...base0, 'pix', 'não vou pagar no pix, só quero agendar', '52998224725', 'sim'].map((x) => [x]));
-confere('P6 desistiu do pix: agenda sem comprovante', r.reply.startsWith(MARCA_AGENDADO), r.reply.slice(0, 50));
+r = await resp([...baseP, 'pix', 'não vou pagar no pix, só quero agendar'].map((x) => [x]));
+confere('P6 desistiu do pix: agenda sem comprovante (paga na recepção)', !r.handoff && r.reply.startsWith(MARCA_AGENDADO) && /Pagamento na recepção/.test(posts.find((x) => x.rota.endsWith('/agendamentos'))!.corpo.observacao), r.reply.slice(0, 60));
 
-// P7) link de crédito vai para a equipe; "não" a antecipar vai para a recepção; resposta solta pergunta de novo
+// P7) link de crédito vai para a equipe (com os dados do paciente); "não" a antecipar vai para a recepção; resposta solta pergunta de novo
 reset({ ocupados: 0 });
-r = await resp([...base0, 'link de crédito'].map((x) => [x]));
-confere('P7 link de crédito: passa para a equipe com a vaga anotada', Boolean(r.handoff) && /link de crédito/.test(r.handoff.motivo) && /AINDA NÃO feito/.test(r.handoff.motivo), r.handoff?.motivo.slice(0, 80));
-r = await resp([...base0, 'não'].map((x) => [x]));
-confere('P7 "não" a antecipar: paga na recepção e segue', !r.handoff && /CPF/.test(r.reply), r.reply.slice(0, 80));
-r = await resp([...base0, 'hmm, deixa eu ver'].map((x) => [x]));
+r = await resp([...baseP, 'link de crédito'].map((x) => [x]));
+confere('P7 link de crédito: passa para a equipe com a vaga e os dados do paciente anotados', Boolean(r.handoff) && /link de crédito/.test(r.handoff.motivo) && /AINDA NÃO feito/.test(r.handoff.motivo) && /Paciente já cadastrado \(Maria Exemplo/.test(r.handoff.motivo), r.handoff?.motivo.slice(0, 200));
+r = await resp([...baseP, 'não'].map((x) => [x]));
+confere('P7 "não" a antecipar: paga na recepção e agenda', !r.handoff && r.reply.startsWith(MARCA_AGENDADO), r.reply.slice(0, 80));
+r = await resp([...baseP, 'hmm, deixa eu ver'].map((x) => [x]));
+confere('P7 resposta solta à pergunta do pagamento: pergunta de novo, oferecendo as três formas', /Você prefere pagar por pix, link de crédito ou lá na recepção, no dia\?/.test(r.reply) && !r.handoff, r.reply);
+r = await resp([...baseP, 'pix', 'hmm, deixa eu ver'].map((x) => [x]));
 confere('P7 resposta solta depois da chave: segue esperando o comprovante, lembrando que pode pagar na recepção', /aguardando o comprovante do pix/.test(r.reply) && /pagar na recepção/.test(r.reply) && !r.handoff, r.reply);
-r = await resp([...base0.slice(0, 3), 'guama amanhã, vou pagar no pix'].map((x) => [x]));
-confere('P7 já adiantou "no pix": não repete a pergunta, manda a chave', /Chave pix:/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 90));
+r = await resp([...base0.slice(0, 3), 'guama amanhã, vou pagar no pix', '52998224725', 'sim'].map((x) => [x]));
+confere('P7 já adiantou "no pix": depois dos dados não repete a pergunta, manda a chave', /Chave pix:/.test(r.reply) && !/Como você prefere pagar/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 90));
 
 // P8) imagem fora da hora do comprovante: explica que só lê texto e áudio
 reset({ ocupados: 0 });
@@ -423,42 +427,42 @@ Object.assign(comprovantes, {
 
 // R1) pagou menos: soma, explica a diferença e oferece o restante por pix ou na recepção (não vai direto para a equipe)
 reset({ ocupados: 0 });
-r = await resp([...base0, 'pix', img('img-meio')].map((x) => [x]));
+r = await resp([...baseP, 'pix', img('img-meio')].map((x) => [x]));
 confere('R1 valor menor: reconhece o que pagou, diz quanto falta e oferece escolher', !r.handoff && /Recebi o seu comprovante de R\$ 50,00/.test(r.reply) && /faltam R\$ 50,00/.test(r.reply) && /restante agora por pix ou deixar para pagar na recepção/.test(r.reply) && posts.length === 0, r.reply);
-r = await resp([...base0, 'pix', img('img-meio'), 'deixa o resto para pagar na recepção'].map((x) => [x]));
-confere('R1 resto na recepção: segue para o CPF', !r.handoff && /o restante de R\$ 50,00 fica pra recepção/.test(r.reply) && /CPF/.test(r.reply), r.reply);
-r = await resp([...base0, 'pix', img('img-meio'), 'deixa o resto para pagar na recepção', '52998224725', 'sim'].map((x) => [x]));
+r = await resp([...baseP, 'pix', img('img-meio'), 'deixa o resto para pagar na recepção'].map((x) => [x]));
+confere('R1 resto na recepção: agenda e a confirmação mostra o que foi pago no pix e que o restante fica na recepção', !r.handoff && r.reply.startsWith(MARCA_AGENDADO) && /Formas de pagamento: PAGO R\$ 50,00 NO PIX \(comprovante recebido\); o restante na recepção/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 200));
+r = await resp([...baseP, 'pix', img('img-meio'), 'deixa o resto para pagar na recepção'].map((x) => [x]));
 const obsParcial = posts.find((x) => x.rota.endsWith('/agendamentos'))?.corpo.observacao ?? '';
 confere('R1 agenda e a observação avisa: pix parcial + saldo na recepção', r.reply.startsWith(MARCA_AGENDADO) && /PARCIAL de R\$ 50,00/.test(obsParcial) && /Saldo de R\$ 50,00 a pagar na recepção/.test(obsParcial), obsParcial);
 
 // R2) paga o resto por pix: os comprovantes somam
 reset({ ocupados: 0 });
-r = await resp([...base0, 'pix', img('img-meio'), 'vou pagar o resto agora no pix'].map((x) => [x]));
+r = await resp([...baseP, 'pix', img('img-meio'), 'vou pagar o resto agora no pix'].map((x) => [x]));
 confere('R2 resto por pix: manda a chave com o valor que falta', /Chave pix:/.test(r.reply) && /Valor que falta: R\$ 50,00/.test(r.reply), r.reply.replace(/\n/g, ' | '));
-r = await resp([...base0, 'pix', img('img-meio'), 'pix', img('img-resto')].map((x) => [x]));
-confere('R2 segundo comprovante completa o valor: confirma o pagamento', /Recebi o seu comprovante, muito obrigada/.test(r.reply) && /CPF/.test(r.reply), r.reply);
-r = await resp([...base0, 'pix', img('img-meio'), 'pix', img('img-resto'), '52998224725', 'sim'].map((x) => [x]));
+r = await resp([...baseP, 'pix', img('img-meio'), 'pix', img('img-resto')].map((x) => [x]));
+confere('R2 segundo comprovante completa o valor: agenda e a confirmação mostra "PAGO NO PIX"', r.reply.startsWith(MARCA_AGENDADO) && /Formas de pagamento: PAGO NO PIX \(comprovante recebido\)/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 160));
+r = await resp([...baseP, 'pix', img('img-meio'), 'pix', img('img-resto')].map((x) => [x]));
 confere('R2 observação registra o total e que foram dois comprovantes', /Pix antecipado: R\$ 100,00 .*mais de um comprovante/.test(posts.find((x) => x.rota.endsWith('/agendamentos'))?.corpo.observacao ?? ''), posts.find((x) => x.rota.endsWith('/agendamentos'))?.corpo.observacao);
 
 // R3) o mesmo comprovante não conta duas vezes
 reset({ ocupados: 0 });
-r = await resp([...base0, 'pix', img('img-meio'), img('img-meio-de-novo')].map((x) => [x]));
+r = await resp([...baseP, 'pix', img('img-meio'), img('img-meio-de-novo')].map((x) => [x]));
 confere('R3 comprovante repetido: avisa que já recebeu e não soma de novo', /já recebi/.test(r.reply) && !/Recebi o seu comprovante, muito obrigada/.test(r.reply), r.reply);
 
 // R4) indecisão: depois de 3 respostas soltas passa para a equipe; pedir atendente também
-r = await resp([...base0, 'pix', img('img-meio'), 'hmm', 'não sei', 'talvez'].map((x) => [x]));
+r = await resp([...baseP, 'pix', img('img-meio'), 'hmm', 'não sei', 'talvez'].map((x) => [x]));
 confere('R4 sem decidir o restante: passa para a equipe com o valor anotado', Boolean(r.handoff) && /não definiu como pagar o restante/.test(r.handoff.motivo), r.handoff?.motivo.slice(0, 90));
-r = await resp([...base0, 'pix', img('img-meio'), 'quero falar com um atendente'].map((x) => [x]));
+r = await resp([...baseP, 'pix', img('img-meio'), 'quero falar com um atendente'].map((x) => [x]));
 confere('R4 pediu atendente: transfere', Boolean(r.handoff));
 
 // ===================== retomar depois de uma transferência =====================
 // T1) transferência "branda" (comprovante com problema, vaga, falha): o paciente volta e a conversa CONTINUA de onde parou
 reset({ ocupados: 0 });
-r = await resp([...base0, 'pix', img('img-foto'), img('img-foto'), img('img-foto'), 'ja paguei'].map((x) => [x]));
+r = await resp([...baseP, 'pix', img('img-foto'), img('img-foto'), img('img-foto'), 'ja paguei'].map((x) => [x]));
 confere('T1 volta depois de transferência branda: continua esperando o comprovante', !r.handoff && /Me manda o comprovante/.test(r.reply) && r.aposHandoffDuro === false, r.reply);
-r = await resp([...base0, 'pix', img('img-foto'), img('img-foto'), img('img-foto'), img('img-ok')].map((x) => [x]));
-confere('T1 e o comprovante certo depois da transferência é aceito', /Recebi o seu comprovante, muito obrigada/.test(r.reply), r.reply);
-r = await resp([...base0, 'link de crédito', 'melhor, vou pagar no pix'].map((x) => [x]));
+r = await resp([...baseP, 'pix', img('img-foto'), img('img-foto'), img('img-foto'), img('img-ok')].map((x) => [x]));
+confere('T1 e o comprovante certo depois da transferência é aceito (e agenda)', r.reply.startsWith(MARCA_AGENDADO), r.reply.slice(0, 80));
+r = await resp([...baseP, 'link de crédito', 'melhor, vou pagar no pix'].map((x) => [x]));
 confere('T1 depois do link de crédito a equipe assume: a Amanda NÃO retoma sozinha (nem para mandar o pix)', r.aposHandoffDuro === true, String(r.aposHandoffDuro));
 r = await resp([['boa tarde, quero uma consulta'], ['ola, quero marcar uma consulta'], ['Olá']]);
 confere('T1 "Olá" depois de pedir uma consulta sem dizer qual: não transfere e segue com as opções', !r.handoff && /Me conta o que você precisa|Qual consulta|consultas mais procuradas/.test(r.reply), r.reply);
@@ -481,9 +485,9 @@ r = await resp([['quanto custa a consulta de ginecologia?']]);
 confere('F2 valor + serviço na mesma frase: informa o valor e confirma o serviço', /A consulta é R\$ 100,00/.test(r.reply) && /(?:Ah, então é|Entendi, você quer|Só pra confirmar: é|Então é) consulta Ginecologia/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 170));
 r = await resp([...ate3.map(um), um('qual o endereço de vocês?')]);
 confere('F3 endereço no meio do fluxo: manda o endereço das duas unidades (aprovado pela clínica) e RETOMA a pergunta da unidade', /Guamá: Endereço: Av. José Bonifácio, 2426 - Guamá, Belém - PA, 66063-075/.test(r.reply) && /Telégrafo: Travessa Coronel Luís Bentes/.test(r.reply) && /Qual dos dois você prefere/.test(r.reply) && !/equipe/.test(r.reply) && !r.handoff, r.reply.replace(/\n/g, ' | ').slice(0, 220));
-r = await resp([...base0.map(um), um('qual o valor?')]);
+r = await resp([...baseP, 'pix', 'qual o valor?'].map(um));
 confere('F4 "qual o valor?" depois da chave pix: responde o valor e reenvia a chave', /R\$ 100,00/.test(r.reply) && /Chave pix: clinicaclinex@gmail\.com/.test(r.reply) && !r.handoff, r.reply.replace(/\n/g, ' | ').slice(0, 200));
-r = await resp([...base0, 'pix', 'qual o valor?'].map(um));
+r = await resp([...baseP, 'pix', 'qual o valor?'].map(um));
 confere('F5 valor esperando o comprovante: reenvia a chave com o valor (sem duplicar resposta)', /^Aqui está!/.test(r.reply) && /Chave pix:/.test(r.reply), r.reply.replace(/\n/g, ' | '));
 r = await resp([...ate3.map(um), um('??')]);
 confere('F6 "??" no meio do fluxo: "Estou aqui" e repete a pergunta pendente', /^Tô aqui!/.test(r.reply) && /Qual dos dois você prefere/.test(r.reply), r.reply.replace(/\n/g, ' | '));
@@ -495,7 +499,7 @@ r = await resp([...ate3.map(um), um('qual o endereço?'), um('pode chamar algué
 confere('F9 depois do endereço, "pode chamar alguém da equipe" transfere', Boolean(r.handoff), r.reply);
 r = await resp([...ate3.map(um), um('quais médicos atendem?')]);
 confere('F10 "quais médicos atendem?": mostra os médicos de cada unidade e volta à pergunta', /Dra\. Medica/.test(r.reply) && /Qual dos dois você prefere/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 220));
-r = await resp([...base0.map(um), um('aceita cartão de crédito?')]);
+r = await resp([...baseP, 'pix', 'aceita cartão de crédito?'].map(um));
 confere('F11 "aceita cartão?": explica as formas de pagamento (o que a clínica aceita na recepção) e segue esperando o comprovante; não vira escolha de link nem transfere', !r.handoff && /Na recepção, no dia, aceitamos pix, cartão de crédito e débito e dinheiro/.test(r.reply) && /aguardando o comprovante/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 260));
 r = await resp([['funciona sábado?'], ['quero agendar ginecologista']]);
 confere('F12 dúvida e depois o pedido: o fluxo segue normalmente', /(?:Ah, então é|Entendi, você quer|Só pra confirmar: é|Então é) consulta Ginecologia/.test(r.reply) && !r.handoff, r.reply.slice(0, 100));
@@ -504,15 +508,17 @@ confere('F12 dúvida e depois o pedido: o fluxo segue normalmente', /(?:Ah, ent�
 r = await resp([...base0.map(um), um('prefiro o Telégrafo')]);
 confere('C1 trocou de unidade depois de escolher o horário: ajusta e mostra novas opções', /Sem problema, vamos ajustar|Tranquilo, a gente ajusta/.test(r.reply) && r.state.unidade?.nome === 'Telégrafo' && !r.state.slot && !r.handoff, r.reply.replace(/\n/g, ' | ').slice(0, 160));
 r = await resp([...base0.map(um), um('prefiro o Telégrafo'), um('1')]);
-confere('C1 e ao escolher o novo horário, induz o pix de novo (já com o novo horário e a unidade nova)', /Telégrafo/.test(r.reply) && /o melhor é antecipar o pagamento por pix, o valor é R\$ 100,00:/.test(r.reply) && /Chave pix:/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(-230));
+confere('C1 e ao escolher o novo horário, mostra o resumo da nova unidade e pede os dados do paciente', /Telégrafo/.test(r.reply) && /Show, então fica|Beleza, então fica/.test(r.reply) && /me manda por favor os dados do paciente/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(-230));
+r = await resp([...baseP, 'prefiro o Telégrafo', '1'].map(um));
+confere('C1 com os dados já dados, trocar de unidade antes do pagamento refaz o horário e volta direto para a pergunta do pagamento', /Telégrafo/.test(r.reply) && /Como você prefere pagar/.test(r.reply) && !/dados do paciente/.test(r.reply) && r.state.cpf === '52998224725', r.reply.replace(/\n/g, ' | ').slice(-250));
 r = await resp([...base0.map(um), um('queria outro dia')]);
 confere('C2 "queria outro dia": volta a oferecer datas', /Sem problema, vamos ajustar|Tranquilo, a gente ajusta/.test(r.reply) && /Consegui estes aqui|tenho/.test(r.reply) && !r.state.slot, r.reply.replace(/\n/g, ' | ').slice(0, 140));
-r = await resp([...base0, 'pix', 'outro dia eu pago'].map(um));
+r = await resp([...baseP, 'pix', 'outro dia eu pago'].map(um));
 confere('C3 esperando o pix, "outro dia eu pago" NÃO troca o horário', !/vamos ajustar/.test(r.reply) && Boolean(r.state.slot), r.reply.slice(0, 110));
 r = await resp([...base0.map(um), um('na verdade quero dermatologia')]);
 confere('C4 trocou de serviço depois de escolher o horário: recomeça pelo novo serviço', /consulta Dermatologia/i.test(r.reply) && !r.state.slot && !r.handoff, r.reply.slice(0, 120));
 r = await resp([...base.map(um), um('52998224725'), um('prefiro outro dia')]);
-confere('C5 depois do CPF, "prefiro outro dia" não bagunça o fluxo', !/vamos ajustar/.test(r.reply) && Boolean(r.state.slot), r.reply.slice(0, 110));
+confere('C5 depois do CPF (o pagamento ainda não foi fechado), "prefiro outro dia" ajusta o horário e mantém os dados do paciente', /vamos ajustar|a gente ajusta/.test(r.reply) && !r.state.slot && r.state.cpf === '52998224725', r.reply.slice(0, 110));
 
 // ===================== CPF =====================
 const { cpfValido } = await import('../src/agents/receptivo/script/engine.js');
@@ -609,14 +615,14 @@ confere('$1 preço dito = campo preco (R$ 100,00), ignorando precoDinheiro zerad
 txt = await todasAsRespostas(['quero fazer um teste de esforço', 'sim']);
 confere('$1 exame com precoDinheiro 0 no Guamá e 999 no outro: fala o preço (R$ 120,00) e NUNCA R$ 0,00 nem R$ 999,00', /O exame é R\$ 120,00\./.test(txt) && !/R\$ 0,00|R\$ 999,00/.test(txt), txt.replace(/\n/g, ' | ').slice(-230));
 // $2) o pix usa o preco
-r = await dd(['oi', 'quero agendar ginecologista', 'sim', 'guama amanhã']);
+r = await dd(['oi', 'quero agendar ginecologista', 'sim', 'guama amanhã', '52998224725', 'sim']);
 confere('$2 valor do pix = preco (R$ 100,00)', /o valor é R\$ 100,00/.test(r.reply) && !/R\$ 0,00/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 120));
 // $3) sem preço cadastrado (zero): não cita valor, não inventa; se perguntarem, a equipe confirma; pix não confere sozinho
 txt = await todasAsRespostas(['quero agendar consulta semvalor', 'sim']);
 confere('$3 preço zero: a resposta NÃO tem valor nenhum nem "R$ 0,00"', !/R\$/.test(txt), txt.replace(/\n/g, ' | ').slice(-160));
 r = await dd(['quero agendar consulta semvalor', 'sim', 'qual o valor?']);
 confere('$3 preço zero e o paciente pergunta o valor: diz que a equipe confirma (sem "zero")', /equipe confirme certinho/.test(r.reply) && !/R\$/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 200));
-r = await dd(['quero agendar consulta semvalor', 'sim', 'guama', '1', 'pix', img('img-ok')]);
+r = await dd(['quero agendar consulta semvalor', 'sim', 'guama', '1', '52998224725', 'sim', 'pix', img('img-ok')]);
 confere('$3 preço zero + comprovante de pix: não confere valor sozinha, passa para a equipe conferir', Boolean(r.handoff) && /valor do serviço não está definido/.test(r.handoff.motivo), r.handoff?.motivo.slice(0, 110));
 
 // ===================== similaridade: "teste ergo", "só teste", erro de digitação =====================
@@ -673,15 +679,15 @@ r = await dd(ateLista);
 confere('K1 ponto de partida: a lista de horários aparece com as duas médicas', /Consegui estes aqui/.test(r.reply) && /Dra\. Liduina/.test(r.reply) && Boolean(r.state.lista?.length), r.reply.replace(/\n/g, ' | ').slice(-230));
 const diaDoMes = Number(dia(2).slice(8));
 r = await dd([...ateLista, `${nomeSemana(dia(2))}`]);
-confere('K1 responder só o dia da semana escolhe aquele dia (não repete a lista)', /antecipar o pagamento/.test(r.reply) && !/Consegui estes aqui/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(-190));
+confere('K1 responder só o dia da semana escolhe aquele dia (não repete a lista)', /me manda por favor os dados do paciente/.test(r.reply) && !/Consegui estes aqui/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(-190));
 r = await dd([...ateLista, `${nomeSemana(dia(2))} ${diaDoMes}`]);
-confere('K1 "dia da semana + número" ("quinta 22") escolhe aquele dia', /antecipar o pagamento/.test(r.reply) && !/Consegui estes aqui/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(-190));
+confere('K1 "dia da semana + número" ("quinta 22") escolhe aquele dia', /me manda por favor os dados do paciente/.test(r.reply) && !/Consegui estes aqui/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(-190));
 r = await dd([...ateLista, `${nomeSemana(dia(2))} ${diaDoMes} com o armando`]);
-confere('K1 e com um nome que não é de nenhum médico ("com o armando") a data vale e a conversa segue', /antecipar o pagamento/.test(r.reply) && !/Consegui estes aqui/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(-190));
+confere('K1 e com um nome que não é de nenhum médico ("com o armando") a data vale e a conversa segue', /me manda por favor os dados do paciente/.test(r.reply) && !/Consegui estes aqui/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(-190));
 r = await dd([...ateLista, 'quero com a liduina']);
-confere('K2 citar a médica da lista: fica só com os horários dela (um só escolhe; vários mostra os dela)', /Dra\. Liduina/.test(r.reply) && (/antecipar o pagamento/.test(r.reply) || (/Com a Dra\. Liduina tenho/.test(r.reply) && !/Dra\. Medica/.test(r.reply))), r.reply.replace(/\n/g, ' | ').slice(-230));
+confere('K2 citar a médica da lista: fica só com os horários dela (um só escolhe; vários mostra os dela)', /Dra\. Liduina/.test(r.reply) && (/me manda por favor os dados do paciente/.test(r.reply) || (/Com a Dra\. Liduina tenho/.test(r.reply) && !/Dra\. Medica/.test(r.reply))), r.reply.replace(/\n/g, ' | ').slice(-230));
 r = await dd([...ateLista, 'o primeiro']);
-confere('K2 "o primeiro" continua escolhendo a posição 1', /antecipar o pagamento/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(-120));
+confere('K2 "o primeiro" continua escolhendo a posição 1', /me manda por favor os dados do paciente/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(-120));
 // o mesmo pedido 3 vezes não pode dar a mesma resposta 3 vezes: depois de entender, a conversa AVANÇA
 const resp1 = (await dd([...ateLista, `${nomeSemana(dia(2))} ${diaDoMes}`])).reply;
 const resp2 = (await dd([...ateLista, `${nomeSemana(dia(2))} ${diaDoMes}`, 'pode agendar'])).reply;
@@ -724,17 +730,17 @@ const primeiroSlot = r.state.lista?.[0];
 const ultimoSlot = r.state.lista?.[r.state.lista.length - 1];
 for (const frase of ['o mais rápido possível', 'a próxima', 'o próximo', 'qualquer um', 'tanto faz', 'o que tiver', 'o primeiro disponível', 'o mais cedo', 'quanto antes', 'pode ser o mais rápido']) {
   const x = await dd([...ateLista2, frase]);
-  confere(`H1 "${frase}" escolhe o primeiro horário e a conversa AVANÇA`, x.state.slot?.ymd === primeiroSlot?.ymd && x.state.slot?.turno === primeiroSlot?.turno && /antecipar o pagamento/.test(x.reply) && !/Consegui estes aqui/.test(x.reply), `${x.state.slot?.ymd} | ${x.reply.replace(/\n/g, ' | ').slice(-70)}`);
+  confere(`H1 "${frase}" escolhe o primeiro horário e a conversa AVANÇA`, x.state.slot?.ymd === primeiroSlot?.ymd && x.state.slot?.turno === primeiroSlot?.turno && /me manda por favor os dados do paciente/.test(x.reply) && !/Consegui estes aqui/.test(x.reply), `${x.state.slot?.ymd} | ${x.reply.replace(/\n/g, ' | ').slice(-70)}`);
 }
 for (const frase of ['o último', 'o mais tarde', 'o mais longe']) {
   const x = await dd([...ateLista2, frase]);
-  confere(`H1 "${frase}" escolhe o último da lista`, x.state.slot?.ymd === ultimoSlot?.ymd && /antecipar o pagamento/.test(x.reply), `${x.state.slot?.ymd} vs ${ultimoSlot?.ymd}`);
+  confere(`H1 "${frase}" escolhe o último da lista`, x.state.slot?.ymd === ultimoSlot?.ymd && /me manda por favor os dados do paciente/.test(x.reply), `${x.state.slot?.ymd} vs ${ultimoSlot?.ymd}`);
 }
 // só o dia (número solto, "dia N", "N de outubro")
 const diaN = Number(String(r.state.lista?.[2]?.ymd).slice(8)); // 3ª opção
 for (const frase of [String(diaN), `dia ${diaN}`, `o dia ${diaN}`, `${diaN} de outubro`]) {
   const x = await dd([...ateLista2, frase]);
-  confere(`H2 só o dia: "${frase}" escolhe aquele dia`, x.state.slot?.ymd === r.state.lista?.[2]?.ymd && /antecipar o pagamento/.test(x.reply), `${x.state.slot?.ymd}`);
+  confere(`H2 só o dia: "${frase}" escolhe aquele dia`, x.state.slot?.ymd === r.state.lista?.[2]?.ymd && /me manda por favor os dados do paciente/.test(x.reply), `${x.state.slot?.ymd}`);
 }
 // outro dia: mostra opções DEPOIS das que estavam na tela (não repete a lista)
 let x = await dd([...ateLista2, 'outro dia']);
@@ -749,12 +755,12 @@ confere('H4 "depois do dia N": só horários depois dessa data', /A partir de/.t
 x = await dd([...ateLista2, 'semana que vem']);
 confere('H4 "semana que vem": lista a partir da próxima segunda', /A partir de/.test(x.reply) || x.state.slot, x.reply.replace(/\n/g, ' | ').slice(0, 100));
 x = await dd([...ateLista2, 'semana que vem o mais rápido']);
-confere('H4 "semana que vem, o mais rápido" já escolhe o primeiro horário daquela semana', Boolean(x.state.slot) && /antecipar o pagamento/.test(x.reply), x.reply.replace(/\n/g, ' | ').slice(-90));
+confere('H4 "semana que vem, o mais rápido" já escolhe o primeiro horário daquela semana', Boolean(x.state.slot) && /me manda por favor os dados do paciente/.test(x.reply), x.reply.replace(/\n/g, ' | ').slice(-90));
 // período junto
 x = await dd([...ateLista2, 'o mais rápido de manhã']);
-confere('H5 "o mais rápido de manhã" escolhe o primeiro horário da MANHÃ', x.state.slot?.turno === 'manhã' && /antecipar o pagamento/.test(x.reply), `${x.state.slot?.turno}`);
+confere('H5 "o mais rápido de manhã" escolhe o primeiro horário da MANHÃ', x.state.slot?.turno === 'manhã' && /me manda por favor os dados do paciente/.test(x.reply), `${x.state.slot?.turno}`);
 x = await dd([...ateLista2, 'o mais rápido à tarde']);
-confere('H5 "o mais rápido à tarde" escolhe o primeiro horário da TARDE', x.state.slot?.turno === 'tarde' && /antecipar o pagamento/.test(x.reply), `${x.state.slot?.turno}`);
+confere('H5 "o mais rápido à tarde" escolhe o primeiro horário da TARDE', x.state.slot?.turno === 'tarde' && /me manda por favor os dados do paciente/.test(x.reply), `${x.state.slot?.turno}`);
 // hora
 x = await dd([...ateLista2, 'às 13h']);
 confere('H5 "às 13h": só os horários que começam às 13h (um só escolhe; vários mostra esses)', x.state.slot ? x.state.slot.inicio.startsWith('13') : ((x.state.lista ?? []).length > 0 && (x.state.lista ?? []).every((l: any) => l.inicio.startsWith('13'))), `${x.state.slot?.inicio} | ${JSON.stringify((x.state.lista ?? []).map((l: any) => l.inicio))}`);
@@ -764,22 +770,22 @@ x = await dd([...ateLista2, 'até amanhã']);
 confere('H5 "até amanhã": só o que existe até amanhã', (x.state.slot ? x.state.slot.ymd <= dia(1) : (x.state.lista ?? []).every((l: any) => l.ymd <= dia(1))) && !/Não peguei qual horário/.test(x.reply), x.reply.replace(/\n/g, ' | ').slice(0, 120));
 // antes da lista: "o mais rápido" já na hora da unidade ou do pedido
 x = await dd(['oi', 'quero agendar ginecologista', 'sim', 'guama o mais rápido possível']);
-confere('H6 "guamá, o mais rápido possível" na mesma frase: unidade e primeiro horário, direto para o pagamento', x.state.unidade?.nome === 'Guamá' && Boolean(x.state.slot) && /antecipar o pagamento/.test(x.reply), x.reply.replace(/\n/g, ' | ').slice(-90));
+confere('H6 "guamá, o mais rápido possível" na mesma frase: unidade e primeiro horário, direto para o pagamento', x.state.unidade?.nome === 'Guamá' && Boolean(x.state.slot) && /me manda por favor os dados do paciente/.test(x.reply), x.reply.replace(/\n/g, ' | ').slice(-90));
 x = await dd(['oi', 'quero agendar ginecologista', 'sim', 'o mais rápido possível']);
-confere('H6 só "o mais rápido possível" na pergunta da unidade: escolhe a unidade com o horário mais cedo e já o horário', Boolean(x.state.unidade) && Boolean(x.state.slot) && /antecipar o pagamento/.test(x.reply), x.reply.replace(/\n/g, ' | ').slice(-90));
+confere('H6 só "o mais rápido possível" na pergunta da unidade: escolhe a unidade com o horário mais cedo e já o horário', Boolean(x.state.unidade) && Boolean(x.state.slot) && /me manda por favor os dados do paciente/.test(x.reply), x.reply.replace(/\n/g, ' | ').slice(-90));
 x = await dd(['oi', 'quero agendar ginecologista', 'sim', 'tanto faz']);
 confere('H6 "tanto faz" na pergunta da unidade também', Boolean(x.state.unidade) && Boolean(x.state.slot), x.reply.replace(/\n/g, ' | ').slice(-90));
 x = await dd(['quero agendar ginecologista o mais rápido possível', 'sim']);
 confere('H6 o pedido "o mais rápido" feito junto com o serviço NÃO se perde até a hora dos horários', x.state.rapido === true, String(x.state.rapido));
 x = await dd(['quero agendar ginecologista o mais rápido possível', 'sim', 'guama']);
-confere('H6 e na hora dos horários já escolhe o primeiro', Boolean(x.state.slot) && /antecipar o pagamento/.test(x.reply), x.reply.replace(/\n/g, ' | ').slice(-90));
+confere('H6 e na hora dos horários já escolhe o primeiro', Boolean(x.state.slot) && /me manda por favor os dados do paciente/.test(x.reply), x.reply.replace(/\n/g, ' | ').slice(-90));
 
 // não entendeu: NUNCA repete a lista em silêncio; pergunta de outro jeito, e o intérprete de apoio (IA) pode entender
 x = await dd([...ateLista2, 'hmm deixa eu pensar']);
 confere('H7 resposta que as regras não entendem: pede esclarecimento (não repete a lista em silêncio)', /Não peguei qual horário você quer/.test(x.reply) && /1\./.test(x.reply), x.reply.replace(/\n/g, ' | ').slice(0, 150));
 const comIA = (resposta: any) => ({ ...ctxPix, interpretar: async () => resposta });
 x = (await responder([...ateLista2, 'aquele do meio'].map((z) => [z]), comIA({ indice: 1 }), fonteClinilink)) as any;
-confere('H7 intérprete de apoio ("aquele do meio" -> opção 2): escolhe a opção certa', x.state.slot?.ymd === r.state.lista?.[1]?.ymd && /antecipar o pagamento/.test(x.reply), `${x.state.slot?.ymd}`);
+confere('H7 intérprete de apoio ("aquele do meio" -> opção 2): escolhe a opção certa', x.state.slot?.ymd === r.state.lista?.[1]?.ymd && /me manda por favor os dados do paciente/.test(x.reply), `${x.state.slot?.ymd}`);
 x = (await responder([...ateLista2, 'prefiro o final do mês'].map((z) => [z]), comIA({ ultimo: true }), fonteClinilink)) as any;
 confere('H7 intérprete devolvendo "último": usa o último da lista', x.state.slot?.ymd === ultimoSlot?.ymd, `${x.state.slot?.ymd}`);
 x = (await responder([...ateLista2, 'sei lá'].map((z) => [z]), comIA({ indice: 99 }), fonteClinilink)) as any;
@@ -807,7 +813,7 @@ confere('O1 dia e período ANTES do serviço: anota e pergunta o serviço (não 
 o = await turnosDe(['oi, quero marcar amanhã de manhã', 'ginecologia']);
 confere('O1 depois do serviço, o dia e o período continuam valendo', /(Ah, então é|Entendi, você quer) consulta Ginecologia/.test(o.reply) && o.state.data === dia(1) && o.state.turno === 'manhã', `${o.state.data} ${o.state.turno} | ${o.reply.slice(0, 80)}`);
 o = await turnosDe(['oi, quero marcar amanhã de manhã', 'ginecologia', 'sim', 'guama']);
-confere('O1 chega direto ao resumo do horário (sem listar tudo de novo) e pergunta o pagamento', o.state.slot?.ymd === dia(1) && /Beleza, então fica|Show, então fica/.test(o.reply) && /antecipar o pagamento/.test(o.reply), o.reply.replace(/\n/g, ' | ').slice(0, 260));
+confere('O1 chega direto ao resumo do horário (sem listar tudo de novo) e já pede os dados do paciente', o.state.slot?.ymd === dia(1) && /Beleza, então fica|Show, então fica/.test(o.reply) && /me manda por favor os dados do paciente/.test(o.reply), o.reply.replace(/\n/g, ' | ').slice(0, 260));
 confere('O1 resumo no jeito de falar: "na <dia> (<número>)", com Dra. e sem "Fechado"', /no Guamá (na|no) \p{L}+ \(\d{1,2}(\/\d{1,2})?\) de manhã a partir das 8h por ordem de chegada com a Dra\. Medica/u.test(o.reply) && !/Fechado|Combinado/.test(o.reply), o.reply.replace(/\n/g, ' | ').slice(0, 260));
 
 o = await turnosDe(['oi, quero marcar lá no guamá']);
@@ -821,21 +827,23 @@ confere('O3 e mostra os horários dela, com Dra.', /Dra\. Rebecca/.test(o.reply)
 
 o = await turnosDe(['oi, quero ginecologia, meu cpf é 529.982.247-25']);
 confere('O4 CPF dito cedo fica guardado', o.state.cpf === '52998224725', String(o.state.cpf));
-o = await turnosDe(['oi, quero ginecologia, meu cpf é 529.982.247-25', 'sim', 'guama amanhã', 'na recepção']);
-confere('O4 chegando a hora do CPF, ela NÃO pergunta de novo e já mostra o paciente', /Achei aqui o cadastro de Maria Exemplo/.test(o.reply) && !/CPF do paciente/.test(o.reply), o.reply.replace(/\n/g, ' | ').slice(0, 240));
+o = await turnosDe(['oi, quero ginecologia, meu cpf é 529.982.247-25', 'sim', 'guama amanhã']);
+confere('O4 chegando a hora dos dados, ela NÃO pergunta o CPF de novo: mostra o resumo e já o paciente', /Achei aqui o cadastro de Maria Exemplo/.test(o.reply) && !/CPF do paciente/.test(o.reply), o.reply.replace(/\n/g, ' | ').slice(0, 240));
 o = await turnosDe(['oi, quero ginecologia, meu cpf é 529.982.247-25', 'sim', 'guama amanhã', 'na recepção', 'sim']);
 confere('O4 e conclui a reserva depois do "sim"', o.reply.startsWith(MARCA_AGENDADO), o.reply.replace(/\n/g, ' | ').slice(0, 120));
 
 o = await turnosDe(['oi, quero ginecologia e vou pagar na recepção']);
 confere('O5 forma de pagamento dita cedo fica guardada', o.state.pagPref === 'recepcao', String(o.state.pagPref));
 o = await turnosDe(['oi, quero ginecologia e vou pagar na recepção', 'sim', 'guama amanhã']);
-confere('O5 na hora do pagamento não pergunta de novo: mostra o resumo e pede o CPF', !/antecipar o pagamento/.test(o.reply) && /Beleza, então fica|Show, então fica/.test(o.reply) && /pagamento fica pra recepção/.test(o.reply) && /CPF/.test(o.reply), o.reply.replace(/\n/g, ' | ').slice(0, 300));
+confere('O5 forma de pagamento dita cedo: mostra o resumo e pede os dados do paciente (o pix não é empurrado)', !/Chave pix/.test(o.reply) && /Beleza, então fica|Show, então fica/.test(o.reply) && /me manda por favor os dados do paciente/.test(o.reply), o.reply.replace(/\n/g, ' | ').slice(0, 300));
+o = await turnosDe(['oi, quero ginecologia e vou pagar na recepção', 'sim', 'guama amanhã', '52998224725', 'sim']);
+confere('O5 e depois dos dados NÃO pergunta o pagamento de novo: agenda (paga na recepção)', o.reply.startsWith(MARCA_AGENDADO) && !/Como você prefere pagar/.test(o.reply), o.reply.replace(/\n/g, ' | ').slice(0, 120));
 
 o = await turnosDe(['boa tarde, quero agendar ginecologia']);
 confere('O6 "boa tarde" é saudação: não vira período da tarde', o.state.turno === undefined, String(o.state.turno));
 o = await turnosDe(['oi', 'quero ginecologia', 'sim', 'guama', 'o mais cedo possível']);
 confere('O6 "o mais cedo possível" é o primeiro horário, não "de manhã"', o.state.slot !== undefined && /O mais rápido que tenho é/.test(o.reply), o.reply.replace(/\n/g, ' | ').slice(0, 220));
-confere('O6 "o mais rápido": frase corrida, com Dra., fechando com "Já separo esse pra você" e a pergunta do pagamento', /O mais rápido que tenho é \p{L}+ dia \d{1,2} de manhã a partir das 8h com a Dra\. Medica\. Já separo esse pra você\./u.test(o.reply) && /antecipar o pagamento/.test(o.reply), o.reply.replace(/\n/g, ' | ').slice(0, 260));
+confere('O6 "o mais rápido": frase corrida, com Dra., fechando com "Já separo esse pra você" e o pedido dos dados do paciente', /O mais rápido que tenho é \p{L}+ dia \d{1,2} de manhã a partir das 8h com a Dra\. Medica\. Já separo esse pra você\./u.test(o.reply) && /me manda por favor os dados do paciente/.test(o.reply), o.reply.replace(/\n/g, ' | ').slice(0, 260));
 
 o = await turnosDe(['oi, quero marcar uma consulta']);
 confere('O7 quer marcar uma consulta e não disse qual: mostra as consultas com agenda (não pergunta no escuro)', /Estas são as consultas mais procuradas que tenho com agenda:/.test(o.reply) && /1\. Consulta/.test(o.reply) && /Qual delas você precisa\? Se for outra, me diz o nome\./.test(o.reply) && !/Hmm|Não peguei/.test(o.reply) && !o.handoff && Boolean(o.state.opcoes?.length), o.reply.replace(/\n/g, ' | '));
@@ -843,7 +851,7 @@ confere('O7 quer marcar uma consulta e não disse qual: mostra as consultas com 
 o = await turnosDe(['oi', 'quero agendar ginecologista', 'sim']);
 confere('O8 médicos com Dr./Dra. e "Tenho sim!" ao informar as unidades', /Tenho sim! No Guamá com a Dra\. Medica e a Dra\. Liduina, e no Telégrafo com a Dra\. Medica e a Dra\. Liduina\./.test(o.reply) && /A consulta é R\$ 100,00\./.test(o.reply) && /Qual dos dois fica melhor pra você\?/.test(o.reply), o.reply.replace(/\n/g, ' | ').slice(0, 260));
 o = await turnosDe(['oi', 'quero agendar ginecologista', 'sim', 'guama', '1']);
-confere('O8 o resumo não traz "Fechado" nem "Combinado" e já vem o pix induzido', /Pra agilizar o seu atendimento na recepção, o melhor é antecipar o pagamento por pix, o valor é R\$ 100,00:/.test(o.reply) && !/Fechado|Combinado/.test(o.reply), o.reply.replace(/\n/g, ' | ').slice(-260));
+confere('O8 o resumo não traz "Fechado" nem "Combinado" e já vem o pedido dos dados do paciente', /me manda por favor os dados do paciente/.test(o.reply) && !/Fechado|Combinado/.test(o.reply), o.reply.replace(/\n/g, ' | ').slice(-260));
 
 // ---- inteligência na hora de sugerir: o que a clínica mais agenda e tem agenda vem primeiro ----
 reset({ ocupados: 0 });
@@ -988,24 +996,26 @@ confere('C8 o intérprete do pedido recebe a CONVERSA (inclui a última pergunta
 // ---- pagamento: pix induzido, dúvidas respondidas e link de crédito com a equipe ----
 reset({ ocupados: 0 });
 let pg = await turnosDe(['oi', 'quero agendar ginecologista', 'sim', 'guama amanhã']);
-confere('PG1 horário escolhido: resumo + pix induzido, em três balões (texto, chave sozinha, instrução)', pg.reply.split(/\n\n/).length === 3 && /^Beleza|^Show/.test(pg.reply) && /\nPra agilizar o seu atendimento na recepção, o melhor é antecipar o pagamento por pix, o valor é R\$ 100,00:$/m.test(pg.reply.split(/\n\n/)[0]) && /^Chave pix: /.test(pg.reply.split(/\n\n/)[1]) && /comprovante/.test(pg.reply.split(/\n\n/)[2]), JSON.stringify(pg.reply.split(/\n\n/).map((x: string) => x.slice(0, 50))));
-pg = await turnosDe(['oi', 'quero agendar ginecologista', 'sim', 'guama amanhã', 'link de crédito']);
+confere('PG1 horário escolhido: resumo e o pedido dos dados do paciente, em dois balões', pg.reply.split(/\n\n/).length === 2 && /^Beleza|^Show/.test(pg.reply) && /^Pra gerar o agendamento, me manda por favor os dados do paciente:/.test(pg.reply.split(/\n\n/)[1]), JSON.stringify(pg.reply.split(/\n\n/).map((x: string) => x.slice(0, 50))));
+pg = await turnosDe(['oi', 'quero agendar ginecologista', 'sim', 'guama amanhã', '52998224725', 'sim', 'pix']);
+confere('PG1 escolheu pix (depois dos dados): a chave em três balões (texto, chave sozinha, instrução)', pg.reply.split(/\n\n/).length === 3 && /^Show! A chave pix é essa, o valor é R\$ 100,00:$/.test(pg.reply.split(/\n\n/)[0]) && /^Chave pix: /.test(pg.reply.split(/\n\n/)[1]) && /comprovante/.test(pg.reply.split(/\n\n/)[2]), JSON.stringify(pg.reply.split(/\n\n/).map((x: string) => x.slice(0, 50))));
+pg = await turnosDe(['oi', 'quero agendar ginecologista', 'sim', 'guama amanhã', '52998224725', 'sim', 'link de crédito']);
 confere('PG2 pediu link de crédito: vai para o atendimento do time (transferência dura, sem a Amanda retomar) com a vaga anotada', Boolean(pg.handoff) && pg.handoff.duro === true && /link de crédito/.test(pg.handoff.motivo) && /AINDA NÃO feito/.test(pg.handoff.motivo) && /Vou passar pra equipe te enviar o link de pagamento/.test(pg.reply), pg.reply.replace(/\n/g, ' | ').slice(0, 160));
-pg = await turnosDe(['oi', 'quero agendar ginecologista', 'sim', 'guama amanhã', 'vou pagar com cartão de crédito']);
+pg = await turnosDe(['oi', 'quero agendar ginecologista', 'sim', 'guama amanhã', '52998224725', 'sim', 'vou pagar com cartão de crédito']);
 confere('PG2 "vou pagar com cartão de crédito" também vai para a equipe (link)', Boolean(pg.handoff) && pg.handoff.duro === true, pg.reply.replace(/\n/g, ' | ').slice(0, 120));
-pg = await turnosDe(['oi', 'quero agendar ginecologista', 'sim', 'guama amanhã', 'não']);
-confere('PG3 "não" depois da chave: paga na recepção e pede o CPF', !pg.handoff && /pagamento fica pra recepção/.test(pg.reply) && /CPF/.test(pg.reply), pg.reply.replace(/\n/g, ' | ').slice(0, 160));
+pg = await turnosDe(['oi', 'quero agendar ginecologista', 'sim', 'guama amanhã', '52998224725', 'sim', 'pix', 'não']);
+confere('PG3 "não" depois da chave: paga na recepção e agenda', !pg.handoff && pg.reply.startsWith(MARCA_AGENDADO), pg.reply.replace(/\n/g, ' | ').slice(0, 160));
 pg = await turnosDe(['oi, quero ginecologia e vou pagar na recepção', 'sim', 'guama amanhã']);
-confere('PG4 quem já disse que paga na recepção NÃO é empurrado para o pix', !/Chave pix/.test(pg.reply) && /pagamento fica pra recepção/.test(pg.reply), pg.reply.replace(/\n/g, ' | ').slice(0, 160));
+confere('PG4 quem já disse que paga na recepção NÃO é empurrado para o pix (só vêm o resumo e o pedido dos dados)', !/Chave pix/.test(pg.reply) && !/antecipar o pagamento/.test(pg.reply) && /me manda por favor os dados do paciente/.test(pg.reply), pg.reply.replace(/\n/g, ' | ').slice(0, 160));
 // serviço sem valor definido: não dá para induzir o pix (a equipe confirma o valor)
-pg = await turnosDe(['oi', 'quero agendar consulta semvalor', 'sim', 'guama amanhã']);
-confere('PG5 serviço sem valor cadastrado: não induz o pix; pergunta a forma de pagamento', !/Chave pix/.test(pg.reply) && /antecipar o pagamento por pix ou link de crédito\?/.test(pg.reply) && !/R\$ 0/.test(pg.reply), pg.reply.replace(/\n/g, ' | ').slice(-200));
+pg = await turnosDe(['oi', 'quero agendar consulta semvalor', 'sim', 'guama amanhã', '52998224725', 'sim']);
+confere('PG5 serviço sem valor cadastrado: depois dos dados pergunta a forma de pagamento sem citar valor', !/Chave pix/.test(pg.reply) && /^Como você prefere pagar: por pix, link de crédito ou na recepção, no dia do atendimento\?$/.test(pg.reply) && !/R\$ 0/.test(pg.reply), pg.reply.replace(/\n/g, ' | ').slice(-200));
 // dúvidas: o leitor de contexto tem os fatos de pagamento; o que não sabe, deixa com a equipe (não inventa)
 chamadasCtx = [];
-pg = (await responder(['oi', 'quero agendar ginecologista', 'sim', 'guama amanhã', 'esse pix é seguro mesmo?'].map((z) => [z]), comContexto({ tipo: 'pergunta', resposta: null }, { conversa: conversaEx }), fonteClinilink)) as any;
+pg = (await responder(['oi', 'quero agendar ginecologista', 'sim', 'guama amanhã', '52998224725', 'sim', 'pix', 'esse pix é seguro mesmo?'].map((z) => [z]), comContexto({ tipo: 'pergunta', resposta: null }, { conversa: conversaEx }), fonteClinilink)) as any;
 confere('PG6 dúvida que os fatos não respondem: não inventa, deixa com a equipe e continua esperando o comprovante', /^Essa eu prefiro confirmar direitinho antes de te responder/.test(pg.reply) && !/a equipe confirme/.test(pg.reply) && /aguardando o comprovante/.test(pg.reply) && !pg.handoff, pg.reply.replace(/\n/g, ' | ').slice(0, 260));
 confere('PG6 e o leitor recebeu os fatos de pagamento (formas aceitas, pix opcional, link com a equipe, ordem de chegada)', chamadasCtx.length === 1 && /dá pra pagar por pix, cartão de crédito e débito ou dinheiro em espécie/.test(chamadasCtx[0].fatos) && /Antecipar por pix é opcional/.test(chamadasCtx[0].fatos) && /link de crédito é combinado com a equipe/.test(chamadasCtx[0].fatos) && /ordem de chegada/.test(chamadasCtx[0].fatos), (chamadasCtx[0]?.fatos ?? '').slice(0, 200));
-pg = (await responder(['oi', 'quero agendar ginecologista', 'sim', 'guama amanhã', 'preciso pagar agora?'].map((z) => [z]), comContexto({ tipo: 'pergunta', resposta: 'Não precisa, antecipar por pix é opcional.' }, { conversa: conversaEx }), fonteClinilink)) as any;
+pg = (await responder(['oi', 'quero agendar ginecologista', 'sim', 'guama amanhã', '52998224725', 'sim', 'pix', 'preciso pagar agora?'].map((z) => [z]), comContexto({ tipo: 'pergunta', resposta: 'Não precisa, antecipar por pix é opcional.' }, { conversa: conversaEx }), fonteClinilink)) as any;
 confere('PG7 dúvida respondida com os fatos ("preciso pagar agora?") + segue esperando o comprovante', /^Não precisa, antecipar por pix é opcional\./.test(pg.reply) && /aguardando o comprovante/.test(pg.reply), pg.reply.replace(/\n/g, ' | ').slice(0, 200));
 
 // ---- confirmação no modelo da clínica, com dados reais; sugestões e várias mensagens ----
@@ -1031,9 +1041,9 @@ cf = await responder(['oi', 'quero agendar ginecologista', 'sim', 'telegrafo ama
 confere('CF3 outra unidade: endereço e telefone são os DESSA unidade (Telégrafo), nome do paciente do cadastro', /🏥 Clínica: CLINEX TELEGRAFO/.test(cf.reply) && /📍 Endereço: Travessa Coronel Luís Bentes 170A-Telegrafo/.test(cf.reply) && /☎ Telefone: 91984320406/.test(cf.reply) && /Paciente: Maria Exemplo/.test(cf.reply) && !/Cadastro de/.test(cf.reply), cf.reply.split(/\n\n/)[1]?.slice(0, 200));
 // pagou o pix na conversa: a forma de pagamento mostra que foi pago
 reset({ ocupados: 0 });
-cf = await resp([...base0, img('img-ok'), '52998224725', 'sim'].map((x) => [x]));
+cf = await resp([...baseP, 'pix', img('img-ok')].map((x) => [x]));
 confere('CF4 pagou o pix na conversa (comprovante conferido): "Formas de pagamento: PAGO NO PIX (comprovante recebido)"', cf.reply.startsWith(MARCA_AGENDADO) && /Formas de pagamento: PAGO NO PIX \(comprovante recebido\)$/m.test(cf.reply) && !/CARTÃO DE DÉBITO/.test(cf.reply), cf.reply.split(/\n\n/)[1]?.split('\n').slice(-2).join(' | '));
-cf = await resp([...base0, img('img-meio'), 'na recepção', '52998224725', 'sim'].map((x) => [x]));
+cf = await resp([...baseP, 'pix', img('img-meio'), 'na recepção'].map((x) => [x]));
 confere('CF4 pagou só uma parte: mostra quanto foi pago no pix e que o restante fica na recepção', /Formas de pagamento: PAGO R\$ 50,00 NO PIX \(comprovante recebido\); o restante na recepção/.test(cf.reply), cf.reply.split(/\n\n/)[1]?.split('\n').slice(-1)[0]);
 // orientação cadastrada (preparo) vem antes de escolher o horário E na confirmação
 reset({ ocupados: 0 });
@@ -1083,7 +1093,7 @@ confere('AG4 cada item diz a unidade, o dia, o período, a hora e a médica; a p
 confere('AG4 sem "equipe" na resposta (a Amanda é quem atende)', !/equipe/i.test(cf.reply), '');
 const itensAg: any[] = cf.state.lista;
 cf = await turnosDe(['oi', 'quero agendar ginecologista', 'sim', 'quando tem agenda?', '2']);
-confere('AG5 escolher o item "2" da lista mista define a unidade e o horário daquele item, e segue para o pagamento', cf.state.unidade?.nome === itensAg[1].unidade && cf.state.slot?.ymd === itensAg[1].ymd && cf.state.slot?.inicio === itensAg[1].inicio && /pix/i.test(cf.reply) && cf.state.listaMista === false, `${cf.state.unidade?.nome} ${cf.state.slot?.ymd} ${cf.state.slot?.inicio}`);
+confere('AG5 escolher o item "2" da lista mista define a unidade e o horário daquele item, e segue pedindo os dados do paciente', cf.state.unidade?.nome === itensAg[1].unidade && cf.state.slot?.ymd === itensAg[1].ymd && cf.state.slot?.inicio === itensAg[1].inicio && /dados do paciente/i.test(cf.reply) && cf.state.listaMista === false, `${cf.state.unidade?.nome} ${cf.state.slot?.ymd} ${cf.state.slot?.inicio}`);
 cf = await turnosDe(['oi', 'quero agendar ginecologista', 'sim', 'quando tem agenda?', 'telégrafo']);
 confere('AG6 dizer a unidade com a lista mista na tela: refaz a lista só dessa unidade (sem repetir a unidade em cada item)', cf.state.unidade?.nome === 'Telégrafo' && cf.state.listaMista === false && /^Consegui estes aqui:/.test(cf.reply) && !/^\d\. Telégrafo, /m.test(cf.reply) && /^1\. /m.test(cf.reply), cf.reply.replace(/\n/g, ' | ').slice(0, 160));
 cf = await turnosDe(['oi', 'quero agendar ginecologista', 'sim', 'quando tem agenda?', 'amanhã']);
@@ -1119,17 +1129,17 @@ Object.assign(comprovantes, {
 });
 // o pedido do paciente começou hoje às 15:00 (horário de Belém/São Paulo)
 const ctxCp = { ...ctxPix, inicioJornada: new Date(`${hojeSP}T15:00:00-03:00`) };
-const compResp = async (id: string) => { reset({ ocupados: 0 }); return (await resp([...base0, 'pix', img(id)].map((x) => [x]), ctxCp)) as any; };
+const compResp = async (id: string) => { reset({ ocupados: 0 }); return (await resp([...baseP, 'pix', img(id)].map((x) => [x]), ctxCp)) as any; };
 r = await compResp('cp-antes');
 confere('CP1 pago hoje às 9h05, e o pedido começou às 15h: é de outro atendimento (explica e pede o de agora, sem avançar)', /Esse comprovante é de hoje às 9h05, antes da nossa conversa começar, então deve ser de outro atendimento/.test(r.reply) && /pagamento feito agora/.test(r.reply) && /pagar na recepção/.test(r.reply) && !r.handoff && !/CPF/.test(r.reply), r.reply.slice(0, 160));
 r = await compResp('cp-bem-antes');
 confere('CP2 pago 20 min antes do pedido: também é de outro atendimento', /antes da nossa conversa começar/.test(r.reply) && !/CPF/.test(r.reply), r.reply.slice(0, 100));
 r = await compResp('cp-quase');
-confere('CP3 pago 5 min antes do pedido (pagou e só então escreveu): aceita, dentro da tolerância de 10 min', /Recebi o seu comprovante, muito obrigada/.test(r.reply) && /CPF/.test(r.reply), r.reply.slice(0, 100));
+confere('CP3 pago 5 min antes do pedido (pagou e só então escreveu): aceita, dentro da tolerância de 10 min', r.reply.startsWith(MARCA_AGENDADO) && /PAGO NO PIX/.test(r.reply), r.reply.slice(0, 100));
 r = await compResp('cp-depois');
-confere('CP4 pago depois do pedido: aceita', /Recebi o seu comprovante, muito obrigada/.test(r.reply), r.reply.slice(0, 100));
+confere('CP4 pago depois do pedido: aceita (e agenda)', r.reply.startsWith(MARCA_AGENDADO), r.reply.slice(0, 100));
 r = await compResp('cp-sem-hora');
-confere('CP5 comprovante de hoje sem horário visível: aceita (não tem como comparar o horário)', /Recebi o seu comprovante, muito obrigada/.test(r.reply), r.reply.slice(0, 100));
+confere('CP5 comprovante de hoje sem horário visível: aceita (não tem como comparar o horário)', r.reply.startsWith(MARCA_AGENDADO), r.reply.slice(0, 100));
 r = await compResp('cp-ontem');
 confere('CP6 comprovante de ontem (mesmo às 23h50): é de outro atendimento, de outro dia', /Esse comprovante é de .+, então deve ser de outro atendimento\. Preciso do comprovante do pagamento de hoje, feito pra esse agendamento/.test(r.reply) && !/CPF/.test(r.reply), r.reply.slice(0, 140));
 r = await compResp('cp-futuro');
@@ -1140,12 +1150,12 @@ confere('CP8 comprovante de meses atrás: diz que é de outro atendimento', /ent
 {
   const ctxMadrugada = { ...ctxPix, inicioJornada: new Date(`${ontemSP}T23:30:00-03:00`) };
   reset({ ocupados: 0 });
-  r = (await resp([...base0, 'pix', img('cp-ontem')].map((x) => [x]), ctxMadrugada)) as any;
-  confere('CP9 pedido feito ontem às 23h30 e pago ontem às 23h50 (conversa que passou da meia-noite): aceita', /Recebi o seu comprovante, muito obrigada/.test(r.reply), r.reply.slice(0, 100));
+  r = (await resp([...baseP, 'pix', img('cp-ontem')].map((x) => [x]), ctxMadrugada)) as any;
+  confere('CP9 pedido feito ontem às 23h30 e pago ontem às 23h50 (conversa que passou da meia-noite): aceita', r.reply.startsWith(MARCA_AGENDADO), r.reply.slice(0, 100));
 }
 // o horário do comprovante vai na observação do agendamento (a recepção confere no extrato)
 reset({ ocupados: 0 });
-r = (await resp([...base0, 'pix', img('cp-depois'), '52998224725', 'sim'].map((x) => [x]), ctxCp)) as any;
+r = (await resp([...baseP, 'pix', img('cp-depois')].map((x) => [x]), ctxCp)) as any;
 confere('CP10 a observação do agendamento leva o dia e a hora do comprovante', /Pix antecipado: R\$ 100,00 \(\d{2}\/\d{2}\/\d{4} 15:20\)/.test(posts.find((x) => x.rota.endsWith('/agendamentos'))?.corpo?.observacao ?? ''), posts.find((x) => x.rota.endsWith('/agendamentos'))?.corpo?.observacao ?? '(sem agendamento)');
 
 // ---- endereço: texto aprovado pela clínica (Guamá com o link do mapa; Telégrafo) ----
@@ -1223,18 +1233,18 @@ confere('EN6 o texto do endereço nunca passa pelo GPT (aprovado palavra por pal
 }
 // pagamento: como os pacientes falam
 {
-  const pixFalas = async (falas: string[]) => { reset({ ocupados: 0 }); return (await resp([...base0, 'pix', ...falas].map((x) => [x]))) as any; };
+  const pixFalas = async (falas: string[]) => { reset({ ocupados: 0 }); return (await resp([...baseP, 'pix', ...falas].map((x) => [x]))) as any; };
   let z = await pixFalas(['Já pode deixar pago?']);
   confere('PX1 "já pode deixar pago?": responde que pode e manda a chave de novo', /^Pode sim! Aqui está a chave:/.test(z.reply) && /Chave pix: clinicaclinex@gmail\.com/.test(z.reply) && !/Essa eu prefiro/.test(z.reply), z.reply.replace(/\n/g, ' | ').slice(0, 160));
   z = await pixFalas(['Meu bem não quer enviar']);
   confere('PX2 "não quer enviar" (o pix falhou): oferece pagar na recepção ou o link, sem repetir "aguardando o comprovante"', /Se o pix não quiser enviar/.test(z.reply) && /recepção/.test(z.reply) && /link/.test(z.reply) && !/aguardando/.test(z.reply) && !z.handoff, z.reply.slice(0, 160));
   z = await pixFalas(['Eu pago assim que chegar aí']);
-  confere('PX3 "eu pago assim que chegar aí": paga na recepção e segue para o CPF', z.state.pagamento === 'recepcao' && /CPF/.test(z.reply), z.reply.replace(/\n/g, ' | ').slice(0, 140));
+  confere('PX3 "eu pago assim que chegar aí": paga na recepção e agenda', z.state.pagamento === 'recepcao' && z.reply.startsWith(MARCA_AGENDADO), z.reply.replace(/\n/g, ' | ').slice(0, 140));
   z = await pixFalas(['Mas pode deixar agendado']);
-  confere('PX4 "pode deixar agendado": entende como pagar na recepção', z.state.pagamento === 'recepcao' && /CPF/.test(z.reply), z.reply.replace(/\n/g, ' | ').slice(0, 140));
+  confere('PX4 "pode deixar agendado": entende como pagar na recepção e agenda', z.state.pagamento === 'recepcao' && z.reply.startsWith(MARCA_AGENDADO), z.reply.replace(/\n/g, ' | ').slice(0, 140));
   // a camada de contexto não entra quando o roteiro já respondeu ("Pode sim!"): antes saía "Essa eu prefiro confirmar..." seguido de "Pode sim!"
   chamadasCtx = [];
-  const kz = await viaCtx([...base0, 'pix', 'Já pode deixar pago?'], { tipo: 'pergunta', resposta: null });
+  const kz = await viaCtx([...baseP, 'pix', 'Já pode deixar pago?'], { tipo: 'pergunta', resposta: null });
   confere('PX6 "já pode deixar pago?" com a camada de contexto ligada: só "Pode sim!" (sem "Essa eu prefiro confirmar...")', /^Pode sim! Aqui está a chave:/.test(kz.reply) && !/Essa eu prefiro/.test(kz.reply) && chamadasCtx.length === 0, kz.reply.replace(/\n/g, ' | ').slice(0, 140));
   z = await pixFalas(['preciso pagar agora?']);
   confere('PX5 "preciso pagar agora?" continua sendo dúvida (não manda a chave como se fosse "quero pagar")', !/^Pode sim! Aqui está a chave/.test(z.reply) && !z.handoff, z.reply.replace(/\n/g, ' | ').slice(0, 140));
@@ -1332,6 +1342,30 @@ confere('EN6 o texto do endereço nunca passa pelo GPT (aprovado palavra por pal
   k = await responder(['oi', 'quero o combo feminino 1', 'sim', 'guama amanhã', 'na recepção', '52998224725', 'sim'].map((x) => [x]), ctx, fonteClinilink);
   confere('CB11 falhou a 3ª gravação: não diz que agendou tudo; passa para o time com o que já foi agendado e o que faltou', Boolean(k.handoff) && !k.reply.startsWith(MARCA_AGENDADO) && /COMBO AGENDADO SÓ EM PARTE/.test(k.handoff.motivo) && /Já agendado: Consulta Ginecologia/.test(k.handoff.motivo) && /NÃO agendado: Usg Transvaginal/.test(k.handoff.motivo) && nPost('/agendamentos') === 3, `${k.handoff?.motivo.slice(0, 200)}`);
   reset({ ocupados: 0 });
+}
+
+// ---- ORDEM NOVA: serviço + dia -> resumo -> dados do paciente -> (existente: confirma o nome | novo: cadastro no fim) -> forma de pagamento -> agenda ----
+{
+  const dadosNovo = ['Joana Teste Souza', '91981990849', '12345678909', '10/05/1990']; // CPF que não existe no Clinilink simulado
+  reset({ ocupados: 0 });
+  let v: any = await responder([...base0.map((x) => [x]), dadosNovo], ctx, fonteClinilink);
+  confere('NV1 paciente NOVO: manda os 4 dados de uma vez; ela não pede o pagamento antes de terminar o cadastro: confirma que vai cadastrar e pergunta como prefere pagar', /Como você prefere pagar/.test(v.reply) && v.state.paciente === null && v.state.cad?.nome === 'Joana Teste Souza' && v.state.cad?.sexo === 'feminino' && nPost('/pacientes') === 0 && nPost('/agendamentos') === 0, `${v.reply.replace(/\n/g, ' | ').slice(0, 200)} | pacientes=${nPost('/pacientes')}`);
+  reset({ ocupados: 0 });
+  v = await responder([...base0.map((x) => [x]), dadosNovo, ['na recepção']], ctx, fonteClinilink);
+  const cadNv = posts.find((x) => x.rota.endsWith('/pacientes'))?.corpo;
+  confere('NV2 escolheu o pagamento: AÍ cadastra o paciente e agenda (cadastro só no fim, junto do agendamento)', v.reply.startsWith(MARCA_AGENDADO) && /Cadastro de Joana Teste Souza feito\./.test(v.reply) && cadNv?.nome === 'Joana Teste Souza' && nPost('/pacientes') === 1 && nPost('/agendamentos') === 1, `${v.reply.slice(0, 80)} | ${JSON.stringify({ ...cadNv, cpf: '***' })}`);
+  reset({ ocupados: 0 });
+  v = await responder([...base0.map((x) => [x]), dadosNovo, ['pix'], [img('img-ok')]], ctxPix, fonteClinilink);
+  confere('NV3 paciente novo pagando por pix: manda a chave, confere o comprovante, cadastra e agenda; a confirmação diz "PAGO NO PIX"', v.reply.startsWith(MARCA_AGENDADO) && /PAGO NO PIX/.test(v.reply) && nPost('/pacientes') === 1 && nPost('/agendamentos') === 1, v.reply.replace(/\n/g, ' | ').slice(0, 120));
+  // paciente que já existe: só confirma o nome e já pergunta o pagamento
+  reset({ ocupados: 0 });
+  v = await responder([...base0.map((x) => [x]), ['Maria Exemplo', '91981990849', '52998224725']], ctx, fonteClinilink);
+  confere('NV4 paciente que JÁ existe: puxa do Clinilink e confirma só o nome', /Achei aqui o cadastro de Maria Exemplo\. É esse mesmo o paciente\?/.test(v.reply) && nPost('/pacientes') === 0, v.reply.replace(/\n/g, ' | ').slice(0, 160));
+  v = await responder([...base0.map((x) => [x]), ['Maria Exemplo', '91981990849', '52998224725'], ['sim']], ctx, fonteClinilink);
+  confere('NV4 e com o "sim", segue para a pergunta do pagamento (nada de pedir os dados de novo)', /^Como você prefere pagar\?/.test(v.reply) && !/dados do paciente/.test(v.reply), v.reply.replace(/\n/g, ' | ').slice(0, 160));
+  // o dia/horário pode mudar até o pagamento ser resolvido, e os dados do paciente ficam
+  v = await responder([...base0.map((x) => [x]), ['52998224725'], ['sim'], ['na verdade prefiro outro dia']], ctx, fonteClinilink);
+  confere('NV5 trocou o dia depois dos dados: ela ajusta o horário e mantém os dados do paciente', /vamos ajustar|a gente ajusta/.test(v.reply) && !v.state.slot && v.state.cpf === '52998224725' && v.state.pacienteConfirmado === true, v.reply.replace(/\n/g, ' | ').slice(0, 140));
 }
 
 server.close();

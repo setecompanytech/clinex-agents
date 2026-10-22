@@ -13,8 +13,9 @@ import { RAIZES, type AgendamentoExistente, type Fonte, type PacienteInfo, type 
  *  1 recepção -> 2 paciente diz o que precisa (serviço direto ou sintoma) -> 3 IA sugere o serviço e o paciente confirma
  *  -> 4 IA consulta a agenda e informa as unidades que têm o serviço, com o médico de cada uma, e pergunta qual
  *  -> 5 paciente escolhe a unidade (e talvez já o dia) -> 6 IA lista datas e turnos com vaga (início da agenda)
- *  -> 7 paciente escolhe -> 8 IA pede o CPF -> 9 IA consulta o paciente e mostra o nome para confirmar
- *  -> 10 se o CPF não existe: coleta o cadastro (nome, nascimento, sexo, telefone) -> 11 conclui.
+ *  -> 7 paciente escolhe -> 8 IA resume e pede os dados (nome, nascimento, telefone, CPF; em qualquer ordem) -> 9 IA consulta o paciente
+ *  e mostra o nome para confirmar -> 10 se o CPF não existe: pede o que falta do cadastro (o cadastro só é criado no fim)
+ *  -> 11 IA pergunta a forma de pagamento (pix manda a chave e espera o comprovante) -> 12 conclui: cadastra se novo e agenda.
  * Estilo Amanda v7.3: sem emoji, sem travessão, sem asterisco, uma pergunta por mensagem.
  */
 
@@ -105,11 +106,12 @@ export function etapa(s: State, handoff?: Handoff): string {
   if (!s.servicoConfirmado) return 'confirmando o serviço';
   if (!s.unidade) return 'escolhendo a unidade';
   if (!s.slot) return 'escolhendo data e turno';
-  if (!s.pagFinal) return s.pagamento === 'pix' && s.pixEnviado ? 'aguardando o comprovante do pix' : 'escolhendo a forma de pagamento';
   if (!s.cpf) return 'pedindo o CPF';
   if (s.paciente === undefined) return 'consultando o paciente';
-  if (s.paciente === null) return 'cadastro do paciente novo';
-  return 'confirmando o paciente';
+  if (s.paciente === null && !(s.cad.nome && s.cad.nascimento && s.cad.telefone && s.cad.sexo)) return 'cadastro do paciente novo';
+  if (s.paciente && !s.pacienteConfirmado) return 'confirmando o paciente';
+  if (!s.pagFinal) return s.pagamento === 'pix' && s.pixEnviado ? 'aguardando o comprovante do pix' : 'escolhendo a forma de pagamento';
+  return 'concluindo o agendamento';
 }
 
 /** Marcas na mensagem final; o agente abre uma jornada nova depois delas. */
@@ -125,7 +127,7 @@ export const MARCAS_FIM = [MARCA_FIM, MARCA_AGENDADO, MARCA_MAIS, MARCA_ADEUS];
 /** Mensagens com texto exato (valores, chave, marcas): não passam pelo GPT. */
 export const SEM_GPT = [MARCA_AGENDADO, MARCA_MAIS, MARCA_ADEUS, MARCA_PIX, MARCA_PAGAMENTO];
 /** Textos que o Giovanny aprovou palavra por palavra (unidades, horários, "o mais rápido", comprovante, aviso de segurança do sintoma): também não passam pelo GPT. */
-SEM_GPT.push(MARCA_DUP, 'Está sim, confirmado!', 'Tenho sim!', 'Consegui estes aqui', 'Esses são os horários que tenho', 'Guamá: Endereço:', 'Travessa Coronel Luís Bentes com a Rua do Úna', 'Claro! Tenho estes combos', 'Claro! Tenho combos de', ' inclui: ', 'O mais rápido que tenho é', 'O último que tenho é', 'Não to conseguindo ler esse comprovante', 'Recebi o seu comprovante', 'Pelo que você contou');
+SEM_GPT.push(MARCA_DUP, 'Está sim, confirmado!', 'Tenho sim!', 'Consegui estes aqui', 'Esses são os horários que tenho', 'Guamá: Endereço:', 'Travessa Coronel Luís Bentes com a Rua do Úna', 'Claro! Tenho estes combos', 'Claro! Tenho combos de', ' inclui: ', 'me manda por favor os dados do paciente', 'Como você prefere pagar', 'O mais rápido que tenho é', 'O último que tenho é', 'Não to conseguindo ler esse comprovante', 'Recebi o seu comprovante', 'Pelo que você contou');
 
 export const novoEstado = (): State => ({
   saudou: false, confirmPerguntado: false, servicoConfirmado: false, unidadesInformadas: false,
@@ -337,6 +339,15 @@ const NAO_MAIS = /\b(so isso|era so isso|e so isso|so era isso|nada mais|mais na
 const SO_SIM = /^(sim|s|quero|quero sim|claro|pode|pode sim|gostaria|preciso|isso|uhum|aham|por favor|queria|tenho sim|tenho)[\s!.,]*$/;
 
 const PERG_CPF = 'Me passa o CPF do paciente pra eu reservar?';
+/** Os dados do paciente, pedidos de uma vez assim que o serviço e o dia estão definidos (como a atendente faz). */
+const PEDIDO_DADOS = 'Pra gerar o agendamento, me manda por favor os dados do paciente:\n• Nome completo\n• Data de nascimento\n• Telefone para contato (pode ser esse número do WhatsApp)\n• CPF';
+/** Forma de pagamento dita com todas as letras (sem tratar "não" como resposta). */
+function lerPagamentoFirme(t: string): 'pix' | 'link' | 'recepcao' | undefined {
+  if (RECEPCAO.test(t)) return 'recepcao';
+  if (PIX.test(t)) return 'pix';
+  if (LINK.test(t)) return 'link';
+  return undefined;
+}
 const PERG_CPF_APOS = 'Agora pra eu fazer a reserva pode me passar o CPF do paciente?';
 export const TXT_MAIS ='Imagina, foi um prazer! Posso te ajudar com mais alguma coisa?';
 export const TXT_ADEUS = 'Por nada! Foi um prazer te atender. Tenha um ótimo dia e se cuida, tá?';
@@ -550,7 +561,7 @@ const FALTA_DA_ETAPA: Record<string, string> = {
   'escolhendo data e turno': 'falta escolher o dia e o horário',
   'escolhendo a forma de pagamento': 'falta combinar a forma de pagamento',
   'aguardando o comprovante do pix': 'tô só esperando o comprovante do pix',
-  'pedindo o CPF': 'falta só o CPF do paciente pra eu reservar',
+  'pedindo o CPF': 'faltam os dados do paciente (nome, data de nascimento, telefone e CPF)',
   'cadastro do paciente novo': 'falta terminar o cadastro do paciente',
   'confirmando o paciente': 'falta você confirmar se o cadastro é do paciente',
 };
@@ -802,7 +813,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     return out(comAbertura('Que bom que você voltou! Vamos retomar o seu agendamento. Qual consulta ou exame você precisa?'));
   }
   // CPF dito antes da hora ("meu cpf é ..."): guarda, para não perguntar de novo quando chegar a vez dele
-  if (!s.cpf && !faq && !(base.slot && base.pagFinal) && (/\bcpf\b/.test(t) || /\b\d{3}\.\d{3}\.\d{3}-\d{2}\b/.test(t))) { const c = cpfDoTexto(t); if (c && cpfValido(c)) s.cpf = c; }
+  if (!s.cpf && !faq && !base.slot && (/\bcpf\b/.test(t) || /\b\d{3}\.\d{3}\.\d{3}-\d{2}\b/.test(t))) { const c = cpfDoTexto(t); if (c && cpfValido(c)) s.cpf = c; }
   // o que o paciente adiantou antes de dizer o serviço (dia, período, unidade, "o mais rápido", forma de pagamento) fica guardado
   // remarcar ou cancelar ainda não é com a Amanda: em vez de procurar "remarcar" como se fosse um serviço, chama a equipe
   if (!s.servico && !s.opcoes && /\b(remarc\w*|reagend\w*|desmarc\w*|cancel\w*)\b/.test(t)) {
@@ -867,7 +878,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     return undefined;
   };
   // 2b) mudou de ideia antes de informar o CPF: outro serviço, outra unidade ou outro dia/horário. Ajusta e segue, sem recomeçar.
-  if (s.servico && s.slot && !s.cpf) {
+  if (s.servico && s.slot && !s.pagFinal) {
     let trocou = false;
     if (RAIZES.some((x) => x.re.test(t)) || PEDE_PESSOA.test(t)) {
       const d = await fonte.descobrir(tBusca, false);
@@ -1232,30 +1243,90 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
   // para o paciente: jeito de falar, com Dr./Dra.
   const resumoFalado = `${sv.frase} no ${un.nome} ${diaResumo(slot.ymd, h.ymd)} ${periodoTxt(slot.turno)} a partir das ${hora(slot.inicio)} por ordem de chegada${slot.profissional && !sv.profissional ? ` com ${exibir(slot.profissional, { artigo: true })}` : ''}`;
 
-  // 7b) forma de pagamento: pix (espera o comprovante), link de crédito (equipe envia) ou pagar na recepção
+  // 7c) forma de pagamento (DEPOIS dos dados): ela pergunta como prefere pagar; pix manda a chave e espera o comprovante, link de crédito vai para o time, recepção segue
   const valorPix = un.precoPix;
-  const pedirCpf = (pre: string) => dizer(!pre ? PERG_CPF : `${pre} ${pre.startsWith('Recebi') ? PERG_CPF_APOS : PERG_CPF}`);
-  // Assim que o horário está escolhido, ela JÁ induz o pix: manda a chave (sem perguntar antes), com a saída para quem prefere outro jeito.
-  // Quem já disse como quer pagar (na recepção, link) não é empurrado para o pix.
   let induziuPix = false;
   const pixMsg = () => `${induziuPix
     ? `Pra agilizar o seu atendimento na recepção, o melhor é ${MARCA_PAGAMENTO} por pix${valorPix ? `, o valor é ${reais(valorPix)}` : ''}:`
     : `Show! A chave pix é essa${valorPix ? `, o valor é ${reais(valorPix)}` : ''}:`}\n\n${MARCA_PIX} ${env.pixKey}\n\nQuando pagar, me manda o comprovante aqui que eu já sigo com o seu agendamento, tá?${induziuPix ? ' Se preferir pagar na recepção ou por link de crédito, é só me falar.' : ''}`;
   // link de pagamento: a equipe assume (envia o link e conclui). A Amanda não retoma sozinha depois.
-  const deLink = () => out('Combinado! Vou passar pra equipe te enviar o link de pagamento e concluir o agendamento. Já deixei tudo anotado. Só um instante.', { duro: true, motivo: `Paciente quer pagar por link de crédito: enviar o link e concluir o agendamento. Vaga: ${resumoVaga}. Agendamento AINDA NÃO feito.` });
-  let preCpf = '';
+  const deLink = () => out('Combinado! Vou passar pra equipe te enviar o link de pagamento e concluir o agendamento. Já deixei tudo anotado. Só um instante.', { duro: true, motivo: `Paciente quer pagar por link de crédito: enviar o link e concluir o agendamento. Vaga: ${resumoVaga}. ${dadosParaEquipe()} Agendamento AINDA NÃO feito.` });
+  // 7b) dados do paciente ANTES do pagamento: nome completo, nascimento, telefone e CPF, em qualquer ordem, numa mensagem só ou em várias.
+  // Depois: paciente que já existe é puxado do Clinilink (confirma só o nome); paciente novo é cadastrado no fim, junto com o agendamento.
+  const pedirCpf = (pre: string) => dizer(!pre ? PERG_CPF : `${pre} ${pre.startsWith('Recebi') ? PERG_CPF_APOS : PERG_CPF}`);
+  /** Quem é o paciente, para o time (link de crédito, falha): já cadastrado, ou os dados para cadastrar. */
+  const dadosParaEquipe = () => (s.paciente ? `Paciente já cadastrado (${titulo(s.paciente.nome)}, id ${s.paciente.id ?? '?'}).` : s.cpf ? `CADASTRAR paciente novo: ${s.cad.nome ?? '(nome pendente)'}, nascimento ${s.cad.nascimento ? fmtNasc(s.cad.nascimento) : '?'}, sexo ${s.cad.sexo ?? '?'}, telefone ${s.cad.telefone ?? '?'}, CPF ${s.cpf}.` : '');
+  const resumoDoHorario = escolhaDireta || `${pick(['Beleza', 'Show'], n)}, então fica ${resumoFalado}.`;
+  const primeiraVezNoSlot = !base.slot; // este é o turno em que o horário foi escolhido
+  let resumoDito = false;
+  const dizResumo = () => { if (!resumoDito) { partes.push(resumoDoHorario); resumoDito = true; } }; // o resumo do que ficou combinado sai uma vez só, junto da primeira resposta depois do horário
+  const emDados = Boolean(base.slot); // depois do horário escolhido, o que o paciente manda é lido como dado dele (também vale para conversas em andamento de antes desta ordem)
+  if (primeiraVezNoSlot && !faq) { const pa = pagamentoAdiantado(t); if (pa) s.pagPref = pa; } // "guamá amanhã, vou pagar no pix": a forma de pagamento já vem na frase do horário
+  const anotado = emDados ? capturaDados(texto, t) : { algo: false, telefone: false };
+  // a forma de pagamento dita no meio dos dados fica anotada (a pergunta do pagamento só vem depois dos dados)
+  let ackPagto = '';
+  if (emDados && !anotado.algo && !faq) {
+    const pf = lerPagamentoFirme(t);
+    if (pf) { s.pagPref = pf; ackPagto = pf === 'recepcao' ? 'Sem problema nenhum o pagamento fica pra recepção no dia do atendimento.' : pf === 'pix' ? 'Beleza, o pagamento vai ser por pix.' : 'Combinado, o pagamento vai ser por link de crédito.'; }
+  }
+  if (!s.cpf) {
+    const cpf = emDados && !anotado.telefone ? cpfDoTexto(t) : undefined;
+    if (cpf && !cpfValido(cpf)) return dizer('Acho que algum número do CPF escapou, dá uma olhadinha e me manda de novo os 11 números?');
+    if (cpf) s.cpf = cpf;
+    else if (primeiraVezNoSlot) { dizResumo(); return dizer(`\n${PEDIDO_DADOS}`); } // confirma o que ficou combinado e já pede os dados
+    else if (anotado.algo) return dizer('Anotei! Me passa também o CPF do paciente?');
+    else if (emDados && /\d{2,}/.test(t)) return dizer('Não consegui ler o CPF. Pode me mandar os 11 números?');
+    else return pedirCpf(ackPagto);
+  }
+
+  if (primeiraVezNoSlot) dizResumo(); // CPF dito antes do horário: o resumo vem junto da confirmação do paciente (ou do que falta)
+  // 9) consulta o paciente por CPF
+  const acabouDeConsultar = s.paciente === undefined;
+  if (s.paciente === undefined) {
+    s.paciente = await fonte.paciente(s.cpf);
+    if (s.paciente) return dizer(`Achei aqui o cadastro de ${titulo(s.paciente.nome)}. É esse mesmo o paciente?`);
+    // CPF novo: segue para o passo 10, que pede de uma vez tudo o que ainda falta (ele pode já ter mandado nome, nascimento e telefone)
+  }
+  if (s.paciente && !s.pacienteConfirmado) {
+    if (SIM.test(t)) s.pacienteConfirmado = true;
+    else if (NAO.test(t)) { s.cpf = undefined; s.paciente = undefined; return dizer('Sem problema. Dá uma conferida no CPF e me manda de novo?'); }
+    else return dizer(`Esse cadastro é de ${titulo(s.paciente.nome)}. É esse mesmo o paciente?`);
+  }
+
+  // 10) CPF novo: o cadastro (nome, nascimento, telefone) é pedido de uma vez e vale em qualquer ordem; o sexo sai do primeiro nome quando ele é conhecido
+  if (s.paciente === null) {
+    const c = s.cad;
+    // "pode ser esse número": usa o WhatsApp do paciente
+    if (!acabouDeConsultar && c.pediuTelefone && !c.telefone && ctx.telefone && !anotado.telefone && (SIM.test(t) || /\b(esse|este|mesmo|whats\w*)\b/.test(t))) c.telefone = ctx.telefone.replace(/\D/g, '');
+    if (c.nome && !c.sexo) {
+      await prepararGeneros([c.nome]);
+      const g = generoConfirmado(c.nome);
+      if (g) c.sexo = g === 'F' ? 'feminino' : 'masculino';
+    }
+    const faltam: string[] = [];
+    if (!c.nome) faltam.push('o nome completo do paciente');
+    if (!c.nascimento) faltam.push('a data de nascimento');
+    if (!c.telefone) faltam.push('o telefone com DDD');
+    if (c.nome && !c.sexo) faltam.push('se o paciente é do sexo feminino ou masculino');
+    if (faltam.length) {
+      const pedeTelefone = !c.telefone;
+      if (pedeTelefone) c.pediuTelefone = true;
+      const dica = pedeTelefone ? ' (se for esse mesmo número do WhatsApp, é só me avisar)' : '';
+      if (acabouDeConsultar) return dizer(`Esse CPF ainda não tá no cadastro, vou fazer agora. Me manda ${juntar(faltam)}${dica}.`);
+      return dizer(`${faltam.length > 1 ? 'Faltam' : 'Falta'} só ${juntar(faltam)}${dica}.`);
+    }
+  }
+
   if (!s.pagFinal) {
     if (!s.pagPerguntado) {
       s.pagPerguntado = true;
-      // se ele já adiantou a forma de pagamento (agora ou antes), não pergunta de novo; "aceita cartão?" é pergunta, não escolha
-      s.pagamento = faq === 'pagto' ? undefined : (lerPagamento(t) ?? s.pagPref);
-      const resumo = escolhaDireta || `${pick(['Beleza', 'Show'], n)}, então fica ${resumoFalado}.`;
-      if (!s.pagamento) {
-        // com valor definido, induz o pix direto; sem valor (a equipe confirma), pergunta como antes
-        if (!valorPix) return dizer(resumo, `Pra agilizar o seu atendimento na recepção, você quer ${MARCA_PAGAMENTO} por pix ou link de crédito?`);
-        s.pagamento = 'pix'; induziuPix = true;
-      }
-      partes.push(resumo); // mostra o que ficou combinado e segue (já escolheu como pagar, ou ela induziu o pix)
+      // se ele já disse como quer pagar (junto dos dados ou antes), não pergunta de novo; "aceita cartão?" é pergunta, não escolha
+      s.pagamento = faq === 'pagto' ? undefined : (lerPagamentoFirme(t) ?? s.pagPref);
+      if (primeiraVezNoSlot) dizResumo(); // dados já completos na mesma mensagem do horário: mostra o que ficou combinado
+      // ainda não disse: pergunta como prefere pagar (o pix só sai se ele escolher pix)
+      if (!s.pagamento) return dizer(valorPix
+        ? `Como você prefere pagar? Dá pra ${MARCA_PAGAMENTO} por pix (o valor é ${reais(valorPix)}), que agiliza o seu atendimento na recepção, pagar na recepção, no dia do atendimento, ou por link de crédito.`
+        : 'Como você prefere pagar: por pix, link de crédito ou na recepção, no dia do atendimento?');
     } else if (!s.pagamento) {
       const f = faq === 'pagto' ? undefined : lerPagamento(t);
       if (!f) {
@@ -1313,7 +1384,6 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
         s.comprovante = { valor: total, data: c.data, nota: `Pix antecipado: ${reais(total)} (${fmtNasc(c.data)}${c.hora ? ` ${c.hora}` : ''}${s.pagoPix ? ', mais de um comprovante' : ''}) lido pela IA${alvo.trim() ? '' : ', recebedor não identificado'}; CONFERIR no extrato` };
         s.pagoPix = total;
         s.pagFinal = true;
-        preCpf = 'Recebi o seu comprovante, muito obrigada!';
       }
       else if (/\bdeixa(r)? pago\b|\b(posso|quero|vou|queria|gostaria de) pagar (agora|ja)\b|\bpago agora\b/.test(t)) return { ...dizer(`Pode sim! Aqui está a chave:\n${MARCA_PIX} ${env.pixKey}${valorPix ? `\nValor${s.pagoPix ? ' que falta' : ''}: ${reais(falta || valorPix)}` : ''}\nQuando pagar, me manda o comprovante aqui, tá?`), direta: true };
       else if (/nao (quer|esta|ta|consigo|vai|deu|foi) (enviar|mandar|passar|funcionar|fazer|pagar|certo)|deu erro|nao abre|nao carrega|problema (no|com o) (pix|app|aplicativo)/.test(t)) return { ...dizer('Sem problema! Se o pix não quiser enviar, você pode pagar na recepção, no dia do atendimento, ou eu chamo alguém pra te mandar um link de pagamento. O que fica melhor pra você?'), direta: true };
@@ -1333,67 +1403,13 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
         if (s.pagoPix) { // pagou uma parte por pix: o resto fica para a recepção
           const resto = valorPix ? Math.max(0, valorPix - s.pagoPix) : 0;
           s.comprovante = { valor: s.pagoPix, data: s.comprovante?.data ?? h.ymd, nota: `Pix antecipado PARCIAL de ${reais(s.pagoPix)} (comprovante lido pela IA; CONFERIR no extrato)${resto ? `. Saldo de ${reais(resto)} a pagar na recepção` : ''}` };
-          preCpf = `Combinado ${resto ? `o restante de ${reais(resto)} fica` : 'o restante fica'} pra recepção no dia do atendimento.`;
-        } else preCpf = 'Sem problema nenhum o pagamento fica pra recepção no dia do atendimento.';
+        }
       }
       else if (s.pagamento === 'pix') {
         if (!s.pixEnviado) { s.pixEnviado = true; return dizer(pixMsg()); }
       }
     }
-    if (s.pagFinal) {
-      // o CPF pode ter sido dito antes ("meu cpf é ..."): então já segue para o cadastro, sem perguntar de novo
-      if (!s.cpf) return pedirCpf(preCpf);
-      if (preCpf) partes.push(preCpf);
-    } else return dizer('Tô aguardando o comprovante do pix pra seguir com o agendamento.');
-  }
-
-  // 8) dados do paciente: o CPF e o que mais ele mandar (nome, nascimento, telefone), em qualquer ordem, em várias mensagens ou numa só
-  const slotAntes = Boolean(base.slot && base.pagFinal);
-  const anotado = slotAntes ? capturaDados(texto, t) : { algo: false, telefone: false };
-  if (!s.cpf) {
-    const cpf = slotAntes && !anotado.telefone ? cpfDoTexto(t) : undefined;
-    if (cpf && !cpfValido(cpf)) return dizer('Acho que algum número do CPF escapou, dá uma olhadinha e me manda de novo os 11 números?');
-    if (cpf) s.cpf = cpf;
-    else if (anotado.algo) return dizer('Anotei! Me passa também o CPF do paciente?');
-    else if (slotAntes && /\d{2,}/.test(t)) return dizer('Não consegui ler o CPF. Pode me mandar os 11 números?');
-    else return dizer(pick([PERG_CPF, 'Qual o CPF do paciente? Preciso dele pra fazer a reserva.'], n));
-  }
-
-  // 9) consulta o paciente por CPF
-  const acabouDeConsultar = s.paciente === undefined;
-  if (s.paciente === undefined) {
-    s.paciente = await fonte.paciente(s.cpf);
-    if (s.paciente) return dizer(`Achei aqui o cadastro de ${titulo(s.paciente.nome)}. É esse mesmo o paciente?`);
-    // CPF novo: segue para o passo 10, que pede de uma vez tudo o que ainda falta (ele pode já ter mandado nome, nascimento e telefone)
-  }
-  if (s.paciente && !s.pacienteConfirmado) {
-    if (SIM.test(t)) s.pacienteConfirmado = true;
-    else if (NAO.test(t)) { s.cpf = undefined; s.paciente = undefined; return dizer('Sem problema. Dá uma conferida no CPF e me manda de novo?'); }
-    else return dizer(`Esse cadastro é de ${titulo(s.paciente.nome)}. É esse mesmo o paciente?`);
-  }
-
-  // 10) CPF novo: o cadastro (nome, nascimento, telefone) é pedido de uma vez e vale em qualquer ordem; o sexo sai do primeiro nome quando ele é conhecido
-  if (s.paciente === null) {
-    const c = s.cad;
-    // "pode ser esse número": usa o WhatsApp do paciente
-    if (!acabouDeConsultar && c.pediuTelefone && !c.telefone && ctx.telefone && !anotado.telefone && (SIM.test(t) || /\b(esse|este|mesmo|whats\w*)\b/.test(t))) c.telefone = ctx.telefone.replace(/\D/g, '');
-    if (c.nome && !c.sexo) {
-      await prepararGeneros([c.nome]);
-      const g = generoConfirmado(c.nome);
-      if (g) c.sexo = g === 'F' ? 'feminino' : 'masculino';
-    }
-    const faltam: string[] = [];
-    if (!c.nome) faltam.push('o nome completo do paciente');
-    if (!c.nascimento) faltam.push('a data de nascimento');
-    if (!c.telefone) faltam.push('o telefone com DDD');
-    if (c.nome && !c.sexo) faltam.push('se o paciente é do sexo feminino ou masculino');
-    if (faltam.length) {
-      const pedeTelefone = !c.telefone;
-      if (pedeTelefone) c.pediuTelefone = true;
-      const dica = pedeTelefone ? ' (se for esse mesmo número do WhatsApp, é só me avisar)' : '';
-      if (acabouDeConsultar) return dizer(`Esse CPF ainda não tá no cadastro, vou fazer agora. Me manda ${juntar(faltam)}${dica}.`);
-      return dizer(`${faltam.length > 1 ? 'Faltam' : 'Falta'} só ${juntar(faltam)}${dica}.`);
-    }
+    if (!s.pagFinal) return dizer('Tô aguardando o comprovante do pix pra seguir com o agendamento.');
   }
 
   // 11) conclui

@@ -61,7 +61,9 @@ const ate_o_pagamento = () => [
   eu('quero agendar cardiologia'), amanda('(?:Ah, então é|Entendi, você quer|Só pra confirmar: é|Então é) consulta de Cardiologia, é isso?'),
   eu('sim'), amanda('Consulta de Cardiologia tem agenda nestas unidades...'),
   eu('guama'), amanda('Tenho estas opções: 1. ...'),
-  eu('1'), amanda('Fechado, é consulta ... Para agilizar o seu atendimento na recepção, gostaria de antecipar o pagamento por pix ou link de crédito?'),
+  eu('1'), amanda('Show, então fica consulta ... Pra gerar o agendamento, me manda por favor os dados do paciente: ...'),
+  eu('52998224725'), amanda('Achei aqui o cadastro de Maria da Silva Exemplo. É esse mesmo o paciente?'),
+  eu('sim'), amanda('Como você prefere pagar? Dá pra antecipar o pagamento por pix, pagar na recepção ou por link de crédito.'),
 ];
 
 // A1) transferência: a mensagem ao paciente vai como TEXTO NORMAL, antes da transferência, e a transferência não leva `message`
@@ -101,13 +103,13 @@ confere('A2 agradecimento depois da despedida: a Amanda fica em silêncio', c.le
 n = 0;
 const base = ate_o_pagamento();
 const foto = { id: 'img-a3', direction: 'in', type: 'image', text: null, timestamp: ts(), status: 'delivered' }; // comprovante (sem leitura automática no teste: vai para a equipe conferir)
-c = await roda([...base, foto, amanda('Recebi o seu comprovante. Vou pedir pra equipe conferir. Já deixei tudo anotado. Só um instante.'), sistema('Transferido pela API para o setor Principal'), eu('já paguei o pix')], 'HUM');
+c = await roda([...base, eu('pix'), amanda('Show! A chave pix é essa.'), foto, amanda('Recebi o seu comprovante. Vou pedir pra equipe conferir. Já deixei tudo anotado. Só um instante.'), sistema('Transferido pela API para o setor Principal'), eu('já paguei o pix')], 'HUM');
 confere('A3 paciente volta na fila da equipe: a conversa é devolvida para a Amanda ANTES de responder', transfs(c)[0]?.corpo.toSectorId === 'AI' && !('message' in transfs(c)[0].corpo) && c.findIndex((x) => x.caminho.endsWith('/transfer')) < c.findIndex((x) => x.caminho.endsWith('/send/text')), c.map((x) => x.caminho.split('/').slice(-1)[0]).join(' -> '));
 confere('A3 e continua de onde parou: pede o comprovante do pix (já tinha recebido a chave)', /comprovante/.test(textos(c).join('\n')) && !/Chave pix:/.test(textos(c).join('\n')), textos(c).join(' | ').replace(/\n/g, ' ').slice(0, 160));
 confere('A3 a mensagem enviada abre com o título "*Amanda S. (Clinex):*" na primeira linha', textos(c).length > 0 && textos(c).every((t) => t.startsWith('*Amanda S. (Clinex):*\n') || !t.includes('*Amanda')) && textos(c)[0].startsWith('*Amanda S. (Clinex):*\n'), textos(c)[0]?.slice(0, 40));
 // A3a) mensagens antigas da Amanda, com o título de antes ("Amanda (IA) - Nova"), continuam sendo dela
 n = 0;
-c = await roda([...ate_o_pagamento().map((m: any) => (m.direction === 'out' ? msg('out', 'text', { body: String(m.text?.body ?? '').replace('*Amanda S. (Clinex):*', '*Amanda (IA) - Nova*') }) : m)), foto, msg('out', 'text', { body: '*Amanda (IA) - Nova*\nRecebi o seu comprovante. Vou pedir pra equipe conferir.' }), sistema('Transferido pela API para o setor Principal'), eu('já paguei o pix')], 'HUM');
+c = await roda([...ate_o_pagamento().map((m: any) => (m.direction === 'out' ? msg('out', 'text', { body: String(m.text?.body ?? '').replace('*Amanda S. (Clinex):*', '*Amanda (IA) - Nova*') }) : m)), eu('pix'), msg('out', 'text', { body: '*Amanda (IA) - Nova*\nShow! A chave pix é essa.' }), foto, msg('out', 'text', { body: '*Amanda (IA) - Nova*\nRecebi o seu comprovante. Vou pedir pra equipe conferir.' }), sistema('Transferido pela API para o setor Principal'), eu('já paguei o pix')], 'HUM');
 confere('A3a título antigo na conversa: a Amanda ainda reconhece como dela e retoma na fila da equipe', transfs(c)[0]?.corpo.toSectorId === 'AI', c.map((x) => x.caminho.split('/').slice(-1)[0]).join(' -> '));
 // A3b) link de crédito: a equipe assume e a Amanda NÃO retoma sozinha
 c = await roda([...base, eu('link de crédito'), amanda('Combinado! Vou passar pra equipe te enviar o link de pagamento...'), sistema('Transferido pela API para o setor Principal'), eu('na verdade vou pagar no pix')], 'HUM');
