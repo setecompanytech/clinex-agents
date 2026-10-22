@@ -222,14 +222,17 @@ Faça cada uma em etapas diferentes (antes do serviço, na unidade, nos horário
 
 ## Fluxo 12. Agendamento de combo
 
-**Hoje a Amanda ainda não agenda combos.** O Clinilink tem combos (por exemplo "check-up feminino", com vários serviços e um preço próprio) e a API já permite reservar um serviço de cada vez com o combo, mas o fluxo da Amanda **ainda não foi construído**. Estes testes servem para você conferir o que acontece hoje e para eu desenhar o fluxo certo.
+A Amanda lista os combos do Clinilink (consulta + exames com preço fechado), mostra o que cada um inclui e o valor, e **agenda**. A regra: a consulta (a "âncora") é o horário que você escolhe; os outros serviços entram **no mesmo dia**. O que a mesma agenda da consulta atende vai junto no mesmo horário; o resto (USG em outra agenda, coleta de exames) é agendado no mesmo dia em outra agenda. O "retorno" do combo é uma consulta futura sem custo e **não** é agendado agora.
 
-- 12.1 "quero agendar um combo" / "tem pacote de check-up?" → hoje: "Os combos eu ainda não consigo agendar por aqui. Vou chamar alguém da equipe pra te ajudar com isso." e transfere (não procura "combo" como se fosse um exame).
-- 12.2 "quais combos vocês têm?" → hoje também chama a equipe. Anote o que você esperava que ela respondesse (lista de combos, preços, o que inclui).
-- 12.3 Depois da transferência, escreva de novo: ela fica quieta (a equipe assume).
-- 12.4 **Para o fluxo futuro**, anote como você quer que seja: ela lista os combos disponíveis e o que cada um inclui? Mostra o preço do combo? Agenda todos os serviços no mesmo dia, em dias diferentes, ou pergunta? Como lida quando um dos serviços não tem agenda? Cobra tudo junto no pix?
-- 12.5 (PENDENTE DE DESENVOLVIMENTO) "quero o check-up feminino" → mostra o combo (serviços e valor), pergunta unidade e dia, reserva cada serviço do combo e confirma tudo numa mensagem.
-- 12.6 (PENDENTE DE DESENVOLVIMENTO) Combo com um serviço sem horário: avisa qual falta e oferece outro dia ou a equipe.
+- 12.1 "Tem combo feminino?" → "Claro! Tenho estes combos femininos:" + lista numerada com **preço e o que inclui** (sem o retorno). Escolher pelo número ou pelo nome.
+- 12.2 "Quanto tá um combo?" / "quais combos vocês têm?" → "Claro! Tenho combos de:" (Feminino, Masculino, Infantil, Clínico, Cardio, Gastro, Ortopedista, Risco cirúrgico, Check-up). Escolhendo um, lista os combos dele. Nunca "vou chamar a equipe".
+- 12.3 Combo escolhido e confirmado ("sim") → unidades, o preço do combo ("O combo é R$ 200,00."), e **em mensagem separada** "O Feminino 1 inclui: ... O retorno da consulta está incluso, sem custo.".
+- 12.4 Os horários que aparecem são só os **dias em que o combo fecha** (a consulta tem vaga e todos os outros serviços também têm vaga naquele dia na unidade). Um dia em que a USG não atende não aparece.
+- 12.5 "Quero o Feminino 2" / "quero o check up geral" (nome do combo, sem dizer "combo") → vai direto para o combo.
+- 12.6 Conclusão (pagamento, CPF, cadastro como nos outros serviços): grava a consulta (com o comboId), e depois cada outro grupo de serviços no mesmo dia. A confirmação traz o modelo da clínica com **todos os serviços** ("Procedimento: CONSULTA ... - DRA, USG ... - DR, HEMOGRAMA ... - COLETA"), o **valor do combo** e, em mensagem separada, o horário dos exames em outra agenda ("Usg Transvaginal fica agendado no mesmo dia, a partir das 10:00, por ordem de chegada.").
+- 12.7 Combo cujo serviço não tem agenda em nenhum dia → "Poxa, no momento não tenho vaga pra o combo ... Vou chamar alguém da equipe pra conferir e te retornar." (não oferece horário que não fecha).
+- 12.8 Se a gravação falhar no meio (ex.: o horário da USG foi ocupado depois da consulta já gravada): **não** diz que agendou tudo; passa para o time com "COMBO AGENDADO SÓ EM PARTE. Já agendado: ... NÃO agendado: ...". Confira no Clinilink antes de refazer.
+- 12.9 **Para o seu teste real:** use o paciente de teste, escolha um combo pequeno (ex.: Cardio 1: consulta + eletrocardiograma) e confira no Clinilink se os serviços ficaram no mesmo dia, nas agendas certas e com o combo marcado. Cancele depois.
 
 ## Fluxo 13. Ler o contexto da conversa
 
@@ -319,7 +322,7 @@ Frases de pacientes reais, com erro de digitação, gíria e várias mensagens s
 | 16.20 | "Solicitar Orçamento" | "Claro! Me diz qual consulta ou exame você quer o valor. Se for pedido médico, pode digitar o nome dos exames que eu vejo um por um." |
 | 16.21 | Serviço cujo "profissional" no Clinilink é uma sala ("Coleta", "Exames", ".SALA DE EXAMES") | Não aparece "com Coleta" nem "com Exames" (só médicos aparecem). No modelo da confirmação, o Profissional continua como está no cadastro. |
 
-**Ainda não faz (conversas reais mostram que os pacientes pedem):** combos ("Quanto tá um combo?", "AGENDAR III"); gerar o recibo/OS em PDF depois do pagamento; mandar só o horário mais próximo em vez de lista (hoje manda até 4 opções).
+**Ainda não faz (conversas reais mostram que os pacientes pedem):** gerar o recibo/OS em PDF depois do pagamento; mandar só o horário mais próximo em vez de lista (hoje manda até 4 opções).
 
 ## Como me passar o resultado
 

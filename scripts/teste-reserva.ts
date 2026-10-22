@@ -6,7 +6,7 @@ import http from 'node:http';
 
 type Posts = { rota: string; corpo: any }[];
 const posts: Posts = [];
-let modo: { ocupados: number; agendamento?: 'ok' | 'duplicado' | '500' | 'ocupado-sempre'; cpfDuplicado?: boolean; somenteLeitura?: boolean } = { ocupados: 0 };
+let modo: { ocupados: number; agendamento?: 'ok' | 'duplicado' | '500' | 'ocupado-sempre'; cpfDuplicado?: boolean; somenteLeitura?: boolean; falhaNoPost?: number } = { ocupados: 0 };
 
 const U_GUAMA = '11111111-1111-4111-8111-111111111111';
 const U_TELEGRAFO = '99999999-9999-4999-8999-999999999999';
@@ -20,6 +20,23 @@ const PROC3 = '24242424-2424-4242-8242-242424242424';
 const PROC_USG = '25252525-2525-4252-8252-252525252525';
 const PREPARO_LONGO = 'PREPARO PARA O EXAME\n\nJejum: manter jejum de 8 horas antes do exame.\n\nVéspera:\n• Evite alimentos gordurosos.\n• Não mascar chiclete.';
 const AGENDA = '44444444-4444-4444-8444-444444444444';
+// combos do Clinilink simulado: consulta (agenda principal), eletrocardiograma (MESMA agenda da consulta), USG (outra agenda), coleta (outra agenda)
+const PROC_RETORNO = '46464646-4646-4464-8464-464646464646';
+const PROC_ECG = '43434343-4343-4434-8434-434343434343';
+const PROC_USGC = '45454545-4545-4454-8454-454545454545';
+const PROC_HEMO = '41414141-4141-4414-8414-414141414141';
+const PROC_GLIC = '42424242-4242-4424-8424-424242424242';
+const AGENDA_COLETA = '55555555-5555-4555-8555-5555555555aa';
+const AGENDA_USGC = '55555555-5555-4555-8555-5555555555bb';
+const COMBOS = [
+  { id: 'c0000001-0000-4000-8000-000000000001', nome: 'FEMININO 1', servicos: [
+    { id: PROC, nome: 'CONSULTA GINECOLOGIA', preco: 80 }, { id: PROC_RETORNO, nome: 'CONSULTA GINECOLOGIA - RETORNO', preco: 0 },
+    { id: PROC_USGC, nome: 'USG TRANSVAGINAL', preco: 70 }, { id: PROC_HEMO, nome: 'HEMOGRAMA COMPLETO', preco: 10 }] },
+  { id: 'c0000001-0000-4000-8000-000000000002', nome: 'FEMININO 2', servicos: [
+    { id: PROC, nome: 'CONSULTA GINECOLOGIA', preco: 80 }, { id: PROC_RETORNO, nome: 'CONSULTA GINECOLOGIA - RETORNO', preco: 0 }, { id: PROC_ECG, nome: 'ELETROCARDIOGRAMA', preco: 30 }] },
+  { id: 'c0000001-0000-4000-8000-000000000003', nome: 'CHECK UP 10', servicos: [{ id: PROC_HEMO, nome: 'HEMOGRAMA COMPLETO', preco: 10 }, { id: PROC_GLIC, nome: 'GLICEMIA EM JEJUM', preco: 7 }] },
+  { id: 'c0000001-0000-4000-8000-000000000004', nome: 'INFANTIL 1', servicos: [{ id: PROC2, nome: 'CONSULTA DERMATOLOGIA', preco: 85 }, { id: '40000000-0000-4000-8000-000000000001', nome: 'TESTE RAPIDO HIV', preco: 5 }] },
+];
 /** Quantos agendamentos cada serviço teve (o Clinilink simulado devolve isso em GET /agendamentos): o teste de alergia é o mais procurado dos exames. */
 const DEMANDA_PADRAO: Record<string, number> = {
   '33333333-3434-4343-8343-343434343434': 60, // TESTE DE ALERGIA
@@ -38,6 +55,15 @@ const mk = (data: string, hora: string, inicio: string, prof = { id: MEDICO, nom
 /** amanhã de manhã (3 horários, os primeiros podem estar "ocupados") e depois de amanhã à tarde (2 horários) */
 const horarios = (ini: string, fim: string, profId?: string, unidadeId?: string) => {
   if (profId === P_REBECA) return []; // sem agenda aberta
+  const procAg = (globalThis as any).__procAgenda ?? '';
+  if (procAg === PROC_HEMO || procAg === PROC_GLIC) { // coleta: outra agenda, por ordem de chegada, amanhã e depois de amanhã a partir das 07:00
+    const col = { id: '99999999-9999-4999-8999-999999999999', nome: 'COLETA' };
+    return [dia(1), dia(2), dia(5)].flatMap((d) => ['07:00', '07:20'].map((h) => ({ ...mk(d, h, '07:00', col), agendaId: AGENDA_COLETA, agendaNome: 'Coleta' }))).filter((h) => h.data >= ini && h.data <= fim);
+  }
+  if (procAg === PROC_USGC) { // USG do combo: outra agenda; só amanhã e daqui a 5 dias (depois de amanhã NÃO tem: o combo não fecha nesse dia)
+    const usg = { id: '98989898-9898-4898-8898-989898989898', nome: 'LUIS USG TESTE' };
+    return [dia(1), dia(5)].flatMap((d) => ['10:00', '10:30'].map((h) => ({ ...mk(d, h, '10:00', usg), agendaId: AGENDA_USGC, agendaNome: 'USG' }))).filter((h) => h.data >= ini && h.data <= fim);
+  }
   if ((globalThis as any).__procAgenda?.startsWith('40000000-')) return []; // teste rápido de laboratório: sem agenda
   const semAmanhaNoGuama = (hs: any[]) => ((globalThis as any).__dicaUnidade && unidadeId === U_GUAMA ? hs.filter((h) => h.data !== dia(1)) : hs);
   if (profId === P_REB) return unidadeId === U_TELEGRAFO ? [] : [...["10:00", "10:30"].map((h) => mk(dia(3), h, "10:00", { id: P_REB, nome: "REBECCA SILVA MOURA" }))].filter((h) => h.data >= ini && h.data <= fim);
@@ -56,6 +82,7 @@ const server = http.createServer((req, res) => {
     const corpo = raw ? JSON.parse(raw) : undefined;
     const p = url.pathname;
     if (req.method === 'GET') {
+      if (p.endsWith('/combos')) return j(200, { ok: true, combos: COMBOS });
       if (p.endsWith('/clinicas')) return j(200, { ok: true, clinicas: [{ id: U_GUAMA, nome: 'CLINEX GUAMÁ', endereco: 'Av. José Bonifácio, 2426', telefone: '91991434370' }, { id: U_TELEGRAFO, nome: 'CLINEX TELEGRAFO', endereco: 'Travessa Coronel Luís Bentes 170A-Telegrafo', telefone: '91984320406' }] });
       if (p.endsWith('/procedimentos')) {
         const b = url.searchParams.get('busca') ?? '';
@@ -122,6 +149,7 @@ const server = http.createServer((req, res) => {
       }
       if (p.endsWith('/agendamentos')) {
         const n = posts.filter((x) => x.rota.endsWith('/agendamentos')).length;
+        if (modo.falhaNoPost === n) return j(409, { ok: false, erro: 'HORARIO_OCUPADO', mensagem: 'ocupado (teste: falha no POST ' + n + ')' });
         if (modo.agendamento === '500') return j(500, { ok: false, erro: 'ERRO_INTERNO' });
         if (modo.agendamento === 'duplicado') return j(409, { ok: false, erro: 'SERVICO_DUPLICADO_NO_DIA', mensagem: 'dup' });
         if (modo.agendamento === 'ocupado-sempre' || (modo.ocupados === 0 && n === 1 && modo.agendamento === undefined && (globalThis as any).__ocupaPrimeiro)) return j(409, { ok: false, erro: 'HORARIO_OCUPADO', mensagem: 'ocupado' });
@@ -911,7 +939,7 @@ confere('U9 vaga ocupada na hora de reservar: transfere e é transferência "dur
 // combo: ainda não é com a Amanda
 reset({ ocupados: 0 });
 u = await turnosDe(['oi, quero agendar um combo']);
-confere('U10 combo/pacote: diz que ainda não agenda e chama a equipe (não procura "combo" como serviço)', Boolean(u.handoff) && /combo/i.test(u.handoff.motivo) && /Os combos eu ainda não consigo agendar/.test(u.reply) && !/Não achei/.test(u.reply), u.reply.replace(/\n/g, ' | ').slice(0, 150));
+confere('U10 "quero agendar um combo": não transfere nem procura "combo" como serviço: mostra os tipos de combo que existem', !u.handoff && /Claro! Tenho combos de:/.test(u.reply) && /1\. Feminino/.test(u.reply) && /Infantil/.test(u.reply) && !/Não achei/.test(u.reply), u.reply.replace(/\n/g, ' | ').slice(0, 200));
 
 // ---- ler o contexto antes de responder ----
 reset({ ocupados: 0 });
@@ -1253,6 +1281,57 @@ confere('EN6 o texto do endereço nunca passa pelo GPT (aprovado palavra por pal
   confere('MF2 "tem algum preparo?": repete o preparo cadastrado', m.reply.includes('Jejum: manter jejum de 8 horas'), m.reply.replace(/\n/g, ' | ').slice(0, 160));
   const { ehSala } = await import('../src/agents/receptivo/script/clinilinkFonte.js');
   confere('MG sala/setor cadastrado como "profissional" (Coleta, Exames, .SALA DE EXAMES) não é médico; médicos continuam sendo', ['COLETA', 'Exames', '.SALA DE EXAMES', 'LABORATORIO'].every((x) => ehSala(x)) && ['FERNANDA BASTOS', 'Felipe Trindade', 'Dra. Giovanna'].every((x) => !ehSala(x)), '');
+}
+
+// ---- COMBOS: listar, mostrar o que inclui e o preço, filtrar os dias em que o combo fecha e agendar em grupos por agenda ----
+{
+  const ID_F1 = 'c0000001-0000-4000-8000-000000000001';
+  const ID_F2 = 'c0000001-0000-4000-8000-000000000002';
+  const ID_CK = 'c0000001-0000-4000-8000-000000000003';
+  const corposAg = () => posts.filter((x) => x.rota.endsWith('/agendamentos')).map((x) => x.corpo);
+  reset({ ocupados: 0 });
+  let k: any = await responder([['Tem combo feminino?']], ctx, fonteClinilink);
+  confere('CB1 "Tem combo feminino?": lista os combos femininos com preço e o que inclui (sem o retorno), sem transferir', !k.handoff && /Claro! Tenho estes combos femininos:/.test(k.reply) && /1\. Feminino 1 \(R\$ 160,00\): Consulta Ginecologia, Usg Transvaginal, Hemograma Completo/.test(k.reply) && /2\. Feminino 2 \(R\$ 110,00\): Consulta Ginecologia, Eletrocardiograma/.test(k.reply) && !/Retorno/i.test(k.reply) && /Qual deles você quer/.test(k.reply), k.reply.replace(/\n/g, ' | ').slice(0, 320));
+  k = await responder([['Tem combo feminino?'], ['1']], ctx, fonteClinilink);
+  confere('CB2 escolheu o 1: confirma o combo ("Ah, então é o combo Feminino 1, né?")', k.state.servico?.id === `combo:${ID_F1}` && /combo Feminino 1/.test(k.reply), `${k.state.servico?.frase} | ${k.reply.replace(/\n/g, ' | ').slice(0, 120)}`);
+  k = await responder([['Tem combo feminino?'], ['1'], ['sim']], ctx, fonteClinilink);
+  confere('CB3 depois do "sim": unidades, preço do combo e, em mensagem separada, o que está incluso e que o retorno é grátis', /^Tenho sim!/.test(k.reply) && /O combo é R\$ 160,00\./.test(k.reply) && /\n\nO Feminino 1 inclui: Consulta Ginecologia, Usg Transvaginal, Hemograma Completo\. O retorno da consulta está incluso, sem custo\./.test(k.reply), k.reply.replace(/\n/g, ' | ').slice(0, 320));
+  k = await responder([['Tem combo feminino?'], ['1'], ['sim'], ['guama']], ctx, fonteClinilink);
+  const datasF1 = [...new Set((k.state.lista ?? []).map((x: any) => x.ymd))];
+  confere('CB4 só aparecem os dias em que o combo fecha (a consulta tem vaga e também a USG e a coleta): o dia em que a USG não atende some da lista', datasF1.length > 0 && datasF1.every((d: any) => d === dia(1) || d === dia(5)) && !datasF1.includes(dia(2)), JSON.stringify(datasF1));
+  // agendar de verdade: a consulta na agenda principal, a USG e a coleta em outras agendas, no mesmo dia; o retorno NÃO é agendado
+  reset({ ocupados: 0 });
+  k = await responder(['oi', 'quero o combo feminino 1', 'sim', 'guama amanhã', 'na recepção', '52998224725', 'sim'].map((x) => [x]), ctx, fonteClinilink);
+  const ags = corposAg();
+  confere('CB5 combo agendado: 3 gravações (consulta; USG; coleta), todas com o comboId, e o retorno fora', k.reply.startsWith(MARCA_AGENDADO) && ags.length === 3 && ags.every((c: any) => c.comboId === ID_F1) && !ags.some((c: any) => c.procedimentos.includes(PROC_RETORNO)), `${ags.length} POSTs | ${JSON.stringify(ags.map((c: any) => c.procedimentos.map((x: string) => x.slice(0, 4))))}`);
+  confere('CB5 a consulta vai na agenda principal; a USG e a coleta, cada uma na sua agenda', ags[0].agendaId === AGENDA && ags[0].procedimentos.length === 1 && ags[0].procedimentos[0] === PROC && ags.some((c: any) => c.agendaId === AGENDA_USGC && c.procedimentos[0] === PROC_USGC) && ags.some((c: any) => c.agendaId === AGENDA_COLETA && c.procedimentos[0] === PROC_HEMO), JSON.stringify(ags.map((c: any) => c.agendaId.slice(-2))));
+  confere('CB5 todos os serviços no mesmo dia (amanhã)', ags.every((c: any) => String(c.dataHora).startsWith(dia(1))), JSON.stringify(ags.map((c: any) => c.dataHora)));
+  const partesCb = k.reply.split(/\n\n/);
+  confere('CB6 a confirmação lista cada serviço com o profissional ou a sala, o valor do combo e avisa o horário da USG e da coleta', /Procedimento: CONSULTA GINECOLOGIA - [^,]+, USG TRANSVAGINAL - LUIS USG TESTE, HEMOGRAMA COMPLETO - COLETA/.test(k.reply) && /Valor particular: R\$ 160,00/.test(k.reply) && /Usg Transvaginal fica agendado no mesmo dia, a partir das 10:00, por ordem de chegada\./.test(k.reply) && /Hemograma Completo fica agendado no mesmo dia, a partir das 07:00, por ordem de chegada\./.test(k.reply), partesCb.map((x: string) => x.slice(0, 70)).join(' | '));
+  // quando a mesma agenda atende a consulta e o outro serviço: uma gravação só, no mesmo horário
+  reset({ ocupados: 0 });
+  k = await responder(['oi', 'quero o feminino 2', 'sim', 'guama amanhã', 'na recepção', '52998224725', 'sim'].map((x) => [x]), ctx, fonteClinilink);
+  const ags2 = corposAg();
+  confere('CB7 "quero o feminino 2" (sem dizer "combo", mas com o nome do combo): agenda com UMA gravação (consulta + eletrocardiograma na mesma agenda e horário)', k.reply.startsWith(MARCA_AGENDADO) && ags2.length === 1 && JSON.stringify(ags2[0].procedimentos) === JSON.stringify([PROC, PROC_ECG]) && ags2[0].comboId === ID_F2, `${ags2.length} POSTs | ${k.reply.slice(0, 60)}`);
+  confere('CB7 e o modelo mostra os dois serviços e o valor do combo (R$ 110,00)', /Procedimento: CONSULTA GINECOLOGIA - [^,]+, ELETROCARDIOGRAMA - /.test(k.reply) && /Valor particular: R\$ 110,00/.test(k.reply), k.reply.split(/\n\n/)[1]?.slice(0, 240));
+  // combo só de exames de coleta
+  reset({ ocupados: 0 });
+  k = await responder(['oi', 'quero o check up 10', 'sim', 'guama amanhã', 'na recepção', '52998224725', 'sim'].map((x) => [x]), ctx, fonteClinilink);
+  const ags3 = corposAg();
+  confere('CB8 combo de coleta (check up): uma gravação na agenda da coleta com os dois exames', k.reply.startsWith(MARCA_AGENDADO) && ags3.length === 1 && ags3[0].agendaId === AGENDA_COLETA && ags3[0].procedimentos.length === 2 && ags3[0].comboId === ID_CK, `${ags3.length} POSTs | ${k.reply.slice(0, 50)}`);
+  // pediu só "combo": mostra os tipos
+  k = await responder([['Quanto tá um combo?']], ctx, fonteClinilink);
+  confere('CB9 "Quanto tá um combo?": não transfere; mostra os tipos de combo e pergunta qual', !k.handoff && /Claro! Tenho combos de:/.test(k.reply) && /Qual te interessa/.test(k.reply), k.reply.replace(/\n/g, ' | ').slice(0, 200));
+  k = await responder([['Quanto tá um combo?'], ['1']], ctx, fonteClinilink);
+  confere('CB9 escolhendo "Feminino": lista os combos femininos', /Tenho estes combos femininos:/.test(k.reply) && /Feminino 1 \(R\$ 160,00\)/.test(k.reply), k.reply.replace(/\n/g, ' | ').slice(0, 200));
+  // combo que não fecha em nenhum dia (um dos serviços não tem agenda): diz que não tem vaga e chama o time
+  k = await responder([['quero o combo infantil 1']], ctx, fonteClinilink);
+  confere('CB10 combo cujo serviço não tem agenda em nenhum dia: avisa e chama o time (não oferece horário que não fecha)', Boolean(k.handoff) && /combo Infantil 1/.test(k.reply), k.reply.replace(/\n/g, ' | ').slice(0, 200));
+  // falha no meio: o que foi gravado fica, e o time recebe o que faltou
+  reset({ ocupados: 0, falhaNoPost: 3 });
+  k = await responder(['oi', 'quero o combo feminino 1', 'sim', 'guama amanhã', 'na recepção', '52998224725', 'sim'].map((x) => [x]), ctx, fonteClinilink);
+  confere('CB11 falhou a 3ª gravação: não diz que agendou tudo; passa para o time com o que já foi agendado e o que faltou', Boolean(k.handoff) && !k.reply.startsWith(MARCA_AGENDADO) && /COMBO AGENDADO SÓ EM PARTE/.test(k.handoff.motivo) && /Já agendado: Consulta Ginecologia/.test(k.handoff.motivo) && /NÃO agendado: Usg Transvaginal/.test(k.handoff.motivo) && nPost('/agendamentos') === 3, `${k.handoff?.motivo.slice(0, 200)}`);
+  reset({ ocupados: 0 });
 }
 
 server.close();

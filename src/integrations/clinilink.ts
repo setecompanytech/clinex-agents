@@ -78,6 +78,11 @@ export const listProcedimentos = (unidadeId: string, busca: string) =>
   memo(`proc:${unidadeId}:${busca}`, 10 * 60_000, async () =>
     (await get<{ procedimentos: Procedimento[] }>('/v1/agendamento/procedimentos', { unidadeId, busca })).procedimentos);
 
+/** Combos ativos: um combo é uma lista de serviços (consulta, exames...) com preço fechado. `preco` de cada item já é o preço DENTRO do combo. */
+export type Combo = { id: string; nome: string; servicos: { id: string; nome: string; preco?: number; categoriaNome?: string }[] };
+export const listCombos = (unidadeId?: string) =>
+  memo(`combos:${unidadeId ?? ''}`, 10 * 60_000, async () => (await get<{ combos: Combo[] }>('/v1/agendamento/combos', unidadeId ? { unidadeId } : {})).combos ?? []);
+
 export type Profissional = { id: string; nome: string; conselho?: string; especialidade?: string };
 
 /** Profissionais com agenda ativa na unidade; com `procedimentoId`, só quem atende aquele procedimento. */
@@ -153,7 +158,7 @@ export async function getPacientePorCpf(cpf: string): Promise<Paciente[]> {
 // ---------------------------- ESCRITA (exige credencial rw) ----------------------------
 
 export type NovoPaciente = { nome: string; cpf: string; dataNascimento?: string; sexo?: 'feminino' | 'masculino'; telefone?: string };
-export type NovoAgendamento = { pacienteId: string; unidadeId: string; agendaId: string; profissionalId: string; dataHora: string; procedimentoId: string; observacao?: string };
+export type NovoAgendamento = { pacienteId: string; unidadeId: string; agendaId: string; profissionalId: string; dataHora: string; procedimentoId: string; observacao?: string; /** combo: vários serviços do mesmo combo no mesmo horário */ comboId?: string; procedimentoIds?: string[] };
 export type RespostaEscrita<T> = { ok: true; dados: T } | { ok: false; codigo: string; mensagem: string; incerto?: boolean; corpo?: any };
 
 /** POST sem retry. `incerto` = não sabemos se gravou (timeout/queda/500) e alguém precisa conferir. */
@@ -180,7 +185,7 @@ export const criarPaciente = (p: NovoPaciente) =>
 export const criarAgendamento = (a: NovoAgendamento) =>
   post<{ agendamentoId: string; status: string; dataHora: string; profissional?: { nome: string }; valorTotal?: number }>('/v1/agendamento/agendamentos', {
     pacienteId: a.pacienteId, unidadeId: a.unidadeId, agendaId: a.agendaId, profissionalId: a.profissionalId, dataHora: a.dataHora,
-    procedimentos: [a.procedimentoId], observacao: a.observacao ?? 'Agendado pela Amanda (IA) via WhatsApp', origem: 'whatsapp',
+    procedimentos: a.procedimentoIds?.length ? a.procedimentoIds : [a.procedimentoId], ...(a.comboId ? { comboId: a.comboId } : {}), observacao: a.observacao ?? 'Agendado pela Amanda (IA) via WhatsApp', origem: 'whatsapp',
   });
 
 /** Agenda SEM cache: usada no momento de reservar, para pegar o horário livre de verdade. */

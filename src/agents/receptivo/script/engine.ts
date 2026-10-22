@@ -125,7 +125,7 @@ export const MARCAS_FIM = [MARCA_FIM, MARCA_AGENDADO, MARCA_MAIS, MARCA_ADEUS];
 /** Mensagens com texto exato (valores, chave, marcas): não passam pelo GPT. */
 export const SEM_GPT = [MARCA_AGENDADO, MARCA_MAIS, MARCA_ADEUS, MARCA_PIX, MARCA_PAGAMENTO];
 /** Textos que o Giovanny aprovou palavra por palavra (unidades, horários, "o mais rápido", comprovante, aviso de segurança do sintoma): também não passam pelo GPT. */
-SEM_GPT.push(MARCA_DUP, 'Está sim, confirmado!', 'Tenho sim!', 'Consegui estes aqui', 'Esses são os horários que tenho', 'Guamá: Endereço:', 'Travessa Coronel Luís Bentes com a Rua do Úna', 'O mais rápido que tenho é', 'O último que tenho é', 'Não to conseguindo ler esse comprovante', 'Recebi o seu comprovante', 'Pelo que você contou');
+SEM_GPT.push(MARCA_DUP, 'Está sim, confirmado!', 'Tenho sim!', 'Consegui estes aqui', 'Esses são os horários que tenho', 'Guamá: Endereço:', 'Travessa Coronel Luís Bentes com a Rua do Úna', 'Claro! Tenho estes combos', 'Claro! Tenho combos de', ' inclui: ', 'O mais rápido que tenho é', 'O último que tenho é', 'Não to conseguindo ler esse comprovante', 'Recebi o seu comprovante', 'Pelo que você contou');
 
 export const novoEstado = (): State => ({
   saudou: false, confirmPerguntado: false, servicoConfirmado: false, unidadesInformadas: false,
@@ -509,9 +509,10 @@ function profissionalNoModelo(bruto?: string): string {
  * dados do agendamento, depois as orientações do atendimento (se houver) e uma sugestão. Cada parágrafo vai como uma mensagem.
  * "Formas de pagamento" vira "PAGO NO PIX" quando o comprovante foi recebido na conversa.
  */
-export function mensagemConfirmacao(p: { paciente: string; novoCadastro: boolean; servico: Servico; unidade: Unidade; ymd: string; hora?: string; profissionalBruto?: string; valor?: number; pagoPix?: number; primeiroNome?: string }): string {
+export function mensagemConfirmacao(p: { paciente: string; novoCadastro: boolean; servico: Servico; unidade: Unidade; ymd: string; hora?: string; profissionalBruto?: string; valor?: number; pagoPix?: number; primeiroNome?: string; linhas?: string[]; extra?: string }): string {
   const prof = profissionalNoModelo(p.profissionalBruto);
-  const proc = `${p.servico.nomeBruto ?? p.servico.nome.toLocaleUpperCase('pt-BR')}${prof ? ` - ${prof}` : ''}`;
+  // combo: cada serviço agendado, com o profissional (ou a sala) do cadastro, como a atendente escreve
+  const proc = p.linhas?.length ? p.linhas.join(', ') : `${p.servico.nomeBruto ?? p.servico.nome.toLocaleUpperCase('pt-BR')}${prof ? ` - ${prof}` : ''}`;
   const hora = (p.hora ?? '').slice(0, 5);
   const pago = p.pagoPix ?? 0;
   const formas = pago <= 0 ? FORMAS_PAGAMENTO
@@ -532,6 +533,7 @@ export function mensagemConfirmacao(p: { paciente: string; novoCadastro: boolean
   return [
     `${MARCA_AGENDADO}! Deu tudo certo${p.primeiroNome ? `, ${p.primeiroNome}` : ''}.${p.novoCadastro ? ` Cadastro de ${p.paciente} feito.` : ''}`,
     modelo,
+    ...(p.extra ? [p.extra] : []),
     ...(p.servico.preparo ? [preparoLongo(p.servico.preparo) ? p.servico.preparo : `Uma orientação importante pro seu atendimento: ${p.servico.preparo}`] : []),
     'Se puder, chega cedinho, que o atendimento é por ordem de chegada. Quer aproveitar e agendar mais algum exame ou consulta?',
   ].join('\n\n');
@@ -806,8 +808,8 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
   if (!s.servico && !s.opcoes && /\b(remarc\w*|reagend\w*|desmarc\w*|cancel\w*)\b/.test(t)) {
     return out(comAbertura('Claro! Pra remarcar ou cancelar eu chamo alguém da equipe pra te ajudar. Só um instante.'), { motivo: 'Paciente quer remarcar ou cancelar um agendamento (a Amanda ainda não faz isso). Mensagem: ' + texto.replace(TOKEN_MIDIA, ' ').trim().slice(0, 200) });
   }
-  // combo/pacote: ainda não é com a Amanda (o Clinilink tem combos, mas o fluxo de agendar combo não foi feito): chama a equipe
-  if (!s.servico && !s.opcoes && /\b(combos?|pacotes?)\b/.test(t)) {
+  // combo/pacote: com o Clinilink, a Amanda mostra os combos e agenda (descobrir/reservar da fonte). Na fonte simulada (sem combos), chama a equipe
+  if (fonte.tipo !== 'clinilink' && !s.servico && !s.opcoes && /\b(combos?|pacotes?)\b/.test(t)) {
     return out(comAbertura('Os combos eu ainda não consigo agendar por aqui. Vou chamar alguém da equipe pra te ajudar com isso. Só um instante.'), { duro: true, motivo: 'Paciente quer agendar um combo/pacote (a Amanda ainda não agenda combos). Mensagem: ' + texto.replace(TOKEN_MIDIA, ' ').trim().slice(0, 200) });
   }
   if (!faq && QUER_AGENDA.test(t)) s.querAgenda = true; // pediu a agenda: assim que houver serviço, os horários já vêm junto
@@ -1053,6 +1055,8 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     // "Tenho sim! No Guamá com a Dra. Giovanna e a Dra. Ebenezaide, e no Telégrafo com a Dra. Ebenezaide. A consulta é R$ 150,00."
     // se ele já escolheu a unidade, fala só dela
     partes.push(`${textoUnidades(s.unidade ? { ...sv, unidades: [s.unidade] } : sv, aviso ? 'duvida' : 'resposta')}${sv.precoTexto ? ` ${sv.precoTexto}` : ''}`);
+    // combo: o que está incluso (e que o retorno não custa), em mensagem separada, logo depois do preço
+    if (sv.detalhe) partes.push(`\n${sv.detalhe}`);
     // orientação cadastrada para o atendimento (ex.: restrição de idade, preparo): avisa já aqui, em mensagem separada, antes de ele escolher o horário
     if (sv.preparo) partes.push(`\n${preparoLongo(sv.preparo) ? sv.preparo : `Uma orientação importante pra esse atendimento: ${sv.preparo}`}`);
   }
@@ -1418,7 +1422,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
       // mensagem de confirmação no modelo da clínica (dados reais do Clinilink) + orientações e uma sugestão, em mensagens separadas
       return out(mensagemConfirmacao({
         paciente: quem, novoCadastro: !s.paciente, servico: sv, unidade: un, ymd: slot.ymd, hora: r.hora,
-        profissionalBruto: r.profissionalBruto ?? slot.profissionalBruto ?? med, valor: un.precoPix, pagoPix: s.pagoPix, primeiroNome: primeiro,
+        profissionalBruto: r.profissionalBruto ?? slot.profissionalBruto ?? med, valor: un.precoPix, pagoPix: s.pagoPix, primeiroNome: primeiro, linhas: r.linhas, extra: r.extra,
       }));
     }
     const extra = r.cadastrou ? ' O cadastro do paciente FOI criado.' : '';

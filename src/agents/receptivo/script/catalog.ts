@@ -17,6 +17,8 @@ export type Servico = {
   profissional?: { id: string; nome: string }; // o paciente pediu um profissional específico: a agenda é só dela(e)
   nomeBruto?: string; // como o procedimento está cadastrado ("HOLTER 24H"), para a mensagem de confirmação
   preparo?: string; // orientação de preparo/atendimento cadastrada no Clinilink (só se for um texto útil)
+  detalhe?: string; // texto a mais depois do resumo das unidades (combo: o que está incluso)
+  combo?: { id: string; nome: string; itens: { id: string; nome: string }[]; ancoraId: string }; // é um COMBO: vários serviços com preço fechado; o horário é o da âncora (a consulta)
 };
 
 export type Descoberta =
@@ -40,7 +42,7 @@ export type PedidoReserva = {
   observacao?: string; // gravada no agendamento (forma de pagamento, comprovante)
 };
 export type ResultadoReserva =
-  | { ok: true; profissional?: string; profissionalBruto?: string; hora: string; cadastrou: boolean }
+  | { ok: true; profissional?: string; profissionalBruto?: string; hora: string; cadastrou: boolean; linhas?: string[]; extra?: string }
   | { ok: false; codigo: string; motivo: string; incerto?: boolean; cadastrou?: boolean };
 
 export interface Fonte {

@@ -1,4 +1,4 @@
-import { criarAgendamento, criarPaciente, demandaPorProcedimento, getPacientePorCpf, listAgendamentosDoDia, listAgenda, listAgendaFresca, listClinicas, listProcedimentos, listProfissionais, type Clinica, type Horario, type Procedimento } from '../../../integrations/clinilink.js';
+import { criarAgendamento, criarPaciente, demandaPorProcedimento, getPacientePorCpf, listAgendamentosDoDia, listAgenda, listAgendaFresca, listClinicas, listCombos, listProcedimentos, listProfissionais, type Clinica, type Combo, type Horario, type Procedimento } from '../../../integrations/clinilink.js';
 import { env } from '../../../lib/env.js';
 import { exibir, prepararGeneros } from '../../../lib/genero.js';
 import { evt } from '../../../lib/log.js';
@@ -363,6 +363,214 @@ async function sugerirPorTipo(tipo: 'exame' | 'consulta'): Promise<Descoberta> {
   };
 }
 
+/** Paciente já cadastrado, ou cria agora (CPF_DUPLICADO devolve o existente). */
+async function garantirPaciente(p: PedidoReserva): Promise<{ pacienteId: string; cadastrou: boolean } | { erro: ResultadoReserva }> {
+  let pacienteId = p.pacienteId; let cadastrou = false;
+  if (!pacienteId) {
+    if (!p.cadastro) return { erro: { ok: false, codigo: 'SEM_DADOS', motivo: 'faltam dados do cadastro' } };
+    const c = p.cadastro;
+    const r = await criarPaciente({ nome: c.nome, cpf: p.cpf, dataNascimento: c.nascimento, sexo: c.sexo, telefone: c.telefone });
+    if (r.ok) { pacienteId = r.dados.paciente?.id ?? r.dados.id; cadastrou = true; }
+    else if (r.codigo === 'CPF_DUPLICADO' && r.corpo?.pacienteExistente?.id) pacienteId = r.corpo.pacienteExistente.id;
+    else return { erro: { ok: false, codigo: r.codigo, motivo: `cadastro recusado: ${r.mensagem || r.codigo}`, incerto: r.incerto } };
+    if (!pacienteId) return { erro: { ok: false, codigo: 'SEM_ID_PACIENTE', motivo: 'o cadastro não devolveu o id do paciente', incerto: true } };
+  }
+  return { pacienteId, cadastrou };
+}
+
+// ---------------- COMBOS ----------------
+// Um combo é uma lista de serviços (a consulta, exames, coleta...) com preço fechado. O horário que o paciente escolhe é o da âncora (a consulta; sem consulta,
+// o primeiro serviço). Os outros serviços entram no mesmo dia: os que a MESMA agenda atende vão junto no mesmo horário; os demais (coleta, imagem em outra agenda)
+// são agendados no mesmo dia em outra agenda. O "retorno" do combo é uma consulta futura sem custo: não é agendado agora.
+const ehRetornoDoCombo = (nome: string) => /\bretorno\b/.test(norm(nome));
+const itensDoCombo = (c: Combo) => c.servicos.filter((s) => !ehRetornoDoCombo(s.nome));
+const temRetornoNoCombo = (c: Combo) => c.servicos.some((s) => ehRetornoDoCombo(s.nome));
+const ancoraDoCombo = (c: Combo) => { const it = itensDoCombo(c); return it.find((s) => /^consulta\b/.test(norm(s.nome))) ?? it[0]; };
+/** Preço do combo = soma dos serviços dentro do combo (o `preco` de cada item já é o preço no combo). Sem preço em algum item, não cita valor. */
+const totalDoCombo = (c: Combo): number | undefined => {
+  const it = itensDoCombo(c);
+  if (it.length === 0 || it.some((s) => typeof s.preco !== 'number' || !Number.isFinite(s.preco))) return undefined;
+  const t = Math.round(it.reduce((a, s) => a + (s.preco ?? 0), 0) * 100) / 100;
+  return t > 0 ? t : undefined;
+};
+const tituloCombo = (s: string) => titulo(s).replace(/\((\p{L})/gu, (_m, a: string) => `(${a.toLocaleUpperCase('pt-BR')}`);
+/** "PAPANICOLAOU (CITOPATOLÓGICO) - CAPTURA DE IMAGEM" -> "Papanicolaou" */
+const itemCurto = (nome: string) => titulo(nome.split(/\s+[-(]/)[0].replace(/[.\s]+$/, '').trim());
+const listaDeItens = (c: Combo, max: number) => { const it = itensDoCombo(c).map((s) => itemCurto(s.nome)); return it.slice(0, max).join(', ') + (it.length > max ? ` e mais ${it.length - max}` : ''); };
+
+const FAMILIAS_DE_COMBO: { chave: string; rotulo: string; plural: string; re: RegExp }[] = [
+  { chave: 'feminino', rotulo: 'Feminino', plural: 'femininos', re: /\b(mulher|mulheres|feminin\w*|ginec\w*)\b/ },
+  { chave: 'masculino', rotulo: 'Masculino', plural: 'masculinos', re: /\b(homem|homens|masculin\w*|urolog\w*)\b/ },
+  { chave: 'infantil', rotulo: 'Infantil', plural: 'infantis', re: /\b(crianca|criancas|infantil|pediatr\w*|bebe)\b/ },
+  { chave: 'cardio', rotulo: 'Cardio', plural: 'de cardio', re: /\b(cardio\w*|coracao)\b/ },
+  { chave: 'clinico', rotulo: 'Clínico', plural: 'clínicos', re: /\b(clinico|clinica geral|geral)\b/ },
+  { chave: 'ortopedista', rotulo: 'Ortopedista', plural: 'de ortopedista', re: /\b(ortoped\w*)\b/ },
+  { chave: 'gastro', rotulo: 'Gastro', plural: 'de gastro', re: /\b(gastro\w*|endoscopia)\b/ },
+  { chave: 'risco', rotulo: 'Risco cirúrgico', plural: 'de risco cirúrgico', re: /\b(risco|cirurg\w*)\b/ },
+  { chave: 'check up', rotulo: 'Check-up', plural: 'de check-up', re: /\bcheck ?-?up\b/ },
+];
+
+function opcoesDeCombos(cs: Combo[], familiaPlural?: string): Descoberta {
+  const ordenados = [...cs].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { numeric: true }));
+  return {
+    opcoes: ordenados.map((c) => { const t = totalDoCombo(c); return { id: `combo:${c.id}`, nome: `${tituloCombo(c.nome)}${t ? ` (${reais(t)})` : ''}: ${listaDeItens(c, 5)}` }; }),
+    intro: familiaPlural ? `Claro! Tenho estes combos ${familiaPlural}:` : 'Claro! Tenho estes combos:',
+    pergunta: 'Qual deles você quer? Pode ser o número ou o nome.',
+  };
+}
+
+/** "Tem combo feminino?", "quanto tá um combo", "quero o combo Feminino 2", "check up". */
+async function descobrirCombo(t: string): Promise<Descoberta> {
+  const querCombo = /\b(combos?|pacotes?|check ?-?up)\b/.test(t);
+  const todos = await listCombos().catch(() => [] as Combo[]);
+  if (todos.length === 0) return undefined;
+  const simples = (c: Combo) => norm(c.nome).replace(/\s*\(.*?\)/g, '').trim();
+  // o nome do combo dito por inteiro ("feminino 2", "check up geral"): vale mesmo sem a palavra "combo"
+  const exatos = todos.filter((c) => /\d|geral|risco/.test(simples(c)) && new RegExp(`\\b${simples(c).replace(/ /g, ' ?')}\\b`).test(t));
+  if (!querCombo && exatos.length === 0) return undefined;
+  let escolhidos = exatos;
+  let rotulo: string | undefined;
+  if (escolhidos.length === 0) {
+    const fams = FAMILIAS_DE_COMBO.filter((f) => f.re.test(t));
+    escolhidos = todos.filter((c) => fams.some((f) => norm(c.nome).includes(f.chave)));
+    if (fams.length === 1) rotulo = fams[0].plural;
+    if (escolhidos.length === 0) {
+      // só "combo": mostra as famílias que existem
+      const existentes = FAMILIAS_DE_COMBO.filter((f) => todos.some((c) => norm(c.nome).includes(f.chave)));
+      return { opcoes: existentes.map((f) => ({ id: `combofam:${f.chave}`, nome: f.rotulo })), intro: 'Claro! Tenho combos de:', pergunta: 'Qual te interessa? Pode ser o número ou o nome.' };
+    }
+  }
+  if (escolhidos.length === 1) return montarCombo(escolhidos[0]);
+  return opcoesDeCombos(escolhidos, rotulo);
+}
+
+/** Horários livres de cada serviço do combo numa unidade (compartilha o cache da agenda). */
+async function planoDosItens(itemIds: string[], unidadeId: string, ini: string, fim: string): Promise<Map<string, Horario[]>> {
+  const m = new Map<string, Horario[]>();
+  await Promise.all([...new Set(itemIds)].map(async (id) => { m.set(id, await listAgenda({ unidadeId, dataInicial: ini, dataFinal: fim, procedimentoId: id }).catch(() => [])); }));
+  return m;
+}
+/** Dias em que a âncora tem horário E todos os outros serviços do combo têm algum horário na unidade (senão o combo não fecha naquele dia). */
+function diasViaveisDoCombo(plano: Map<string, Horario[]>, itemIds: string[], ancoraId: string): Set<string> {
+  const dias = (id: string) => new Set((plano.get(id) ?? []).map((h) => h.data));
+  const viaveis = dias(ancoraId);
+  for (const id of itemIds) if (id !== ancoraId) { const d = dias(id); for (const x of [...viaveis]) if (!d.has(x)) viaveis.delete(x); }
+  return viaveis;
+}
+
+async function montarCombo(cb: Combo): Promise<Descoberta> {
+  const itens = itensDoCombo(cb); const ancora = ancoraDoCombo(cb);
+  const rotulo = tituloCombo(cb.nome);
+  if (!ancora) return { semAgenda: `o combo ${rotulo}` };
+  const ids = itens.map((i) => i.id);
+  const ini = hojeYmd(); const fim = somaDias(ini, 30);
+  const clinicas = await listClinicas();
+  const comAgenda: { u: Clinica; medicos: string[]; total?: number }[] = [];
+  await Promise.all(clinicas.map(async (u) => {
+    const plano = await planoDosItens(ids, u.id, ini, fim);
+    const dias = diasViaveisDoCombo(plano, ids, ancora.id);
+    if (dias.size === 0) return;
+    const medicos = [...new Set((plano.get(ancora.id) ?? []).filter((h) => dias.has(h.data)).map((h) => h.profissional?.nome).filter((x): x is string => Boolean(x) && !ehSala(x)).map(titulo))].slice(0, 3);
+    // preço da unidade (quando o Clinilink tem um específico); senão o preço geral do combo
+    const doUnidade = (await listCombos(u.id).catch(() => [] as Combo[])).find((c) => c.id === cb.id);
+    comAgenda.push({ u, medicos, total: totalDoCombo(doUnidade ?? cb) ?? totalDoCombo(cb) });
+  }));
+  if (comAgenda.length === 0) return { semAgenda: `o combo ${rotulo}` };
+  await prepararGeneros(comAgenda.flatMap((x) => x.medicos));
+  comAgenda.sort((a, b) => a.u.nome.localeCompare(b.u.nome));
+  comAgenda.forEach(({ u }) => unidadesPorId.set(u.id, u));
+  const porUnidade = new Map<string, string>();
+  for (const { u, total } of comAgenda) if (total) porUnidade.set(nomeUnidade(u), reais(total));
+  const valores = [...new Set(porUnidade.values())];
+  const precoTexto = valores.length === 0 ? '' : valores.length === 1 ? `O combo é ${valores[0]}.` : `${[...porUnidade].map(([u, v]) => `No ${u} o combo é ${v}`).join('. ')}.`;
+  const servico: Servico = {
+    id: `combo:${cb.id}`, nome: rotulo, frase: `o combo ${rotulo}`, tipo: /^consulta\b/.test(norm(ancora.nome)) ? 'consulta' : 'exame',
+    unidades: comAgenda.map(({ u, medicos, total }): Unidade => ({ id: u.id, nome: nomeUnidade(u), profissionais: medicos, precoPix: total, nomeBruto: u.nome, endereco: u.endereco, telefone: u.telefone })),
+    precoTexto, nomeBruto: cb.nome,
+    detalhe: `O ${rotulo} inclui: ${listaDeItens(cb, 12)}.${temRetornoNoCombo(cb) ? ' O retorno da consulta está incluso, sem custo.' : ''}`,
+    combo: { id: cb.id, nome: cb.nome, itens: itens.map((i) => ({ id: i.id, nome: i.nome })), ancoraId: ancora.id },
+  };
+  return { servico };
+}
+
+/** Horários (por período) da âncora do combo, só nos dias em que o combo fecha. */
+async function horariosDoCombo(sv: Servico, un: Unidade, de: string, ate: string): Promise<Slot[]> {
+  if (!un.id || !sv.combo) return [];
+  const ids = sv.combo.itens.map((i) => i.id);
+  const plano = await planoDosItens(ids, un.id, de, ate);
+  const dias = diasViaveisDoCombo(plano, ids, sv.combo.ancoraId);
+  return agrupar((plano.get(sv.combo.ancoraId) ?? []).filter((h) => dias.has(h.data)));
+}
+
+/** Agenda o combo: a âncora no horário escolhido (com os serviços que a mesma agenda atende) e os demais no mesmo dia, em outras agendas. */
+async function reservarCombo(p: PedidoReserva): Promise<ResultadoReserva> {
+  const { unidade, slot, servico } = p; const cmb = servico.combo!;
+  if (!unidade.id) return { ok: false, codigo: 'UNIDADE_SEM_ID', motivo: 'unidade sem id' };
+  const ancora = cmb.itens.find((i) => i.id === cmb.ancoraId);
+  if (!ancora) return { ok: false, codigo: 'COMBO_SEM_ANCORA', motivo: 'combo sem serviço principal' };
+  const outros = cmb.itens.filter((i) => i.id !== ancora.id);
+  // 1) a âncora: horário livre AGORA (sem cache), como nos serviços avulsos
+  const livresA = (await listAgendaFresca({ unidadeId: unidade.id, dataInicial: slot.ymd, dataFinal: slot.ymd, procedimentoId: ancora.id }))
+    .filter((h) => periodoDe(h.agendaHoraInicio ?? h.hora) === slot.turno && (!slot.profissionalId || h.profissional?.id === slot.profissionalId))
+    .sort((a, b) => a.hora.localeCompare(b.hora));
+  if (livresA.length === 0) return { ok: false, codigo: 'SEM_VAGA_AGORA', motivo: 'a vaga escolhida acabou de ser preenchida' };
+  // 2) os outros serviços no mesmo dia: se algum não tem horário, nada é gravado
+  const disp = new Map<string, Horario[]>();
+  await Promise.all(outros.map(async (i) => { disp.set(i.id, await listAgendaFresca({ unidadeId: unidade.id!, dataInicial: slot.ymd, dataFinal: slot.ymd, procedimentoId: i.id })); }));
+  const semVaga = outros.filter((i) => (disp.get(i.id) ?? []).length === 0);
+  if (semVaga.length) return { ok: false, codigo: 'COMBO_SEM_VAGA_NO_DIA', motivo: `sem horário no dia para: ${semVaga.map((i) => itemCurto(i.nome)).join(', ')}` };
+  // 3) paciente
+  const pac = await garantirPaciente(p);
+  if ('erro' in pac) return pac.erro;
+  const { pacienteId, cadastrou } = pac;
+  const obs = p.observacao;
+  const nomeBruto = (id: string) => cmb.itens.find((i) => i.id === id)?.nome ?? '';
+  const feitos: { itens: string[]; hora: string; prof?: string; profBruto?: string }[] = [];
+  const falhou = (codigo: string, motivo: string, incerto?: boolean): ResultadoReserva => ({
+    ok: false, codigo: feitos.length ? 'COMBO_PARCIAL' : codigo, incerto, cadastrou,
+    motivo: feitos.length ? `COMBO AGENDADO SÓ EM PARTE. Já agendado: ${feitos.map((f) => f.itens.map(itemCurto).join(', ')).join(' | ')}. NÃO agendado: ${motivo}` : motivo,
+  });
+  // 4) a âncora + os serviços que a mesma agenda atende, no mesmo horário (se alguém ocupou, tenta o próximo livre; até 3)
+  let principal: Horario | undefined; let grupoA: { id: string; nome: string }[] = [];
+  let ultimo = '';
+  for (const h of livresA.slice(0, 3)) {
+    const junto = outros.filter((i) => (disp.get(i.id) ?? []).some((x) => x.agendaId === h.agendaId));
+    const dataHora = h.dataHora ?? `${h.data}T${h.hora}:00-03:00`;
+    const r = await criarAgendamento({ pacienteId, unidadeId: unidade.id, agendaId: h.agendaId, profissionalId: h.profissional?.id ?? slot.profissionalId ?? '', dataHora, procedimentoId: ancora.id, procedimentoIds: [ancora.id, ...junto.map((i) => i.id)], comboId: cmb.id, observacao: obs });
+    if (r.ok) { principal = h; grupoA = junto; feitos.push({ itens: [ancora.nome, ...junto.map((i) => i.nome)], hora: inicioMostrado(h), prof: nomeDePessoa(h.profissional?.nome) ?? undefined, profBruto: h.profissional?.nome }); break; }
+    ultimo = r.codigo;
+    if (r.codigo !== 'HORARIO_OCUPADO') return { ok: false, codigo: r.codigo, motivo: r.mensagem || r.codigo, incerto: r.incerto, cadastrou };
+  }
+  if (!principal) return { ok: false, codigo: ultimo || 'HORARIO_OCUPADO', motivo: 'os horários do período foram ocupados', cadastrou };
+  // 5) o que a agenda da âncora não atende: agenda que atende mais itens do que falta (empate: a que abre mais cedo), no mesmo dia
+  let restantes = outros.filter((i) => !grupoA.includes(i));
+  const extras: { ord: number; txt: string }[] = []; // avisos dos outros grupos (na ordem dos serviços do combo)
+  while (restantes.length) {
+    const porAgenda = new Map<string, { ids: Set<string>; hs: Horario[] }>();
+    for (const i of restantes) for (const h of disp.get(i.id) ?? []) {
+      const e = porAgenda.get(h.agendaId) ?? { ids: new Set<string>(), hs: [] }; e.ids.add(i.id); e.hs.push(h); porAgenda.set(h.agendaId, e);
+    }
+    const melhor = [...porAgenda.entries()].sort((a, b) => b[1].ids.size - a[1].ids.size || a[1].hs.map((h) => h.hora).sort()[0].localeCompare(b[1].hs.map((h) => h.hora).sort()[0]))[0];
+    if (!melhor) return falhou('COMBO_SEM_AGENDA', `sem agenda para: ${restantes.map((i) => itemCurto(i.nome)).join(', ')}`);
+    const [agendaId, e] = melhor;
+    const h2 = [...e.hs].sort((a, b) => a.hora.localeCompare(b.hora))[0];
+    const grupo = restantes.filter((i) => e.ids.has(i.id));
+    const r2 = await criarAgendamento({ pacienteId, unidadeId: unidade.id, agendaId, profissionalId: h2.profissional?.id ?? '', dataHora: h2.dataHora ?? `${h2.data}T${h2.hora}:00-03:00`, procedimentoId: grupo[0].id, procedimentoIds: grupo.map((i) => i.id), comboId: cmb.id, observacao: obs });
+    if (!r2.ok) return falhou(r2.codigo, `${grupo.map((i) => itemCurto(i.nome)).join(', ')} (${r2.codigo}${r2.mensagem ? `: ${r2.mensagem}` : ''})`, r2.incerto);
+    feitos.push({ itens: grupo.map((i) => i.nome), hora: inicioMostrado(h2), prof: nomeDePessoa(h2.profissional?.nome) ?? undefined, profBruto: h2.profissional?.nome });
+    extras.push({ ord: cmb.itens.findIndex((i) => i.id === grupo[0].id), txt: `${grupo.map((i) => itemCurto(i.nome)).join(', ')} ${grupo.length > 1 ? 'ficam agendados' : 'fica agendado'} no mesmo dia, a partir das ${inicioMostrado(h2)}, por ordem de chegada.` });
+    restantes = restantes.filter((i) => !e.ids.has(i.id));
+  }
+  // linhas do modelo da clínica: cada serviço com o profissional (ou sala) do cadastro
+  const ordemItem = (nome: string) => cmb.itens.findIndex((i) => i.nome === nome);
+  const todos = feitos.flatMap((f) => f.itens.map((n) => ({ n, linha: `${n}${f.profBruto ? ` - ${f.profBruto}` : ''}` }))).sort((a, b) => ordemItem(a.n) - ordemItem(b.n));
+  const linhas = todos.slice(0, 14).map((x) => x.linha);
+  const mais = todos.length - linhas.length;
+  if (mais > 0) linhas.push(`E MAIS ${mais} EXAMES DO COMBO`);
+  void nomeBruto;
+  return { ok: true, profissional: nomeDePessoa(principal.profissional?.nome) ?? slot.profissional, profissionalBruto: principal.profissional?.nome ?? slot.profissionalBruto, hora: inicioMostrado(principal), cadastrou, linhas, extra: extras.length ? extras.sort((a, b) => a.ord - b.ord).map((e) => e.txt).join(' ') : undefined };
+}
+
 const SO_GENERICAS_DE_SANGUE = new Set(['sangue', 'laboratorial', 'laboratorio', 'laboratoriais', 'coleta', 'realizar', 'exame', 'exames', 'teste', 'testes']);
 /**
  * "Quero fazer um exame de sangue": mostra os exames laboratoriais mais procurados que têm agenda (como a atendente pergunta "qual exame de sangue?"),
@@ -401,7 +609,7 @@ export const fonteClinilink: Fonte = {
     if (!pacienteId) return null;
     for (const c of await listClinicas()) {
       const feitos = await listAgendamentosDoDia(c.id, ymd).catch(() => []);
-      const a = feitos.find((x) => x.pacienteId === pacienteId && x.procedimentoIds.includes(sv.id));
+      const a = feitos.find((x) => x.pacienteId === pacienteId && (sv.combo ? sv.combo.itens.some((i) => x.procedimentoIds.includes(i.id)) : x.procedimentoIds.includes(sv.id)));
       if (!a) continue;
       const hora = a.agendaHoraInicio ?? a.dataHora?.slice(11, 16) ?? undefined;
       return { unidade: nomeUnidade(c), hora, periodo: hora ? periodoDe(hora) : undefined, profissional: a.profissional ? titulo(a.profissional) : undefined };
@@ -413,6 +621,8 @@ export const fonteClinilink: Fonte = {
   async nomesUnidades() { return (await listClinicas()).map(nomeUnidade); },
 
   async descobrir(t, buscando, forte = false) {
+    // combo ("tem combo feminino?"): lista os combos, mostra o que inclui e o preço; escolhido, segue o fluxo normal de unidade, dia e pagamento
+    if (buscando && !forte) { const combo = await descobrirCombo(t); if (combo !== undefined) return combo; }
     // pediu uma pessoa pelo nome ("com a dra Rebecca")? acha a pessoa e o atendimento dela com agenda
     const pessoa = await descobrirProfissional(t);
     if (pessoa) return pessoa;
@@ -478,6 +688,8 @@ export const fonteClinilink: Fonte = {
   },
 
   async resolver(id) {
+    if (id.startsWith('combofam:')) { const ch = id.slice(9); const fam = FAMILIAS_DE_COMBO.find((f) => f.chave === ch); const cs = (await listCombos()).filter((c) => norm(c.nome).includes(ch)); return cs.length ? opcoesDeCombos(cs, fam?.plural) : undefined; }
+    if (id.startsWith('combo:')) { const cb = (await listCombos()).find((c) => c.id === id.slice(6)); return cb ? montarCombo(cb) : undefined; }
     if (id.startsWith('prof:')) {
       const pessoa = (await todosProfissionais()).find((x) => x.id === id.slice(5));
       return pessoa ? servicoDaProfissional(pessoa) : undefined;
@@ -488,15 +700,18 @@ export const fonteClinilink: Fonte = {
 
   async periodos(sv, un, ymd) {
     if (!un.id) return [];
+    if (sv.combo) return horariosDoCombo(sv, un, ymd, ymd);
     return agrupar(await listAgenda({ unidadeId: un.id, dataInicial: ymd, dataFinal: ymd, procedimentoId: sv.id, profissionalId: sv.profissional?.id }));
   },
 
   async proximas(sv, un, de, max) {
     if (!un.id) return [];
+    if (sv.combo) return (await horariosDoCombo(sv, un, de, somaDias(de, 21))).slice(0, max);
     return agrupar(await listAgenda({ unidadeId: un.id, dataInicial: de, dataFinal: somaDias(de, 21), procedimentoId: sv.id, profissionalId: sv.profissional?.id })).slice(0, max);
   },
 
   async reservar(p: PedidoReserva): Promise<ResultadoReserva> {
+    if (p.servico.combo) return reservarCombo(p);
     const { unidade, slot, servico } = p;
     if (!unidade.id) return { ok: false, codigo: 'UNIDADE_SEM_ID', motivo: 'unidade sem id' };
     // 1) horário livre AGORA (sem cache): o primeiro do período escolhido, com o mesmo médico informado ao paciente
@@ -506,16 +721,9 @@ export const fonteClinilink: Fonte = {
     if (livres.length === 0) return { ok: false, codigo: 'SEM_VAGA_AGORA', motivo: 'a vaga escolhida acabou de ser preenchida' };
 
     // 2) paciente: já cadastrado, ou cria agora (CPF_DUPLICADO devolve o existente)
-    let pacienteId = p.pacienteId; let cadastrou = false;
-    if (!pacienteId) {
-      if (!p.cadastro) return { ok: false, codigo: 'SEM_DADOS', motivo: 'faltam dados do cadastro' };
-      const c = p.cadastro;
-      const r = await criarPaciente({ nome: c.nome, cpf: p.cpf, dataNascimento: c.nascimento, sexo: c.sexo, telefone: c.telefone });
-      if (r.ok) { pacienteId = r.dados.paciente?.id ?? r.dados.id; cadastrou = true; }
-      else if (r.codigo === 'CPF_DUPLICADO' && r.corpo?.pacienteExistente?.id) pacienteId = r.corpo.pacienteExistente.id;
-      else return { ok: false, codigo: r.codigo, motivo: `cadastro recusado: ${r.mensagem || r.codigo}`, incerto: r.incerto };
-      if (!pacienteId) return { ok: false, codigo: 'SEM_ID_PACIENTE', motivo: 'o cadastro não devolveu o id do paciente', incerto: true };
-    }
+    const pac = await garantirPaciente(p);
+    if ('erro' in pac) return pac.erro;
+    const { pacienteId, cadastrou } = pac;
 
     // 3) reserva; se alguém ocupou o horário no meio do caminho, tenta o próximo livre (até 3)
     let ultimo = '';
