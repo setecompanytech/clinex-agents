@@ -25,7 +25,7 @@ export type Servico = {
   nomeBruto?: string; // como o procedimento está cadastrado ("HOLTER 24H"), para a mensagem de confirmação
   preparo?: string; // orientação de preparo/atendimento cadastrada no Clinilink (só se for um texto útil)
   detalhe?: string; // texto a mais depois do resumo das unidades (combo: o que está incluso)
-  combo?: { id: string; nome: string; itens: { id: string; nome: string }[]; ancoraId: string }; // uma ETAPA do combo com vários serviços (exames de laboratório): o horário é o da âncora, os outros entram no mesmo dia
+  combo?: { id: string; nome: string; itens: { id: string; nome: string; lab?: boolean }[]; ancoraId: string }; // uma ETAPA do combo com vários serviços (exames de laboratório): o horário é o da âncora, os outros entram no mesmo dia
   pacote?: ComboInfo; // o COMBO inteiro, escolhido pelo paciente: o roteiro o transforma em etapas (cada uma vira um serviço normal, agendado em sequência)
 };
 
@@ -183,10 +183,17 @@ export const fonteSimulada: Fonte = {
   async paciente(cpf) { const n = PACIENTES_SIM[cpf]; return n ? { nome: n } : null; },
 };
 
-/** Como falar de uma etapa do combo: o nome do serviço; vários exames juntos (coleta) viram a lista dos nomes, ou "Exames de laboratório (A, B e mais N)". */
+/**
+ * Como falar de uma etapa do combo: o nome do serviço; vários serviços juntos viram a lista dos nomes. Muitos exames de laboratório
+ * viram "Exames de laboratório (A, B e mais N)" (ou "exames de laboratório (N)" quando vêm junto de outros serviços).
+ */
 export function rotuloDaEtapa(itens: ItemDeCombo[]): string {
+  const ehLab = (i: ItemDeCombo) => /laborat/i.test(i.categoria ?? '');
+  const juntar = (n: string[]) => (n.length <= 1 ? (n[0] ?? '') : `${n.slice(0, -1).join(', ')} e ${n[n.length - 1]}`);
   const n = itens.map((i) => i.curto);
-  if (n.length <= 1) return n[0] ?? '';
-  if (n.length <= 3) return `${n.slice(0, -1).join(', ')} e ${n[n.length - 1]}`;
-  return `Exames de laboratório (${n.slice(0, 2).join(', ')} e mais ${n.length - 2})`;
+  if (n.length <= 3) return juntar(n);
+  if (itens.every(ehLab)) return `Exames de laboratório (${n.slice(0, 2).join(', ')} e mais ${n.length - 2})`;
+  const labs = itens.filter(ehLab);
+  const partes = [...itens.filter((i) => !ehLab(i)).map((i) => i.curto), ...(labs.length ? (labs.length <= 2 ? labs.map((i) => i.curto) : [`exames de laboratório (${labs.length})`]) : [])];
+  return partes.length <= 3 ? juntar(partes) : `${partes.slice(0, 3).join(', ')} e mais ${partes.length - 3}`;
 }

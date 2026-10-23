@@ -2,6 +2,7 @@ import { criarAgendamento, criarPaciente, demandaPorProcedimento, getPacientePor
 import { env } from '../../../lib/env.js';
 import { exibir, prepararGeneros } from '../../../lib/genero.js';
 import { evt } from '../../../lib/log.js';
+import { ordenarItens } from './combosOrdem.js';
 import { RAIZES, rotuloDaEtapa, type ComboInfo, type Descoberta, type Fonte, type ItemDeCombo, type OfertaCombo, type PedidoReserva, type Periodo, type ResultadoReserva, type Servico, type Slot, type Unidade } from './catalog.js';
 
 /** Fonte REAL: unidades, médicos, preços, agenda e pacientes vêm do Clinilink. Reservar/cadastrar só com credencial rw. */
@@ -411,13 +412,19 @@ function economiaDoCombo(cb: Combo, avulsos: Map<string, number>): number | unde
   const e = Math.round((it.reduce((a, i) => a + (avulsos.get(i.id) ?? 0), 0) - total) * 100) / 100;
   return e > 0.009 ? e : undefined;
 }
-/** O combo para o roteiro: os itens (com o preço no combo e o avulso) e as etapas, na ordem em que são agendadas (coleta de laboratório, exames, consulta por último). */
+/**
+ * O combo para o roteiro: os itens (com o preço no combo e o avulso) na ordem do combo no Clinilink (ou a de `ORDEM_DOS_COMBOS`) e as opções de agendamento:
+ * cada serviço é uma opção e os exames de laboratório formam uma opção só (uma coleta), na posição do primeiro deles. O paciente escolhe quais agenda
+ * agora; juntando opções, vários serviços entram no mesmo agendamento.
+ */
 function infoDoCombo(cb: Combo, avulsos: Map<string, number>): ComboInfo {
-  const itens: ItemDeCombo[] = itensDoCombo(cb).map((s) => ({ id: s.id, nome: s.nome, curto: itemCurto(s.nome), preco: typeof s.preco === 'number' && s.preco > 0 ? s.preco : undefined, avulso: avulsos.get(s.id), categoria: s.categoriaNome }));
-  const labs = itens.filter((i) => ehLab(i.categoria));
-  const consultas = itens.filter((i) => !ehLab(i.categoria) && /^consulta\b/.test(norm(i.nome)));
-  const outros = itens.filter((i) => !labs.includes(i) && !consultas.includes(i));
-  const etapas = [...(labs.length ? [labs.map((i) => i.id)] : []), ...outros.map((i) => [i.id]), ...consultas.map((i) => [i.id])];
+  const itens: ItemDeCombo[] = ordenarItens(cb.nome, itensDoCombo(cb).map((s) => ({ id: s.id, nome: s.nome, curto: itemCurto(s.nome), preco: typeof s.preco === 'number' && s.preco > 0 ? s.preco : undefined, avulso: avulsos.get(s.id), categoria: s.categoriaNome })));
+  const etapas: string[][] = []; let posLab = -1;
+  for (const i of itens) {
+    if (!ehLab(i.categoria)) etapas.push([i.id]);
+    else if (posLab < 0) { posLab = etapas.length; etapas.push([i.id]); }
+    else etapas[posLab].push(i.id);
+  }
   return { id: cb.id, nome: cb.nome, rotulo: tituloCombo(cb.nome), total: totalDoCombo(cb), economia: economiaDoCombo(cb, avulsos), temRetorno: temRetornoNoCombo(cb), itens, etapas };
 }
 /**
@@ -430,11 +437,11 @@ async function emLotes<T, R>(itens: T[], n: number, fn: (x: T) => Promise<R>): P
   return saida;
 }
 /**
- * Cada etapa tem horário aberto nos próximos 14 dias, em alguma unidade? Olha só o primeiro serviço da etapa (os exames de laboratório
+ * Cada etapa tem horário aberto nos próximos 30 dias, em alguma unidade? Olha só o primeiro serviço da etapa (os exames de laboratório
  * compartilham a agenda da coleta). Se o Clinilink falhar na consulta, conta como "tem" (não sei): sem vaga de verdade aparece na hora de agendar.
  */
 async function etapasComAgenda(info: ComboInfo): Promise<boolean[]> {
-  const clinicas = await listClinicas(); const ini = hojeYmd(); const fim = somaDias(ini, 14);
+  const clinicas = await listClinicas(); const ini = hojeYmd(); const fim = somaDias(ini, 30);
   const pares = info.etapas.flatMap((ids, e) => clinicas.map((u) => ({ e, u, id: ids[0] })));
   const achou = await emLotes(pares, 4, (x) => listAgenda({ unidadeId: x.u.id, dataInicial: ini, dataFinal: fim, procedimentoId: x.id }).then((h) => h.length > 0).catch(() => true));
   return info.etapas.map((_, e) => pares.some((x, i) => x.e === e && achou[i]));
@@ -488,12 +495,23 @@ async function descobrirCombo(t: string): Promise<Descoberta> {
 }
 
 /**
- * Horários (por período) de uma etapa com vários exames (laboratório): os da agenda do primeiro exame. Os exames de laboratório de um combo
- * ficam todos na mesma agenda (a coleta); na hora de agendar cada um é conferido de novo (`reservarCombo`) e, se algum não tiver horário no dia, nada é gravado.
+ * Horários da âncora de um agendamento com VÁRIOS serviços, só nos dias em que os outros também têm horário na unidade. Os exames de laboratório
+ * compartilham a agenda da coleta, então só o primeiro deles é consultado (pouquíssimas consultas por vez: o Clinilink responde 500 a dezenas de
+ * uma vez). Erro do Clinilink numa consulta = não restringe o dia. Na hora de gravar cada serviço é conferido de novo (`reservarCombo`).
  */
+async function horariosDoGrupo(itens: { id: string; lab?: boolean }[], ancoraId: string, unidadeId: string, de: string, ate: string): Promise<Horario[]> {
+  const labs = itens.filter((i) => i.lab);
+  const ids = [...new Set([ancoraId, ...itens.filter((i) => !i.lab).map((i) => i.id), ...(labs.length ? [labs[0].id] : [])])];
+  const listas = await emLotes(ids, 3, (id) => listAgenda({ unidadeId, dataInicial: de, dataFinal: ate, procedimentoId: id }).then((h) => h as Horario[] | null).catch(() => null));
+  const doAncora = listas[ids.indexOf(ancoraId)];
+  if (!doAncora) return [];
+  let dias = new Set(doAncora.map((h) => h.data));
+  ids.forEach((id, k) => { const l = listas[k]; if (id === ancoraId || !l) return; const d = new Set(l.map((h) => h.data)); dias = new Set([...dias].filter((x) => d.has(x))); });
+  return doAncora.filter((h) => dias.has(h.data));
+}
 async function horariosDoCombo(sv: Servico, un: Unidade, de: string, ate: string): Promise<Slot[]> {
   if (!un.id || !sv.combo) return [];
-  return agrupar(await listAgenda({ unidadeId: un.id, dataInicial: de, dataFinal: ate, procedimentoId: sv.combo.ancoraId }));
+  return agrupar(await horariosDoGrupo(sv.combo.itens, sv.combo.ancoraId, un.id, de, ate));
 }
 
 /** O combo escolhido pelo paciente: o roteiro mostra o que inclui e agenda etapa por etapa (`etapaDoCombo`). */
@@ -532,11 +550,12 @@ async function etapaDoComboFonte(cb: { id: string; rotulo: string; total?: numbe
     // dentro do combo o preço que vale é o do combo inteiro (é ele que o pix cobre): o preço avulso do item não entra na conversa
     return { ...d.servico, precoTexto: '', unidades: d.servico.unidades.map((u) => ({ ...u, precoPix: (u.id ? totais.get(u.id) : undefined) ?? cb.total })) };
   }
-  const ids = itens.map((i) => i.id); const ancora = itens[0];
+  const ids = itens.map((i) => i.id);
+  const ancora = itens.find((i) => !ehLab(i.categoria)) ?? itens[0]; // o horário é o do primeiro serviço que não é coleta (a coleta tem agenda larga)
   const ini = hojeYmd(); const fim = somaDias(ini, 30);
   const comAgenda: { u: Clinica; medicos: string[] }[] = [];
   await Promise.all((await listClinicas()).map(async (u) => {
-    const h = await listAgenda({ unidadeId: u.id, dataInicial: ini, dataFinal: fim, procedimentoId: ancora.id }).catch(() => [] as Horario[]);
+    const h = await horariosDoGrupo(itens.map((i) => ({ id: i.id, lab: ehLab(i.categoria) })), ancora.id, u.id, ini, fim);
     if (h.length === 0) return;
     comAgenda.push({ u, medicos: [...new Set(h.map((x) => x.profissional?.nome).filter((x): x is string => Boolean(x) && !ehSala(x)).map(titulo))].slice(0, 3) });
   }));
@@ -550,7 +569,7 @@ async function etapaDoComboFonte(cb: { id: string; rotulo: string; total?: numbe
     id: `combo:${cb.id}:${ids.join('+')}`, nome: rotulo, frase: rotulo, tipo: 'exame', precoTexto: '',
     unidades: comAgenda.map(({ u, medicos }): Unidade => ({ id: u.id, nome: nomeUnidade(u), profissionais: medicos, precoPix: totais.get(u.id) ?? cb.total, nomeBruto: u.nome, endereco: u.endereco, telefone: u.telefone })),
     nomeBruto: itens.map((i) => i.nome).join(', '), preparo: preparos.length ? preparos.join('\n\n') : undefined,
-    combo: { id: cb.id, nome: cb.rotulo, itens: itens.map((i) => ({ id: i.id, nome: i.nome })), ancoraId: ancora.id },
+    combo: { id: cb.id, nome: cb.rotulo, itens: itens.map((i) => ({ id: i.id, nome: i.nome, lab: ehLab(i.categoria) })), ancoraId: ancora.id },
   };
 }
 
