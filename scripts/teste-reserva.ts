@@ -1406,6 +1406,10 @@ confere('EN6 o texto do endereço nunca passa pelo GPT (aprovado palavra por pal
   s1 = await seq(['oi', 'quero agendar ginecologista', 'sim']);
   confere('CB15 pediu só a consulta: depois de confirmar o serviço ela sugere os combos que incluem a consulta, do mais barato, com a economia', !s1.r.handoff && /Tenho combos que incluem consulta Ginecologia e saem mais em conta:/.test(s1.r.reply) && /1\. Feminino 2 \(R\$ 110,00, economiza R\$ 30,00\): Consulta Ginecologia, Eletrocardiograma/.test(s1.r.reply) && /2\. Feminino 1 \(R\$ 160,00, economiza R\$ 45,00\)/.test(s1.r.reply) && /Quer agendar algum desses combos ou só a consulta\?/.test(s1.r.reply) && nPost('/agendamentos') === 0, s1.r.reply.replace(/\n/g, ' | ').slice(0, 360));
   confere('CB15 a sugestão também mostra o preço avulso da consulta, para comparar', /A consulta é R\$ 100,00\. Tenho combos/.test(s1.r.reply), s1.r.reply.slice(0, 120));
+  // duas mensagens na mesma rodada (a resposta da 1ª nunca chega ao paciente): a sugestão não pode se perder
+  reset({ ocupados: 0 });
+  k = await responder([['bom dia'], ['quero agendar uma consulta com ginecologista', 'tem?'], ['sim, quero agendar', 'quando da pra agendar?']], ctx, fonteClinilink);
+  confere('CB15 se a sugestão de combos caiu numa resposta que foi descartada (2 mensagens juntas), ela é feita na resposta que vale (não é "gasta" sem o paciente ver)', /Tenho combos que incluem consulta Ginecologia/.test(k.reply) && k.state.ofertaCombo?.opcoes.length === 2, k.reply.replace(/\n/g, ' | ').slice(0, 200));
   s1 = await seq(['oi', 'quero agendar ginecologista', 'sim', 'só a consulta mesmo']);
   confere('CB16 "só a consulta mesmo": segue com a consulta avulsa (sem insistir) e pergunta a unidade', /^Sem problema, vamos só com consulta Ginecologia\./.test(s1.r.reply) && /Qual dos dois/.test(s1.r.reply) && !s1.r.state.combo && !s1.r.state.ofertaCombo, s1.r.reply.replace(/\n/g, ' | ').slice(0, 220));
   s1 = await seq(['oi', 'quero agendar ginecologista', 'sim', 'só a consulta mesmo', 'guama amanhã', '52998224725', 'sim', 'na recepção']);

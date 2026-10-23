@@ -1814,7 +1814,7 @@ export async function responder(entrada: (string | string[])[], ctx: Ctx, fonte:
   for (let t = 0; t < turnos.length; t++) {
     const msgs = turnos[t];
     for (let j = 0; j < msgs.length; j++) {
-      const antes = { saudou: state.saudou, unidadesInformadas: state.unidadesInformadas };
+      const antes = { saudou: state.saudou, unidadesInformadas: state.unidadesInformadas, ofertaCombo: state.ofertaCombo, comboOferecido: state.comboOferecido };
       last = await step(state, msgs[j], { ...ctx, efetivar: t === turnos.length - 1, anteriores: vistas.slice(-3), duplicadoAqui: (ctx.duplicadoNosTurnos ?? []).includes(t) && j === msgs.length - 1, ultima: t === turnos.length - 1 && j === msgs.length - 1 }, fonte, i++);
       vistas.push(msgs[j].replace(TOKEN_MIDIA, ' ').trim());
       state = last.state;
@@ -1830,6 +1830,7 @@ export async function responder(entrada: (string | string[])[], ctx: Ctx, fonte:
       if (j < msgs.length - 1) { // resposta descartada: desfaz o que ela marcou como dito
         state.saudou = antes.saudou;
         state.unidadesInformadas = antes.unidadesInformadas;
+        if (state.ofertaCombo && !antes.ofertaCombo) { state.ofertaCombo = undefined; state.comboOferecido = antes.comboOferecido; } // a sugestão de combos nunca foi vista: ela volta a ser feita na próxima resposta
         if (state.paciente && !state.pacienteConfirmado) state.paciente = undefined; // o nome nunca foi mostrado
       }
     }
