@@ -37,5 +37,7 @@ confere('resposta da dúvida e pergunta do fluxo: dois balões', eq(dividirEmBal
 confere('pix: três balões (a chave fica sozinha para copiar)', eq(dividirEmBaloes('Show! A chave pix é essa, o valor é R$ 100,00:\n\nChave pix: x@y.com\n\nQuando pagar, me manda o comprovante aqui, tá?'), ['Show! A chave pix é essa, o valor é R$ 100,00:', 'Chave pix: x@y.com', 'Quando pagar, me manda o comprovante aqui, tá?']));
 confere('até quatro parágrafos viram quatro balões; do quinto em diante se juntam ao quarto', dividirEmBaloes('a\n\nb\n\nc\n\nd').length === 4 && dividirEmBaloes('a\n\nb\n\nc\n\nd\n\ne').length === 4 && dividirEmBaloes('a\n\nb\n\nc\n\nd\n\ne')[3] === 'd\ne');
 confere('texto vazio não quebra', dividirEmBaloes('').length === 1);
+const comboConfirmado = ['Agendamento confirmado! Deu tudo certo, Maria.', 'Paciente: M\nProcedimento: A (COMBO FEMININO 1)', 'Paciente: M\nProcedimento: B (COMBO FEMININO 1)', 'Paciente: M\nProcedimento: C (COMBO FEMININO 1)', 'O combo Feminino 1 fechou em R$ 160,00.', 'Se puder, chega cedinho.'].join('\n\n');
+confere('confirmação de combo: cada agendamento (modelo da clínica) fica no seu balão, sem juntar os últimos', dividirEmBaloes(comboConfirmado).length === 6 && dividirEmBaloes(comboConfirmado)[3].startsWith('Paciente: M') && dividirEmBaloes(comboConfirmado)[4].startsWith('O combo'));
 
 console.log(ok ? '\nOK' : '\nFALHOU'); process.exit(ok ? 0 : 1);

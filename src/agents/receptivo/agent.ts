@@ -121,8 +121,10 @@ export function tempoDeDigitacao(texto: string, primeiro: boolean): number {
 /** Parágrafos separados por linha em branco viram balões separados (até 4), como uma pessoa que manda um texto em partes. */
 export function dividirEmBaloes(texto: string): string[] {
   const partes = texto.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
-  if (partes.length <= 4) return partes.length ? partes : [texto];
-  return [partes[0], partes[1], partes[2], partes.slice(3).join('\n')];
+  // a confirmação de um combo traz o modelo da clínica de CADA agendamento: cada um precisa do seu balão (para o paciente encaminhar ou guardar)
+  const max = /\(COMBO [^)\n]+\)/.test(texto) ? 9 : 4;
+  if (partes.length <= max) return partes.length ? partes : [texto];
+  return [...partes.slice(0, max - 1), partes.slice(max - 1).join('\n')];
 }
 
 /**

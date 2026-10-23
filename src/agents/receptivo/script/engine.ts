@@ -3,7 +3,7 @@ import { env } from '../../../lib/env.js';
 import { exibir, exibirLista, generoConfirmado, prepararGeneros } from '../../../lib/genero.js';
 import type { PedidoInterpretado } from '../../../lib/interpretarPedido.js';
 import type { MensagemConversa, RespostaContextual } from '../../../lib/contexto.js';
-import { RAIZES, type AgendamentoExistente, type Fonte, type PacienteInfo, type Periodo, type Servico, type Slot, type Unidade } from './catalog.js';
+import { RAIZES, rotuloDaEtapa, type AgendamentoExistente, type ComboInfo, type Fonte, type ItemDeCombo, type OfertaCombo, type PacienteInfo, type Periodo, type ResultadoReserva, type Servico, type Slot, type Unidade } from './catalog.js';
 
 /**
  * Motor de conversa por roteiro. O estado é recalculado a cada mensagem reprocessando as mensagens do
@@ -20,6 +20,19 @@ import { RAIZES, type AgendamentoExistente, type Fonte, type PacienteInfo, type 
  */
 
 export type Cadastro = { nome?: string; nascimento?: string; sexo?: 'feminino' | 'masculino'; telefone?: string; pediuTelefone?: boolean };
+
+/** Uma etapa do combo: um serviço (ou os exames de laboratório juntos). */
+export type EtapaCombo = { itens: ItemDeCombo[]; estado: 'pendente' | 'feita' | 'pulada' | 'sem-agenda' | 'ja-tinha' };
+/** O que já ficou agendado numa etapa (para a mensagem de confirmação do fim). */
+export type FeitoCombo = { rotulo: string; frase: string; nomeBruto?: string; unidade: Unidade; ymd: string; turno: Periodo; hora: string; profissionalBruto?: string; linhas?: string[]; extra?: string; valor?: number; preparo?: string };
+/** Combo em andamento: agendado em etapas, uma de cada vez. O serviço da etapa atual é o `servico` da conversa. */
+export type ComboAndamento = {
+  id: string; rotulo: string; total?: number; economia?: number; temRetorno: boolean;
+  etapas: EtapaCombo[]; atual: number;
+  perguntando?: boolean; // ela perguntou se o paciente quer agendar a próxima etapa agora e espera a resposta
+  tent: number; // respostas que não responderam essa pergunta
+  feitos: FeitoCombo[]; cadastrou?: boolean; unidadePref?: string; diaPref?: string;
+};
 
 export type State = {
   saudou: boolean;
@@ -60,6 +73,10 @@ export type State = {
   /** O Clinilink recusou porque o paciente já tem esse serviço no dia: ela avisou e espera o que ele quer (manter, marcar mais um em outro dia ou remarcar). */
   dup?: { ymd: string; unidade: string; servicoId: string; tent: number; esclareceu?: boolean };
   diasBloqueados?: string[]; // dias que não devem mais ser oferecidos (o dia do agendamento que já existe)
+  combo?: ComboAndamento; // agendando um combo, etapa por etapa
+  ofertaCombo?: { opcoes: OfertaCombo[]; vezes: number }; // ela sugeriu combos que incluem o serviço e espera a resposta
+  comboOferecido?: boolean; // a sugestão de combos já foi feita nesta jornada (uma vez só)
+  desde?: string; // a lista de horários da etapa seguinte do combo começa nesse dia (o dia da etapa anterior)
 };
 
 /**
@@ -102,6 +119,8 @@ export function etapa(s: State, handoff?: Handoff): string {
   if (handoff?.urgente) return 'segurança (emergência/crise)';
   if (handoff) return 'transferida para a equipe';
   if (s.fim) return 'concluída';
+  if (s.ofertaCombo) return 'escolhendo entre os combos sugeridos';
+  if (s.combo?.perguntando) return 'combo: decidindo a próxima etapa';
   if (!s.servico) return s.opcoes ? 'escolhendo entre opções de serviço' : 'recepção / entendendo o serviço';
   if (!s.servicoConfirmado) return 'confirmando o serviço';
   if (!s.unidade) return 'escolhendo a unidade';
@@ -127,7 +146,7 @@ export const MARCAS_FIM = [MARCA_FIM, MARCA_AGENDADO, MARCA_MAIS, MARCA_ADEUS];
 /** Mensagens com texto exato (valores, chave, marcas): não passam pelo GPT. */
 export const SEM_GPT = [MARCA_AGENDADO, MARCA_MAIS, MARCA_ADEUS, MARCA_PIX, MARCA_PAGAMENTO];
 /** Textos que o Giovanny aprovou palavra por palavra (unidades, horários, "o mais rápido", comprovante, aviso de segurança do sintoma): também não passam pelo GPT. */
-SEM_GPT.push(MARCA_DUP, 'Está sim, confirmado!', 'Tenho sim!', 'Consegui estes aqui', 'Esses são os horários que tenho', 'Guamá: Endereço:', 'Travessa Coronel Luís Bentes com a Rua do Úna', 'Claro! Tenho estes combos', 'Claro! Tenho combos de', ' inclui: ', 'me manda por favor os dados do paciente', 'Como você prefere pagar', 'O mais rápido que tenho é', 'O último que tenho é', 'Não to conseguindo ler esse comprovante', 'Recebi o seu comprovante', 'Pelo que você contou');
+SEM_GPT.push('combo', 'Combo', MARCA_DUP, 'Está sim, confirmado!', 'Tenho sim!', 'Consegui estes aqui', 'Esses são os horários que tenho', 'Guamá: Endereço:', 'Travessa Coronel Luís Bentes com a Rua do Úna', 'Claro! Tenho estes combos', 'Claro! Tenho combos de', ' inclui: ', 'me manda por favor os dados do paciente', 'Como você prefere pagar', 'O mais rápido que tenho é', 'O último que tenho é', 'Não to conseguindo ler esse comprovante', 'Recebi o seu comprovante', 'Pelo que você contou');
 
 export const novoEstado = (): State => ({
   saudou: false, confirmPerguntado: false, servicoConfirmado: false, unidadesInformadas: false,
@@ -498,6 +517,28 @@ const DUP_REMARCAR = /\b(remarc\w*|reagend\w*|trocar|troca|alterar|altera|adiar|
 const DUP_DIA = /\b(outro dia|outra data|outro horario|mudar (o )?dia|mudar a data|dia diferente|trocar o dia)\b/;
 const DUP_CONFIRMA = /\b(ja|entao)\b.*\b(agendad\w*|marcad\w*)\b|\b(esta|ta|ficou) (agendad|marcad)\w*/;
 
+// ---------- combo ----------
+/** Depois de agendar uma etapa do combo: o paciente não quer agendar a próxima agora ("depois", "por enquanto", "só isso", "agora não"). */
+const COMBO_PARAR = /\b(deixa(r)? (assim|pra depois|para depois|por hoje|pra outro dia|para outro dia)|fica (assim|pra depois|para depois)|por hoje|so (isso|esse|essa|esses|essas)|por enquanto|agora nao|nao (quero|vou|preciso)|nao (posso|da|consigo) (agora|hoje|mais)|ja (chega|basta|esta bom|ta bom)|outra hora|outro momento|depois (eu )?(vejo|marco|agendo|volto|chamo)|encerr\w+)\b/;
+/** ...ou quer deixar só ESSA etapa de fora e seguir com as outras. */
+const COMBO_PULAR = /\b(pula\w*|pular|essa nao|esse nao|nem essa|nem esse|sem (essa|esse))\b/;
+/** O paciente recusou os combos sugeridos e quer só o serviço ("só a consulta", "sem combo", "não quero combo", "avulso"). */
+const COMBO_RECUSA = /\b(so|apenas|somente)\b|\bsem combo\b|\bavulso\b|\bnao (quero|preciso|vou|precisa)\b|\bnenhum\b|\bmesmo\b/;
+/** Perguntas sobre os combos sugeridos: ela mostra a lista de novo. */
+const COMBO_DUVIDA = /\b(combo|combos|inclui|incluso|economi\w*|desconto|diferenca|vale a pena|como funciona)\b/;
+/** Desistir do combo ("sem combo", "deixa o combo", "só a consulta mesmo"). */
+const COMBO_DESISTIR = /\b(sem (o )?combo|nao quero (mais )?(o |esse )?combo|deixa (o )?combo|cancela (o )?combo|esquece (o )?combo|(so|apenas|somente) (a|o) (consulta|exame))\b/;
+/** A resposta do paciente à lista de combos sugeridos: o combo escolhido (número ou nome) ou as versões em dúvida ("cardio 2" tem três: holter, mapa, ergométrico). */
+function escolherOferta(t: string, opcoes: OfertaCombo[]): { escolha?: OfertaCombo; duvida: OfertaCombo[] } {
+  const idx = lerEscolha(t, opcoes.length);
+  if (idx >= 0 && opcoes[idx]) return { escolha: opcoes[idx], duvida: [] };
+  const simples = (o: OfertaCombo) => norm(o.rotulo).replace(/\s*\(.*?\)/g, '').replace(/[^a-z0-9 ]/g, '').trim();
+  const porNome = opcoes.filter((o) => new RegExp(`\\b${simples(o).replace(/ /g, ' ?')}\\b`).test(t));
+  const refinado = porNome.length > 1 ? porNome.filter((o) => (norm(o.rotulo).match(/\((.*?)\)/)?.[1] ?? '').split(/[^a-z0-9]+/).filter(Boolean).every((w) => t.includes(w))) : porNome;
+  if (refinado.length === 1) return { escolha: refinado[0], duvida: [] };
+  return { duvida: porNome.length > 1 ? porNome : [] };
+}
+
 /** "Vi que esse paciente já tem consulta X marcado pra quinta dia 22 no Guamá de manhã a partir das 8h com a Dra. Y." (ou, sem achar o agendamento, só o dia). */
 function textoDuplicado(sv: Servico, ymd: string, ref: string, ex: AgendamentoExistente | null): string {
   if (!ex) return `${MARCA_DUP} esse atendimento marcado pro mesmo dia (${dataFalada(ymd, ref)}).`;
@@ -511,7 +552,7 @@ export const FORMAS_PAGAMENTO = 'CARTÃO DE DÉBITO, CREDITO (VISA E MASTER), DI
 function profissionalNoModelo(bruto?: string): string {
   const b = (bruto ?? '').trim();
   if (!b) return '';
-  if (b.startsWith('.') || /\bsala\b/i.test(b)) return b;
+  if (b.startsWith('.') || /\bsala\b/i.test(b) || /^(coleta|exames?|laborat\w*|recepc\w*|triagem|ultrassom|usg)\b/i.test(b)) return b; // agenda de sala/setor, não pessoa
   return exibir(b, { curto: titulo(b) });
 }
 
@@ -520,27 +561,65 @@ function profissionalNoModelo(bruto?: string): string {
  * dados do agendamento, depois as orientações do atendimento (se houver) e uma sugestão. Cada parágrafo vai como uma mensagem.
  * "Formas de pagamento" vira "PAGO NO PIX" quando o comprovante foi recebido na conversa.
  */
-export function mensagemConfirmacao(p: { paciente: string; novoCadastro: boolean; servico: Servico; unidade: Unidade; ymd: string; hora?: string; profissionalBruto?: string; valor?: number; pagoPix?: number; primeiroNome?: string; linhas?: string[]; extra?: string }): string {
-  const prof = profissionalNoModelo(p.profissionalBruto);
-  // combo: cada serviço agendado, com o profissional (ou a sala) do cadastro, como a atendente escreve
-  const proc = p.linhas?.length ? p.linhas.join(', ') : `${p.servico.nomeBruto ?? p.servico.nome.toLocaleUpperCase('pt-BR')}${prof ? ` - ${prof}` : ''}`;
-  const hora = (p.hora ?? '').slice(0, 5);
-  const pago = p.pagoPix ?? 0;
-  const formas = pago <= 0 ? FORMAS_PAGAMENTO
-    : p.valor && pago + 0.005 < p.valor ? `PAGO ${reais(pago)} NO PIX (comprovante recebido); o restante na recepção`
+/** "Formas de pagamento" do modelo: o que a clínica aceita, ou PAGO NO PIX (inteiro ou em parte) quando o comprovante foi recebido. */
+function formasDePagamento(pagoPix: number | undefined, valor: number | undefined): string {
+  const pago = pagoPix ?? 0;
+  return pago <= 0 ? FORMAS_PAGAMENTO
+    : valor && pago + 0.005 < valor ? `PAGO ${reais(pago)} NO PIX (comprovante recebido); o restante na recepção`
     : 'PAGO NO PIX (comprovante recebido)';
+}
+/** O modelo de confirmação da clínica para UM agendamento (as linhas que a recepção escreve). */
+function modeloDaClinica(p: { paciente: string; profissional: string; procedimento: string; unidade: Unidade; ymd: string; hora?: string; valor?: number; formas: string; rotuloValor?: string }): string {
+  const hora = (p.hora ?? '').slice(0, 5);
   const u = p.unidade;
-  const modelo = [
+  return [
     `Paciente: ${p.paciente}`,
-    ...(prof ? [`Profissional: ${prof}`] : []),
-    `Procedimento: ${proc}`,
+    ...(p.profissional ? [`Profissional: ${p.profissional}`] : []),
+    `Procedimento: ${p.procedimento}`,
     `📆 Data: ${fmtNasc(p.ymd)}${hora ? ` a partir de ${hora}` : ''} *POR ORDEM DE CHEGADA*`,
     `🏥 Clínica: ${u.nomeBruto ?? `CLINEX ${u.nome.toLocaleUpperCase('pt-BR')}`}`,
     ...(u.endereco ? [`📍 Endereço: ${u.endereco}`] : []),
     ...(u.telefone ? [`☎ Telefone: ${u.telefone}`, `📲 WhatsApp: ${u.telefone}`] : []),
-    `Valor particular: ${p.valor ? reais(p.valor) : 'a confirmar na recepção'}`,
-    `Formas de pagamento: ${formas}`,
+    `${p.rotuloValor ?? 'Valor particular'}: ${p.valor ? reais(p.valor) : 'a confirmar na recepção'}`,
+    `Formas de pagamento: ${p.formas}`,
   ].join('\n');
+}
+
+/**
+ * Confirmação do COMBO, no fim: o aviso (é ele que marca o fim da jornada), o modelo da clínica de cada etapa agendada (o valor é o do serviço dentro do
+ * combo), as orientações, o que ficou pendente e o fecho. Etapa que não foi agendada não entra nos modelos: aparece como pendente.
+ */
+export function mensagemConfirmacaoCombo(p: { paciente: string; primeiroNome?: string; combo: ComboAndamento; pagoPix?: number }): string {
+  const c = p.combo;
+  const nomeDe = (e: EtapaCombo) => rotuloDaEtapa(e.itens);
+  const feitas = c.etapas.filter((e) => e.estado === 'feita').length;
+  const completo = c.etapas.length > 0 && c.etapas.every((e) => e.estado === 'feita');
+  const modelos = c.feitos.map((f) => {
+    const prof = profissionalNoModelo(f.profissionalBruto);
+    const proc = f.linhas?.length ? f.linhas.join(', ') : `${f.nomeBruto ?? f.rotulo.toLocaleUpperCase('pt-BR')}${prof ? ` - ${prof}` : ''}`;
+    return modeloDaClinica({ paciente: p.paciente, profissional: f.linhas?.length ? '' : prof, procedimento: `${proc} (COMBO ${c.rotulo.toLocaleUpperCase('pt-BR')})`, unidade: f.unidade, ymd: f.ymd, hora: f.hora, valor: f.valor, formas: formasDePagamento(p.pagoPix, c.total), rotuloValor: 'Valor no combo' });
+  });
+  const pendentes = c.etapas.filter((e) => e.estado === 'pendente' || e.estado === 'pulada');
+  const semAgenda = c.etapas.filter((e) => e.estado === 'sem-agenda');
+  const jaTinha = c.etapas.filter((e) => e.estado === 'ja-tinha');
+  return [
+    `${MARCA_AGENDADO}! Deu tudo certo${p.primeiroNome ? `, ${p.primeiroNome}` : ''}.${c.cadastrou ? ` Cadastro de ${p.paciente} feito.` : ''}${modelos.length > 1 ? ` Seguem os agendamentos do combo ${c.rotulo}:` : ''}`,
+    ...modelos,
+    ...c.feitos.filter((f) => f.extra).map((f) => f.extra!),
+    ...c.feitos.filter((f) => f.preparo).map((f) => (preparoLongo(f.preparo!) ? f.preparo! : `Uma orientação importante pro seu atendimento (${f.rotulo}): ${f.preparo}`)),
+    ...(jaTinha.length ? [`${juntar(jaTinha.map(nomeDe))} já estava agendado, então ficou como estava.`] : []),
+    ...(semAgenda.length ? [`Pra ${juntar(semAgenda.map(nomeDe))} não tinha vaga aberta agora. A equipe vai te ajudar com isso.`] : []),
+    ...(pendentes.length ? [`Ficou pendente no combo: ${juntar(pendentes.map(nomeDe))}. Quando quiser agendar é só me chamar que a gente continua.`] : []),
+    ...(completo && feitas > 1 && c.total ? [`O combo ${c.rotulo} fechou em ${reais(c.total)}${c.economia ? `, uma economia de ${reais(c.economia)}` : ''}.`] : []),
+    `Se puder, chega cedinho, que o atendimento é por ordem de chegada. Quer aproveitar e agendar mais algum exame ou consulta?`,
+  ].join('\n\n');
+}
+
+export function mensagemConfirmacao(p: { paciente: string; novoCadastro: boolean; servico: Servico; unidade: Unidade; ymd: string; hora?: string; profissionalBruto?: string; valor?: number; pagoPix?: number; primeiroNome?: string; linhas?: string[]; extra?: string }): string {
+  const prof = profissionalNoModelo(p.profissionalBruto);
+  // etapa com vários exames: cada serviço agendado, com o profissional (ou a sala) do cadastro, como a atendente escreve
+  const proc = p.linhas?.length ? p.linhas.join(', ') : `${p.servico.nomeBruto ?? p.servico.nome.toLocaleUpperCase('pt-BR')}${prof ? ` - ${prof}` : ''}`;
+  const modelo = modeloDaClinica({ paciente: p.paciente, profissional: prof, procedimento: proc, unidade: p.unidade, ymd: p.ymd, hora: p.hora, valor: p.valor, formas: formasDePagamento(p.pagoPix, p.valor) });
   return [
     `${MARCA_AGENDADO}! Deu tudo certo${p.primeiroNome ? `, ${p.primeiroNome}` : ''}.${p.novoCadastro ? ` Cadastro de ${p.paciente} feito.` : ''}`,
     modelo,
@@ -574,6 +653,7 @@ const marcaDeProgresso = (x: State) => JSON.stringify([
   x.slot ? `${x.slot.ymd}${x.slot.inicio}` : null, x.pagPerguntado, x.pagamento, x.pagFinal, x.pixEnviado, x.pagoPix, x.cpf,
   x.paciente === undefined ? 'u' : x.paciente === null ? 'n' : x.paciente.nome, x.pacienteConfirmado, x.cad, x.dup?.tent, x.dup?.esclareceu,
   x.ofereceuEquipe, x.data, x.turno, x.rapido, x.apartir, x.ate,
+  x.combo ? [x.combo.atual, x.combo.perguntando ?? false, x.combo.tent, x.combo.feitos.length, x.combo.etapas.map((e) => e.estado)] : null, x.ofertaCombo ? x.ofertaCombo.vezes : null, x.comboOferecido ?? false,
 ]);
 
 /** Os fatos VERIFICADOS da conversa (só o que o roteiro já sabe), de onde o leitor de contexto pode tirar a resposta. */
@@ -584,6 +664,10 @@ export function fatosDoEstado(s: State, ref: string, confirmacao?: string): stri
     L.push(`Serviço em andamento: ${sv.frase}${s.servicoConfirmado ? ' (o paciente já confirmou que é esse)' : ' (ainda não confirmado pelo paciente)'}`);
     if (sv.precoTexto) L.push(`Valor: ${sv.precoTexto}`);
     L.push(`Onde tem agenda: ${textoUnidades(sv, 'duvida')}`);
+  }
+  if (s.combo) {
+    const c = s.combo;
+    L.push(`Combo em andamento: ${c.rotulo}${c.total ? ` (${reais(c.total)}${c.economia ? `, economia de ${reais(c.economia)}` : ''})` : ''}. Já agendado: ${c.feitos.map((f) => `${f.rotulo} em ${dataFalada(f.ymd, ref)}`).join('; ') || 'nada ainda'}. Falta agendar: ${c.etapas.filter((e) => e.estado === 'pendente').map((e) => rotuloDaEtapa(e.itens)).join(', ') || 'nada'}`);
   }
   if (s.unidade) L.push(`Unidade escolhida: ${s.unidade.nome}`);
   if (s.slot) L.push(`Horário escolhido: ${slotFalado(s.slot, true, ref)}`);
@@ -596,6 +680,7 @@ export function fatosDoEstado(s: State, ref: string, confirmacao?: string): stri
   L.push('O atendimento é por ordem de chegada: o horário informado é a hora em que a agenda abre, não um horário marcado individual.');
   if (env.clinicHorario) L.push(`Horário de funcionamento da clínica: ${env.clinicHorario}`);
   L.push(s.dup ? 'Situação: o paciente já tem esse atendimento marcado; ela espera ele decidir o que fazer'
+    : s.combo?.feitos.length ? 'Situação: o combo está sendo agendado etapa por etapa; o que consta como "Já agendado" está confirmado no sistema'
     : sv ? `Situação: o agendamento ainda NÃO foi feito; etapa atual: ${etapa(s)}`
     : 'Situação: ainda não foi pedido nenhum serviço nesta conversa');
   return L.join('\n');
@@ -632,7 +717,7 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
 // ---------- núcleo ----------
 async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 0): Promise<Result> {
   // depois de uma jornada concluída, uma nova mensagem abre outra jornada (mantém a saudação já feita)
-  const s: State = prev.fim ? { ...novoEstado(), saudou: true } : { ...prev, cad: { ...prev.cad } };
+  const s: State = prev.fim ? { ...novoEstado(), saudou: true } : { ...prev, cad: { ...prev.cad }, combo: prev.combo ? structuredClone(prev.combo) : undefined, ofertaCombo: prev.ofertaCombo ? structuredClone(prev.ofertaCombo) : undefined };
   const base = prev.fim ? s : prev;
   const t = norm(texto.replace(TOKEN_MIDIA, ' '));
   // para achar o serviço, "o mais rápido possível", "a próxima"... saem do texto (senão "rápido" casa com "Teste Rápido de Gravidez")
@@ -654,6 +739,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
       case 'ping': return s.saudou ? 'Tô aqui!' : '';
       case 'horario': return env.clinicHorario;
       case 'preco':
+        if (s.combo?.total && !esperandoPix()) { const c = s.combo; const txt = `O combo ${c.rotulo} é ${reais(c.total!)}${c.economia ? `, você economiza ${reais(c.economia)}` : ''}.`; return reply.includes(txt) ? '' : txt; }
         if (!sv || esperandoPix()) return '';
         // sem preço cadastrado: não inventa nem fala "zero"; a equipe confirma
         if (!sv.precoTexto) return `O valor desse atendimento eu prefiro que a equipe confirme certinho pra você.${EQUIPE}`;
@@ -689,6 +775,94 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
   const partes: string[] = [];
   if (abertura) partes.push(abertura);
   const dizer = (...txt: string[]) => out([...partes, ...txt].join(abertura && partes.length === 1 && txt.length === 1 && !txt[0].includes('\n') ? ' ' : '\n'));
+  let mudouServico = false;
+
+  // ---------- combo: agendado em etapas, uma de cada vez ----------
+  const nomeEtapa = (e: EtapaCombo) => rotuloDaEtapa(e.itens);
+  const pendentesDoCombo = (c: ComboAndamento) => c.etapas.map((e, i) => ({ e, i })).filter((x) => x.e.estado === 'pendente');
+  /**
+   * Abre a etapa `k`: o serviço dela passa a ser o da conversa (na unidade da etapa anterior, se ela atender lá; os horários começam no dia da anterior).
+   * `primeira`: o que o paciente adiantou (dia, período, "o mais rápido") ainda vale. false = a etapa não tem agenda aberta.
+   */
+  const abrirEtapa = async (k: number, primeira = false): Promise<boolean> => {
+    const c = s.combo!;
+    const sv2 = await fonte.etapaDoCombo!({ id: c.id, rotulo: c.rotulo, total: c.total }, c.etapas[k].itens);
+    if ('semAgenda' in sv2) { c.etapas[k].estado = 'sem-agenda'; return false; }
+    const pref = c.unidadePref ?? s.unidade?.nome;
+    c.atual = k;
+    s.servico = sv2; s.opcoes = undefined; s.servicoConfirmado = true; s.confirmPerguntado = true; s.unidadesInformadas = false;
+    s.unidade = pref ? sv2.unidades.find((u) => norm(u.nome) === norm(pref)) : undefined;
+    s.lista = undefined; s.listaMista = false; s.slot = undefined; s.dup = undefined;
+    if (!primeira) { s.data = undefined; s.turno = undefined; s.rapido = undefined; s.apartir = undefined; s.ate = undefined; s.desde = c.diaPref; }
+    mudouServico = true;
+    return true;
+  };
+  /** Para a equipe, em qualquer transferência no meio do combo: onde ele parou (o que já foi agendado e o que falta). */
+  const notaCombo = () => {
+    const c = s.combo;
+    if (!c) return '';
+    const feitos = c.feitos.map((f) => `${f.rotulo} (${fmtNasc(f.ymd)} ${f.hora}, ${f.unidade.nome})`).join('; ') || 'nada ainda';
+    return `COMBO ${c.rotulo} (etapa ${c.atual + 1} de ${c.etapas.length}: ${nomeEtapa(c.etapas[c.atual])}). Já agendado: ${feitos}. Pendente: ${c.etapas.filter((e) => e.estado === 'pendente').map(nomeEtapa).join(', ') || 'nada'}`;
+  };
+  const perguntaProxima = (c: ComboAndamento) => {
+    const falta = pendentesDoCombo(c); const prox = nomeEtapa(c.etapas[c.atual]);
+    return falta.length > 1 ? `Ainda falta no combo: ${juntar(falta.map((x) => nomeEtapa(x.e)))}. Quer seguir agora, começando por ${prox}?` : `Falta só ${prox} no combo. Quer agendar agora?`;
+  };
+  /** Acabou (tudo agendado ou o paciente parou): manda a confirmação de cada agendamento do combo. Etapa sem agenda aberta avisa a equipe. */
+  const finalizaCombo = async (): Promise<Result> => {
+    const c = s.combo!;
+    c.perguntando = false; s.fim = true;
+    if (c.feitos.length === 0) return out(`Combinado, não fiz nenhum agendamento novo. ${MARCA_MAIS}?`); // (o paciente já tinha tudo marcado ou desistiu)
+    await prepararGeneros(c.feitos.map((f) => f.profissionalBruto));
+    const quem = s.paciente ? titulo(s.paciente.nome) : s.cad.nome ?? '';
+    const reply = mensagemConfirmacaoCombo({ paciente: quem, primeiroNome: quem.split(' ')[0], combo: c, pagoPix: s.pagoPix });
+    const semAgenda = c.etapas.filter((e) => e.estado === 'sem-agenda');
+    if (semAgenda.length) return out(reply, { motivo: `COMBO ${c.rotulo}: sem vaga aberta para ${juntar(semAgenda.map(nomeEtapa))}. Já agendado: ${c.feitos.map((f) => `${f.rotulo} (${fmtNasc(f.ymd)} ${f.hora}, ${f.unidade.nome})`).join('; ') || 'nada'}. Paciente: ${quem}. Agendar o que faltou.` });
+    return out(reply);
+  };
+  /** Terminou uma etapa: abre a próxima com agenda e pergunta se o paciente quer agendar agora; sem próxima, fecha o combo. */
+  const seguirCombo = async (aviso: string): Promise<Result> => {
+    const c = s.combo!;
+    for (const x of pendentesDoCombo(c)) {
+      if (await abrirEtapa(x.i)) { c.perguntando = true; c.tent = 0; s.fim = false; return out(`${aviso}\n\n${perguntaProxima(c)}`); }
+    }
+    return finalizaCombo();
+  };
+  /** O combo foi escolhido: mostra o preço e o que inclui e abre a primeira etapa (a do serviço que o paciente pediu, se foi ele que levou ao combo). */
+  const iniciaCombo = async (vehicle: Servico, primeiroSv?: Servico): Promise<Result | undefined> => {
+    const pacote = vehicle.pacote;
+    if (!pacote || !fonte.etapaDoCombo) return undefined;
+    const etapas: EtapaCombo[] = pacote.etapas.map((ids) => ({ itens: ids.map((id) => pacote.itens.find((i) => i.id === id)).filter((x): x is ItemDeCombo => Boolean(x)), estado: 'pendente' as const })).filter((e) => e.itens.length > 0);
+    if (primeiroSv) {
+      const chave = (x: string) => [...new Set(norm(x).split(/[^a-z0-9]+/).filter((w) => w.length > 2))].sort().join(' ');
+      const k = etapas.findIndex((e) => e.itens.some((i) => i.id === primeiroSv.id || chave(i.nome) === chave(primeiroSv.nomeBruto ?? primeiroSv.nome)));
+      if (k > 0) etapas.unshift(...etapas.splice(k, 1));
+    }
+    s.combo = { id: pacote.id, rotulo: pacote.rotulo, total: pacote.total, economia: pacote.economia, temRetorno: pacote.temRetorno, etapas, atual: 0, tent: 0, feitos: [] };
+    for (let k = 0; k < etapas.length; k++) {
+      if (!(await abrirEtapa(k, true))) continue;
+      if (vehicle.precoTexto) partes.push(vehicle.precoTexto);
+      if (vehicle.detalhe) partes.push(`\n${vehicle.detalhe}`);
+      const unica = etapas.filter((e) => e.estado === 'pendente').length === 1;
+      partes.push(`\n${unica ? (etapas[k].itens.length > 1 ? 'Os exames do combo ficam todos no mesmo dia.' : `É um agendamento só: ${nomeEtapa(etapas[k])}.`) : `Vamos agendar um item de cada vez, começando por ${nomeEtapa(etapas[k])}.`}\n`);
+      return undefined;
+    }
+    s.combo = undefined; s.servico = undefined;
+    return out(comAbertura(`Poxa, no momento não tenho vaga aberta pra o combo ${pacote.rotulo}. Vou chamar alguém da equipe pra conferir e te retornar.`), { motivo: `Sem vagas abertas para o combo ${pacote.rotulo}.` });
+  };
+  /** O paciente citou outra etapa ainda pendente ("a consulta primeiro", "o ultrassom")? Devolve a posição dela. */
+  const etapaCitada = (tt: string, c: ComboAndamento): number | undefined => {
+    const GENERICAS = new Set(['consulta', 'exame', 'exames', 'teste', 'completo', 'total', 'geral']);
+    const palavras = new Set(tt.split(/[^a-z0-9]+/).filter(Boolean));
+    const outras = pendentesDoCombo(c).filter((x) => x.i !== c.atual);
+    for (const x of outras) {
+      const dela = [...new Set(x.e.itens.flatMap((i) => norm(i.curto).split(/[^a-z0-9]+/)).filter((w) => w.length >= 4 && !GENERICAS.has(w)))];
+      if (dela.some((w) => palavras.has(w) || [...palavras].some((k) => k.length >= 5 && w.startsWith(k)))) return x.i;
+    }
+    if (/\bconsulta\b/.test(tt)) { const cs = outras.filter((x) => x.e.itens.some((i) => /^consulta\b/.test(norm(i.nome)))); if (cs.length === 1) return cs[0].i; }
+    if (/\b(laborat\w*|coleta|sangue)\b/.test(tt)) { const ls = outras.filter((x) => x.e.itens.some((i) => /laborat/i.test(i.categoria ?? ''))); if (ls.length === 1) return ls[0].i; }
+    return undefined;
+  };
   /**
    * Serviço novo ou trocado: refaz unidade, dia e pagamento. O paciente (CPF, cadastro) é o mesmo e fica. Se ainda não havia serviço
    * (`primeiraVez`), o que ele adiantou (dia, período, "o mais rápido") fica para valer no serviço que acabou de ser entendido.
@@ -750,7 +924,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     return out(`${nome ? `${nome}, pelo` : 'Pelo'} que você descreveu, isso precisa de avaliação imediata. Por favor, procure agora o pronto-socorro mais próximo ou ligue 192. A Clinex faz atendimento agendado e não é o lugar certo para uma urgência. Fico à disposição depois, tá bem?`, { motivo: 'PRIORIDADE: urgente. Possível emergência clínica relatada pelo paciente.', urgente: true });
   }
   if (HUMANO.test(t)) {
-    return out(comAbertura('Claro! Vou chamar alguém da equipe pra te ajudar. Só um instante.'), { motivo: 'Paciente pediu atendimento humano.' });
+    return out(comAbertura('Claro! Vou chamar alguém da equipe pra te ajudar. Só um instante.'), { motivo: `Paciente pediu atendimento humano.${s.combo ? ` ${notaCombo()}.` : ''}` });
   }
 
   // 1a) "já tá agendado?" depois de um agendamento confirmado: responde com o que foi confirmado, em vez de tratar como pedido novo
@@ -779,7 +953,10 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
       });
     };
     if (DUP_MANTER.test(t) && !DUP_NOVO.test(t) && !DUP_REMARCAR.test(t)) {
-      s.dup = undefined; s.fim = true;
+      s.dup = undefined;
+      // combo: o que o paciente já tinha marcado conta como feito; ela segue para a próxima etapa
+      if (s.combo) { s.fim = false; s.combo.etapas[s.combo.atual].estado = 'ja-tinha'; return seguirCombo('Combinado, esse que já está marcado fica como está.'); }
+      s.fim = true;
       return out('Combinado, fica mantido o que já está marcado. Posso te ajudar com mais alguma coisa?');
     }
     if (DUP_NOVO.test(t)) {
@@ -837,7 +1014,6 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     if (d && 'servico' in d && ia.sintoma) d = { servico: { ...d.servico, viaSintoma: true } };
     return d;
   };
-  let mudouServico = false;
   const aplicar = (d: Awaited<ReturnType<Fonte['descobrir']>>): Result | undefined => {
     if (!d) return undefined;
     if ('semAgenda' in d) return out(comAbertura(`Poxa, no momento não tenho vaga aberta pra ${d.semAgenda}. Vou chamar alguém da equipe pra conferir e te retornar.`), { motivo: `Sem vagas abertas na agenda para ${d.semAgenda}.` });
@@ -877,10 +1053,43 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     }
     return undefined;
   };
+  // 1f) desistiu do combo ("sem combo", "só a consulta"): antes de agendar qualquer etapa, volta ao começo; com etapas já agendadas, fecha o combo
+  if (s.combo && !s.combo.perguntando && COMBO_DESISTIR.test(t)) {
+    if (s.combo.feitos.length) return finalizaCombo();
+    s.combo = undefined; s.servico = undefined; s.opcoes = undefined; reiniciaDepoisDoServico();
+    return out(comAbertura('Sem problema, deixamos o combo de lado. Qual consulta ou exame você precisa?'));
+  }
+  // a mensagem não responde à lista de combos sugerida (é outro pedido, outro serviço...): a sugestão cai e a mensagem segue o fluxo normal
+  if (s.ofertaCombo) {
+    const resp = escolherOferta(t, s.ofertaCombo.opcoes);
+    if (!resp.escolha && resp.duvida.length === 0 && !faq && !SIM.test(t) && !NAO.test(t) && !COMBO_RECUSA.test(t) && !COMBO_DUVIDA.test(t)) s.ofertaCombo = undefined;
+  }
+
+  // 1e) combo: ela perguntou se o paciente quer agendar a próxima etapa agora. "Sim" (ou já dizendo unidade, dia ou período) segue com a etapa; "depois" fecha o
+  // combo com o que já foi agendado; "essa não" pula a etapa; citar outra etapa ("a consulta primeiro") troca a ordem.
+  if (s.combo?.perguntando) {
+    const c = s.combo;
+    if (faq && !SIM.test(t)) return dizer(perguntaProxima(c)); // dúvida: a resposta dela vem antes (prefixo) e a pergunta continua valendo
+    if (COMBO_PULAR.test(t)) { c.etapas[c.atual].estado = 'pulada'; return seguirCombo('Sem problema, essa a gente deixa de fora.'); }
+    if (COMBO_PARAR.test(t)) return finalizaCombo();
+    const alvo = etapaCitada(t, c);
+    const positivo = SIM.test(t) || /\b(quero|vamos|bora|pode|agora)\b/.test(t);
+    if (alvo === undefined && !positivo && (NAO.test(t) || /^(depois|mais tarde)[\s!.,]*$/.test(t))) return finalizaCombo();
+    const nomesUnG = await fonte.nomesUnidades();
+    const temInfo = Boolean(lerData(t, ctx) || lerTurno(t) || lerIntencao(t, ctx) || nomesUnG.some((u) => t.includes(norm(u))));
+    if (alvo === undefined && !positivo && !temInfo) {
+      c.tent += 1;
+      if (c.tent >= 3) return finalizaCombo();
+      return dizer(perguntaProxima(c));
+    }
+    if (alvo !== undefined && alvo !== c.atual) { await abrirEtapa(alvo); partes.push(`Beleza, vamos de ${nomeEtapa(c.etapas[alvo])} agora.`); }
+    c.perguntando = false; c.tent = 0;
+  }
+
   // 2b) mudou de ideia antes de informar o CPF: outro serviço, outra unidade ou outro dia/horário. Ajusta e segue, sem recomeçar.
   if (s.servico && s.slot && !s.pagFinal) {
     let trocou = false;
-    if (RAIZES.some((x) => x.re.test(t)) || PEDE_PESSOA.test(t)) {
+    if (!s.combo && (RAIZES.some((x) => x.re.test(t)) || PEDE_PESSOA.test(t))) {
       const d = await fonte.descobrir(tBusca, false);
       // outro serviço, ou o mesmo com a médica/o médico que ele pediu pelo nome
       if (d && 'servico' in d && (d.servico.id !== s.servico.id || (d.servico.profissional && d.servico.profissional.id !== s.servico.profissional?.id))) {
@@ -921,7 +1130,11 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
         }
       }
       if (escolhida) { const r = aplicar(await fonte.resolver(escolhida.id)); if (r) return r; }
-    } else {
+    } else if (s.combo && !s.ofertaCombo) {
+      // dentro do combo não se procura outro serviço: só vale o paciente pedir outra etapa do combo ("começa pela consulta")
+      const alvo = etapaCitada(t, s.combo);
+      if (alvo !== undefined && !SIM.test(t) && await abrirEtapa(alvo, true)) partes.push(`Beleza, vamos de ${nomeEtapa(s.combo.etapas[alvo])} agora.`);
+    } else if (!s.ofertaCombo) {
       // dúvida ("funciona sábado?", "qual o horário de atendimento?"): sem busca solta por palavras, para não "achar" um serviço sem querer
       const soSaudacao = SO_CUMPRIMENTO.test(t) && !/\bteste\b/.test(t); // "oi", "bom dia": não procura serviço; "teste" pode ser o começo de "teste ergométrico"
       // o serviço já foi entendido mas ainda não confirmado, e ele diz outra coisa ("e a transvaginal?", "na verdade quero ergo"): é outro pedido
@@ -940,6 +1153,9 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
       if (r) return r;
     }
   }
+
+  // 2c) o paciente escolheu um combo: ele vira etapas (a primeira passa a ser o serviço da conversa)
+  if (s.servico?.pacote && !s.combo) { const r = await iniciaCombo(s.servico); if (r) return r; }
 
   // 3) sem serviço: recepção
   if (!s.servico) {
@@ -977,7 +1193,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
       ? 'Ainda não consegui entender o que você precisa. Pode me dizer a especialidade (cardiologia, dermatologia, ginecologia, ultrassom...) o nome do exame ou o nome do médico? Se preferir falar com a equipe é só me pedir.'
       : 'Hmm não peguei qual é o serviço. Me diz a especialidade ou o exame? Pode ser o nome do médico também.'));
   }
-  const sv = s.servico;
+  let sv = s.servico; // let: o serviço vira a primeira etapa quando o paciente escolhe um combo sugerido
 
   // 4) sugere o serviço e espera a confirmação do paciente
   if (!s.servicoConfirmado) {
@@ -1005,6 +1221,37 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
         : sv.viaSintoma ? `Pelo que você contou, o serviço indicado é ${sv.frase}.${seguranca} É isso que você precisa?` : pick([`Ah, então é ${sv.frase}, né?`, `Entendi, você quer ${sv.frase}, é isso?`], n);
       return dizer(pergunta);
     }
+  }
+
+  // 4b) o serviço faz parte de combos que saem mais em conta: ela sugere (uma vez só, mostrando quanto o paciente economiza) e trata a resposta
+  const soOServico = sv.tipo === 'consulta' ? 'a consulta' : 'o exame';
+  const textoOferta = (lista: OfertaCombo[], intro = `${sv.precoTexto ? `${sv.precoTexto} ` : ''}Tenho combos que incluem ${sv.frase} e saem mais em conta:`) =>
+    `${intro}\n${lista.map((o, i) => `${i + 1}. ${o.texto}`).join('\n')}\nQuer agendar algum desses combos ou só ${soOServico}?`;
+  if (s.ofertaCombo) {
+    const of = s.ofertaCombo;
+    const { escolha: escolhida, duvida } = escolherOferta(t, of.opcoes);
+    const escolha = escolhida ?? (SIM.test(t) && of.opcoes.length === 1 ? of.opcoes[0] : undefined);
+    if (escolha) {
+      s.ofertaCombo = undefined;
+      const d = await fonte.resolver(`combo:${escolha.id}`);
+      if (d && 'servico' in d && d.servico.pacote) { const r = await iniciaCombo(d.servico, sv); if (r) return r; sv = s.servico ?? sv; }
+      // não deu para abrir o combo: segue com o serviço que ele pediu
+    } else if (duvida.length > 1) {
+      return dizer(`Esse combo tem mais de uma versão. Qual você prefere?\n${duvida.map((o) => `${of.opcoes.indexOf(o) + 1}. ${o.texto}`).join('\n')}`);
+    } else if (faq || COMBO_DUVIDA.test(t)) {
+      of.vezes += 1;
+      if (of.vezes <= 3) return dizer(textoOferta(of.opcoes, 'Os combos que incluem esse serviço são:'));
+      s.ofertaCombo = undefined;
+    } else if (SIM.test(t)) {
+      return dizer(`Qual combo você prefere? Pode ser o número, ou me diz que quer só ${soOServico}.`);
+    } else {
+      s.ofertaCombo = undefined; // recusou ou seguiu com outro assunto (unidade, dia...): continua só com o serviço, sem insistir
+      if (COMBO_RECUSA.test(t) || NAO.test(t)) partes.push(`Sem problema, vamos só com ${sv.frase}.`);
+    }
+  } else if (!s.comboOferecido && !s.combo && fonte.combosComServico && !sv.viaSintoma && !sv.profissional && !sv.pacote && !sv.combo && !/\bretorno\b/.test(norm(sv.nome))) {
+    s.comboOferecido = true;
+    const ofertas = await fonte.combosComServico(sv).catch(() => [] as OfertaCombo[]);
+    if (ofertas.length) { s.ofertaCombo = { opcoes: ofertas, vezes: 1 }; return dizer(textoOferta(ofertas)); }
   }
 
   // 5) a partir daqui o serviço está confirmado; extrai unidade, dia e período citados
@@ -1229,7 +1476,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
         s.lista = listaAnterior;
         return dizer(`Não peguei qual horário você quer. Pode ser o número, o dia ou "o mais rápido"?\n${numerada(listaAnterior, comMedico, h.ymd)}`);
       }
-      const alt = await alternativas(h.ymd, s.turno);
+      const alt = await alternativas(s.desde && s.desde > h.ymd ? s.desde : h.ymd, s.turno);
       if (alt.length === 0) return out([...partes, 'No momento não vejo vagas abertas. Vou chamar alguém da equipe pra conferir e te retornar.'].join('\n'), { motivo: `Sem vagas para ${sv.nome} no ${un.nome}.` });
       s.lista = alt;
       const dica = await dicaOutraUnidade(alt); // sugestão: a outra unidade tem vaga mais cedo (mensagem separada, antes da pergunta)
@@ -1239,16 +1486,17 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
   const slot = s.slot!;
   await prepararGeneros([slot.profissional]);
   // para a equipe (motivo da transferência): nome completo e data com mês
-  const resumoVaga = `${sv.frase} no ${un.nome}, ${fmtData(slot.ymd)}, ${periodoTxt(slot.turno)}, a partir das ${hora(slot.inicio)}, por ordem de chegada${slot.profissional ? `, com ${slot.profissional}` : ''}`;
+  const resumoVaga = `${sv.frase} no ${un.nome}, ${fmtData(slot.ymd)}, ${periodoTxt(slot.turno)}, a partir das ${hora(slot.inicio)}, por ordem de chegada${slot.profissional ? `, com ${slot.profissional}` : ''}${s.combo ? `. ${notaCombo()}` : ''}`;
   // para o paciente: jeito de falar, com Dr./Dra.
   const resumoFalado = `${sv.frase} no ${un.nome} ${diaResumo(slot.ymd, h.ymd)} ${periodoTxt(slot.turno)} a partir das ${hora(slot.inicio)} por ordem de chegada${slot.profissional && !sv.profissional ? ` com ${exibir(slot.profissional, { artigo: true })}` : ''}`;
 
   // 7c) forma de pagamento (DEPOIS dos dados): ela pergunta como prefere pagar; pix manda a chave e espera o comprovante, link de crédito vai para o time, recepção segue
   const valorPix = un.precoPix;
+  const valorDe = s.combo ? 'o valor do combo' : 'o valor'; // dentro do combo o pix cobre o combo inteiro
   let induziuPix = false;
   const pixMsg = () => `${induziuPix
-    ? `Pra agilizar o seu atendimento na recepção, o melhor é ${MARCA_PAGAMENTO} por pix${valorPix ? `, o valor é ${reais(valorPix)}` : ''}:`
-    : `Show! A chave pix é essa${valorPix ? `, o valor é ${reais(valorPix)}` : ''}:`}\n\n${MARCA_PIX} ${env.pixKey}\n\nQuando pagar, me manda o comprovante aqui que eu já sigo com o seu agendamento, tá?${induziuPix ? ' Se preferir pagar na recepção ou por link de crédito, é só me falar.' : ''}`;
+    ? `Pra agilizar o seu atendimento na recepção, o melhor é ${MARCA_PAGAMENTO} por pix${valorPix ? `, ${valorDe} é ${reais(valorPix)}` : ''}:`
+    : `Show! A chave pix é essa${valorPix ? `, ${valorDe} é ${reais(valorPix)}` : ''}:`}\n\n${MARCA_PIX} ${env.pixKey}\n\nQuando pagar, me manda o comprovante aqui que eu já sigo com o seu agendamento, tá?${induziuPix ? ' Se preferir pagar na recepção ou por link de crédito, é só me falar.' : ''}`;
   // link de pagamento: a equipe assume (envia o link e conclui). A Amanda não retoma sozinha depois.
   const deLink = () => out('Combinado! Vou passar pra equipe te enviar o link de pagamento e concluir o agendamento. Já deixei tudo anotado. Só um instante.', { duro: true, motivo: `Paciente quer pagar por link de crédito: enviar o link e concluir o agendamento. Vaga: ${resumoVaga}. ${dadosParaEquipe()} Agendamento AINDA NÃO feito.` });
   // 7b) dados do paciente ANTES do pagamento: nome completo, nascimento, telefone e CPF, em qualquer ordem, numa mensagem só ou em várias.
@@ -1325,7 +1573,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
       if (primeiraVezNoSlot) dizResumo(); // dados já completos na mesma mensagem do horário: mostra o que ficou combinado
       // ainda não disse: pergunta como prefere pagar (o pix só sai se ele escolher pix)
       if (!s.pagamento) return dizer(valorPix
-        ? `Como você prefere pagar? Dá pra ${MARCA_PAGAMENTO} por pix (o valor é ${reais(valorPix)}), que agiliza o seu atendimento na recepção, pagar na recepção, no dia do atendimento, ou por link de crédito.`
+        ? `Como você prefere pagar? Dá pra ${MARCA_PAGAMENTO} por pix (${valorDe} é ${reais(valorPix)}), que agiliza o seu atendimento na recepção, pagar na recepção, no dia do atendimento, ou por link de crédito.`
         : 'Como você prefere pagar: por pix, link de crédito ou na recepção, no dia do atendimento?');
     } else if (!s.pagamento) {
       const f = faq === 'pagto' ? undefined : lerPagamento(t);
@@ -1416,21 +1664,39 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
   s.fim = true;
   const quem = s.paciente ? titulo(s.paciente.nome) : s.cad.nome ?? '';
   if (fonte.tipo === 'clinilink') {
-    const novo = s.paciente ? `Paciente já cadastrado (${titulo(s.paciente.nome)}, id ${s.paciente.id ?? '?'}).` : `CADASTRAR paciente novo: ${s.cad.nome}, nascimento ${s.cad.nascimento ? fmtNasc(s.cad.nascimento) : '?'}, sexo ${s.cad.sexo}, telefone ${s.cad.telefone}, CPF ${s.cpf}.`;
+    const novo = (s.paciente ? `Paciente já cadastrado (${titulo(s.paciente.nome)}, id ${s.paciente.id ?? '?'}).` : `CADASTRAR paciente novo: ${s.cad.nome}, nascimento ${s.cad.nascimento ? fmtNasc(s.cad.nascimento) : '?'}, sexo ${s.cad.sexo}, telefone ${s.cad.telefone}, CPF ${s.cpf}.`);
     const aEquipe = (aviso: string, motivo: string) => out(`${aviso} Vou chamar alguém da equipe pra concluir. Já deixei tudo anotado. Só um instante.`, { motivo, duro: true });
+    /** Uma etapa do combo agendada: guarda o que ficou marcado, avisa o paciente e abre a próxima (ou fecha o combo). */
+    const etapaFeita = async (r: Extract<ResultadoReserva, { ok: true }> | undefined): Promise<Result> => {
+      const c = s.combo!; const e = c.etapas[c.atual];
+      e.estado = 'feita';
+      if (r?.cadastrou) c.cadastrou = true;
+      if (r?.pacienteId && !s.paciente) { s.paciente = { id: r.pacienteId, nome: s.cad.nome ?? '' }; s.pacienteConfirmado = true; } // as próximas etapas usam o cadastro que acabou de ser criado
+      const med = r?.profissional ?? slot.profissional;
+      await prepararGeneros([med]);
+      const hr = r?.hora ?? slot.inicio;
+      const valor = e.itens.every((i) => i.preco) ? Math.round(e.itens.reduce((a, i) => a + (i.preco ?? 0), 0) * 100) / 100 : undefined;
+      c.feitos.push({ rotulo: nomeEtapa(e), frase: sv.frase, nomeBruto: sv.nomeBruto, unidade: un, ymd: slot.ymd, turno: slot.turno, hora: hr, profissionalBruto: r?.profissionalBruto ?? slot.profissionalBruto, linhas: r?.linhas, extra: r?.extra, valor, preparo: sv.preparo });
+      c.unidadePref = un.nome; c.diaPref = slot.ymd;
+      return seguirCombo(`Pronto! Reservei ${sv.frase} no ${un.nome} ${diaResumo(slot.ymd, h.ymd)} ${periodoTxt(slot.turno)} a partir das ${hora(hr)} por ordem de chegada${med && !sv.profissional ? ` com ${exibir(med, { artigo: true })}` : ''}.`);
+    };
 
     if (!ctx.efetivar) { // reprocessamento: nunca grava
       // a resposta que ela deu a esta mensagem foi o aviso de "já tem esse atendimento no dia": o estado segue daqui, sem recomeçar a conversa
-      if (ctx.duplicadoAqui) { s.fim = false; s.dup = { ymd: slot.ymd, unidade: un.nome, servicoId: sv.id, tent: 0 }; }
+      if (ctx.duplicadoAqui) { s.fim = false; s.dup = { ymd: slot.ymd, unidade: un.nome, servicoId: sv.id, tent: 0 }; return out('Beleza, vou concluir a sua reserva. Só um instante.'); }
+      // combo: a etapa foi gravada de verdade quando essa mensagem foi respondida; o estado segue como se tivesse gravado (a resposta daqui não vai ao paciente)
+      if (s.combo) return etapaFeita(undefined);
       return out('Beleza, vou concluir a sua reserva. Só um instante.');
     }
 
     const r = await fonte.reservar!({
       servico: sv, unidade: un, slot, cpf: s.cpf!,
       pacienteId: s.paciente?.id,
-      observacao: ['Agendado pela Amanda (IA) via WhatsApp', s.comprovante?.nota ?? (s.pagamento === 'recepcao' ? 'Pagamento na recepção' : '')].filter(Boolean).join('. '),
+      observacao: [s.combo ? `Combo ${s.combo.rotulo} (etapa ${s.combo.atual + 1} de ${s.combo.etapas.length}: ${nomeEtapa(s.combo.etapas[s.combo.atual])})` : '', 'Agendado pela Amanda (IA) via WhatsApp', s.comprovante?.nota ?? (s.pagamento === 'recepcao' ? 'Pagamento na recepção' : '')].filter(Boolean).join('. '),
       cadastro: s.paciente ? undefined : { nome: s.cad.nome!, nascimento: s.cad.nascimento!, sexo: s.cad.sexo!, telefone: s.cad.telefone! },
+      comboId: s.combo?.id,
     });
+    if (r.ok && s.combo) return etapaFeita(r);
     if (r.ok) {
       const med = r.profissional ?? slot.profissional;
       await prepararGeneros([med]);

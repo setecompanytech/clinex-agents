@@ -6,6 +6,13 @@
 export type Periodo = 'manhã' | 'tarde';
 export type Unidade = { id?: string; nome: string; profissionais?: string[]; precoPix?: number; nomeBruto?: string; endereco?: string; telefone?: string };
 
+/** Um serviço de dentro de um combo (o `preco` já é o preço NO combo; `avulso` é o preço do mesmo serviço fora do combo). */
+export type ItemDeCombo = { id: string; nome: string; curto: string; preco?: number; avulso?: number; categoria?: string };
+/** O combo inteiro: os itens e as ETAPAS em que ele é agendado (um item por etapa; os exames de laboratório juntos numa coleta só). */
+export type ComboInfo = { id: string; nome: string; rotulo: string; total?: number; economia?: number; temRetorno: boolean; itens: ItemDeCombo[]; etapas: string[][] };
+/** Um combo oferecido a quem pediu um serviço que faz parte dele. */
+export type OfertaCombo = { id: string; rotulo: string; total: number; economia: number; texto: string };
+
 export type Servico = {
   id: string;
   nome: string; // nome do cadastro: "Cardiologia", "Consulta Cardiologia"
@@ -18,7 +25,8 @@ export type Servico = {
   nomeBruto?: string; // como o procedimento está cadastrado ("HOLTER 24H"), para a mensagem de confirmação
   preparo?: string; // orientação de preparo/atendimento cadastrada no Clinilink (só se for um texto útil)
   detalhe?: string; // texto a mais depois do resumo das unidades (combo: o que está incluso)
-  combo?: { id: string; nome: string; itens: { id: string; nome: string }[]; ancoraId: string }; // é um COMBO: vários serviços com preço fechado; o horário é o da âncora (a consulta)
+  combo?: { id: string; nome: string; itens: { id: string; nome: string }[]; ancoraId: string }; // uma ETAPA do combo com vários serviços (exames de laboratório): o horário é o da âncora, os outros entram no mesmo dia
+  pacote?: ComboInfo; // o COMBO inteiro, escolhido pelo paciente: o roteiro o transforma em etapas (cada uma vira um serviço normal, agendado em sequência)
 };
 
 export type Descoberta =
@@ -40,9 +48,10 @@ export type PedidoReserva = {
   pacienteId?: string; // paciente já cadastrado
   cadastro?: { nome: string; nascimento: string; sexo: 'feminino' | 'masculino'; telefone: string }; // paciente novo
   observacao?: string; // gravada no agendamento (forma de pagamento, comprovante)
+  comboId?: string; // o serviço faz parte de um combo (o Clinilink liga o agendamento ao combo)
 };
 export type ResultadoReserva =
-  | { ok: true; profissional?: string; profissionalBruto?: string; hora: string; cadastrou: boolean; linhas?: string[]; extra?: string }
+  | { ok: true; profissional?: string; profissionalBruto?: string; hora: string; cadastrou: boolean; pacienteId?: string; linhas?: string[]; extra?: string }
   | { ok: false; codigo: string; motivo: string; incerto?: boolean; cadastrou?: boolean };
 
 export interface Fonte {
@@ -64,6 +73,10 @@ export interface Fonte {
   agendamentoExistente?(sv: Servico, ymd: string, pacienteId?: string): Promise<AgendamentoExistente | null>;
   /** Paciente por CPF (11 dígitos); null se não existir. */
   paciente(cpf: string): Promise<PacienteInfo | null>;
+  /** Só a fonte real: combos que incluem o serviço e saem mais em conta (para sugerir a quem pediu só o serviço). */
+  combosComServico?(sv: Servico): Promise<OfertaCombo[]>;
+  /** Só a fonte real: o serviço de UMA etapa do combo (um item, ou os exames de laboratório juntos), com as unidades que têm agenda. */
+  etapaDoCombo?(combo: { id: string; rotulo: string; total?: number }, itens: ItemDeCombo[]): Promise<Servico | { semAgenda: string }>;
 }
 
 /** Raízes de busca: nome popular OU sintoma -> termo no catálogo. */
@@ -169,3 +182,11 @@ export const fonteSimulada: Fonte = {
   },
   async paciente(cpf) { const n = PACIENTES_SIM[cpf]; return n ? { nome: n } : null; },
 };
+
+/** Como falar de uma etapa do combo: o nome do serviço; vários exames juntos (coleta) viram a lista dos nomes, ou "Exames de laboratório (A, B e mais N)". */
+export function rotuloDaEtapa(itens: ItemDeCombo[]): string {
+  const n = itens.map((i) => i.curto);
+  if (n.length <= 1) return n[0] ?? '';
+  if (n.length <= 3) return `${n.slice(0, -1).join(', ')} e ${n[n.length - 1]}`;
+  return `Exames de laboratório (${n.slice(0, 2).join(', ')} e mais ${n.length - 2})`;
+}
