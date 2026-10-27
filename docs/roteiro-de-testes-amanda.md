@@ -5,7 +5,7 @@ Escrito para: Giovanny, para testar a Amanda no WhatsApp com vários cenários e
 ## Antes de começar
 
 - **Só números autorizados recebem resposta.** De outro número ela fica quieta (isso também é um teste: o fluxo 10).
-- **Ela espera cerca de 30 segundos** depois da sua última mensagem para responder (para você terminar de escrever). Emergência e crise respondem em poucos segundos.
+- **Ela espera cerca de 15 segundos** depois da sua última mensagem para responder (para você terminar de escrever). Emergência e crise respondem em poucos segundos.
 - **Agendamento e cadastro são REAIS.** Se você chegar até o "sim" final, a Amanda grava no Clinilink. Use um paciente de teste e cancele depois no Clinilink (ela não cancela). Para testar sem gravar, pare antes do último "sim" ou responda "não" quando ela perguntar se o paciente é aquele.
 - Os logs de cada resposta ficam em `/painel/logs` (mostra o que o paciente disse, a etapa, o texto do roteiro, se o GPT foi usado e se transferiu).
 - Cada fluxo tem uma lista de cenários: **você manda** → **o que esperar**. Os horários, médicos e preços mudam com a agenda real.
@@ -190,7 +190,7 @@ Faça cada uma em etapas diferentes (antes do serviço, na unidade, nos horário
 - 10.4 Depois do "obrigado" dela, responder "sim, quero marcar outro" → "Que bom! Me conta qual consulta ou exame você quer agendar." e o novo agendamento começa do zero.
 - 10.5 Depois da confirmação, já pedir outro serviço ("quero marcar dermatologia") → começa o novo fluxo sem apresentação de novo.
 - 10.6 Voltar depois de um tempo: "voltei, quero continuar o agendamento" → "Que bom que você voltou! Vamos retomar o seu agendamento. Qual consulta ou exame você precisa?"
-- 10.7 **Mensagens picadas**: mande 3 mensagens seguidas em menos de 30 segundos ("oi", "quero ginecologia", "pra amanhã"). Ela deve responder **uma vez só**, considerando as três. Se você mandar mais uma mensagem **enquanto ela está "digitando"** a resposta, essa resposta não sai (já estaria desatualizada): ela espera mais 30 s e responde uma vez, lendo tudo. Se a mensagem nova vier mais de 30 s depois da anterior, ela responde a anterior primeiro (e depois a nova).
+- 10.7 **Mensagens picadas**: mande 3 mensagens seguidas em menos de 15 segundos ("oi", "quero ginecologia", "pra amanhã"). Ela deve responder **uma vez só**, considerando as três. Se você mandar mais uma mensagem **enquanto ela está "digitando"** a resposta, essa resposta não sai (já estaria desatualizada): ela espera mais 30 s e responde uma vez, lendo tudo. Se a mensagem nova vier mais de 30 s depois da anterior, ela responde a anterior primeiro (e depois a nova).
 - 10.8 Corrigir no meio da frase ("quinta... não, sexta mesmo"): observe qual dia ela entende e me diga (esse caso não tem tratamento próprio).
 - 10.9 Só emoji (👍) no meio do fluxo: observe a reação (não deve travar nem reiniciar).
 - 10.10 Escrever de um número **não autorizado** → nenhuma resposta.
@@ -199,7 +199,7 @@ Faça cada uma em etapas diferentes (antes do serviço, na unidade, nos horário
 - 10.14 **Balões:** quando a resposta tem uma dúvida respondida + a pergunta do fluxo (ex.: "qual o horário de atendimento?" no meio do agendamento), chegam **dois balões** separados, cada um com seu tempo. O pix chega em **três balões** (a chave fica sozinha, fácil de copiar). Só o primeiro balão leva o título "Amanda S. (Clinex):".
 - 10.17 **Atualização do sistema no meio da conversa** (com o estado guardado ativo): se eu atualizar a Amanda enquanto você está numa etapa (ex.: já no pagamento), ela continua da mesma etapa e **não volta** para a escolha do serviço. Peça para eu avisar quando fizer a atualização e continue a mesma conversa.
 - 10.15 Emergência e crise **não** esperam esse tempo: respondem em poucos segundos.
-- 10.16 Demora total: do seu "oi" até a resposta, no primeiro contato do dia, deve ficar perto de 35 a 45 s (30 s de espera + digitação). Se passar de 1 minuto, me avise o horário (o Clinilink pode ter demorado a "acordar").
+- 10.16 Demora total: do seu "oi" até a resposta, no primeiro contato do dia, deve ficar perto de 20 a 30 s (15 s de espera + digitação). Se passar de 1 minuto, me avise o horário (o Clinilink pode ter demorado a "acordar").
 - 10.12 Primeira mensagem com nome do WhatsApp esquisito (emoji, número): ela não usa o nome na saudação ("Oi, boa tarde! Aqui é a Amanda...").
 
 ---

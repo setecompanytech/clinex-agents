@@ -14,7 +14,7 @@ export const env = {
   autoReply: (process.env.AUTO_REPLY ?? 'true') !== 'false',
   // espera antes de responder, para agrupar mensagens picadas do paciente
   // espera depois da mensagem do paciente, para ele terminar de escrever ("quero tal coisa" + "mais isso" viram um pedido só)
-  debounceMs: Number(process.env.DEBOUNCE_MS ?? 30000),
+  debounceMs: Number(process.env.DEBOUNCE_MS ?? 15000),
   // Redis (Upstash, REST) para guardar o estado da conversa entre as mensagens. Vazio = reprocessa a conversa inteira a cada mensagem.
   // A integração da Vercel cria KV_REST_API_URL/KV_REST_API_TOKEN; também aceita os nomes da própria Upstash.
   redisUrl: process.env.UPSTASH_REDIS_REST_URL ?? process.env.KV_REST_API_URL ?? '',

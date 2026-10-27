@@ -247,14 +247,14 @@ export const flow = {
     },
     {
       id: 'espera', kind: 'etapa', step: 4, band: 'p1', x: nx(P1), y: row(3), canFail: true,
-      title: 'Espera 30 segundos e lê o histórico',
+      title: 'Espera 15 segundos e lê o histórico',
       subtitle: 'Junta mensagens picadas e lê a conversa na Inovstar',
       detail: {
         oQueFaz: 'O agente espera o paciente terminar de digitar (muita gente manda várias mensagens curtas) e então lê o histórico da conversa na Inovstar.',
-        regra: 'Espera 30 segundos depois da mensagem do paciente (para ele terminar de escrever: "quero tal coisa" e, logo depois, "mais isso" viram um pedido só) e busca as últimas 30 mensagens do atendimento. Emergência e crise não esperam: respondem em poucos segundos. Se chegar outra mensagem durante a espera, a espera recomeça a partir dela. Não existe banco de dados: o histórico da própria Inovstar é a memória do agente. Áudios entram como texto: a Inovstar só transcreve sob demanda, então a Amanda pede a transcrição de cada áudio da conversa (síncrono, leva alguns segundos). Áudio que não pôde ser transcrito, imagem ou arquivo sem texto não contam como "não entendi": ela pede para o paciente escrever ou mandar de novo. Frases faladas são entendidas ("o terceiro horário", "10 de maio de 1990", "meu nome é Joana Silva", CPF falado com espaços).',
+        regra: 'Espera 15 segundos depois da mensagem do paciente (para ele terminar de escrever: "quero tal coisa" e, logo depois, "mais isso" viram um pedido só) e busca as últimas 30 mensagens do atendimento. Emergência e crise não esperam: respondem em poucos segundos. Se chegar outra mensagem durante a espera, a espera recomeça a partir dela. Não existe banco de dados: o histórico da própria Inovstar é a memória do agente. Áudios entram como texto: a Inovstar só transcreve sob demanda, então a Amanda pede a transcrição de cada áudio da conversa (síncrono, leva alguns segundos). Áudio que não pôde ser transcrito, imagem ou arquivo sem texto não contam como "não entendi": ela pede para o paciente escrever ou mandar de novo. Frases faladas são entendidas ("o terceiro horário", "10 de maio de 1990", "meu nome é Joana Silva", CPF falado com espaços).',
         exemplo: 'O paciente manda "oi", "tudo bem?" e "preciso de cardiologista" em 3 segundos. O agente espera, lê as três e responde uma vez só.',
         seFalhar: 'Se a Inovstar não entregar o histórico, o agente não consegue seguir e nada é enviado; o erro fica no log e a equipe vê a conversa normalmente.',
-        tecnico: 'sleep(env.debounceMs) e getHistory() em src/agents/receptivo/agent.ts e src/integrations/inovstar.ts (GET do histórico do atendimento). Variável DEBOUNCE_MS (padrão 30000).',
+        tecnico: 'sleep(env.debounceMs) e getHistory() em src/agents/receptivo/agent.ts e src/integrations/inovstar.ts (GET do histórico do atendimento). Variável DEBOUNCE_MS (padrão 15000).',
       },
     },
     {
@@ -836,7 +836,7 @@ export const flow = {
     { nome: 'HUMAN_SECTOR_ID', efeito: 'Setor humano (Principal) para onde o agente transfere. Vazio = só avisa o paciente, sem mover a conversa.' },
     { nome: 'AUTO_REPLY', efeito: 'false = modo sombra (só registra no log, não envia nem transfere). Padrão: ligado.' },
     { nome: 'REPLY_DELAY_MIN_MS / REPLY_DELAY_MAX_MS', efeito: 'A resposta só sai entre 5 e 10 segundos depois da mensagem do paciente, para parecer digitada (o tempo já gasto conta). Mensagens de emergência e crise não esperam. Padrão: 5000 e 10000; 0 desliga.' },
-    { nome: 'DEBOUNCE_MS', efeito: 'Quanto o agente espera depois da mensagem do paciente, para agrupar mensagens seguidas. Padrão: 30000 (30 segundos). Emergência e crise respondem em poucos segundos.' },
+    { nome: 'DEBOUNCE_MS', efeito: 'Quanto o agente espera depois da mensagem do paciente, para agrupar mensagens seguidas. Padrão: 15000 (15 segundos). Emergência e crise respondem em poucos segundos.' },
     { nome: 'AGENT_TITLE', efeito: 'Título em negrito que abre toda mensagem enviada pelo agente. Vazio = sem título.' },
     { nome: 'CLINIC_TZ', efeito: 'Fuso usado na saudação e nas datas. Padrão: America/Sao_Paulo (mesma hora de Belém).' },
     { nome: 'CLINILINK_API_KEY', efeito: 'Chave do Clinilink para CONSULTAR (agenda, preços, pacientes); perfil só de leitura basta. Sem ela, o agente usa o catálogo simulado de exemplo.' },

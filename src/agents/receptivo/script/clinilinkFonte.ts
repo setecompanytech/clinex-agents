@@ -704,7 +704,7 @@ export const fonteClinilink: Fonte = {
     }
     return null;
   },
-  /** Pré-carrega unidades e catálogo (o Clinilink pode demorar para "acordar"): a espera de 30 s do agente já cobre isso. */
+  /** Pré-carrega unidades e catálogo (o Clinilink pode demorar para "acordar"): a espera de 15 s do agente já cobre boa parte disso. */
   async aquecer() { await Promise.allSettled([listClinicas().then(() => catalogo()), demandaPorProcedimento()]); },
   async nomesUnidades() { return (await listClinicas()).map(nomeUnidade); },
 
