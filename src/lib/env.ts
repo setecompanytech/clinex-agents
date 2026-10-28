@@ -40,6 +40,8 @@ export const env = {
   // Humanizador de mensagens (GPT). Sem chave => textos do roteiro como estão.
   openaiKey: process.env.OPENAI_API_KEY ?? '',
   openaiModel: process.env.OPENAI_MODEL ?? 'gpt-4o-mini',
+  // modelo que LÊ imagens difíceis (pedido médico escrito à mão): mais capaz que o de texto
+  openaiVisionModel: process.env.OPENAI_VISION_MODEL ?? 'gpt-4o',
   // chave pix para o pagamento antecipado e nome que deve aparecer como recebedor no comprovante
   pixKey: process.env.PIX_KEY ?? 'clinicaclinex@gmail.com',
   // horário de atendimento da equipe, como a Amanda informa (o mesmo da resposta automática da clínica)

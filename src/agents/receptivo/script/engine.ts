@@ -1,9 +1,10 @@
 import type { Comprovante } from '../../../lib/comprovante.js';
+import type { PedidoLido } from '../../../lib/pedidoMedico.js';
 import { env } from '../../../lib/env.js';
 import { exibir, exibirLista, generoConfirmado, prepararGeneros } from '../../../lib/genero.js';
 import type { PedidoInterpretado } from '../../../lib/interpretarPedido.js';
 import type { MensagemConversa, RespostaContextual } from '../../../lib/contexto.js';
-import { RAIZES, rotuloDaEtapa, type AgendamentoExistente, type ComboInfo, type Fonte, type ItemDeCombo, type OfertaCombo, type PacienteInfo, type Periodo, type ResultadoReserva, type Servico, type Slot, type Unidade } from './catalog.js';
+import { RAIZES, rotuloDaEtapa, type AgendamentoExistente, type ComboInfo, type EscolherExames, type Fonte, type ItemDeCombo, type ItemExame, type OfertaCombo, type Orcamento, type PacienteInfo, type Periodo, type ResultadoReserva, type Servico, type Slot, type Unidade } from './catalog.js';
 
 /**
  * Motor de conversa por roteiro. O estado é recalculado a cada mensagem reprocessando as mensagens do
@@ -78,6 +79,8 @@ export type State = {
   ofertaCombo?: { opcoes: OfertaCombo[]; vezes: number }; // ela sugeriu combos que incluem o serviço e espera a resposta
   comboOferecido?: boolean; // a sugestão de combos já foi feita nesta jornada (uma vez só)
   desde?: string; // a lista de horários da etapa seguinte do combo começa nesse dia (o dia da etapa anterior)
+  orcamento?: Orcamento; // orçamento de exames em andamento (pedido médico em foto ou os nomes dos exames)
+  examesDoPedido?: boolean; // o serviço da conversa são os exames de um orçamento aprovado (não volta ao orçamento)
 };
 
 /**
@@ -103,6 +106,10 @@ export type Ctx = {
   /** Reprocessamento: a resposta que a Amanda deu a ESTA mensagem foi o aviso de "já tem esse atendimento no dia" (o agente deduz do histórico). */
   duplicadoAqui?: boolean;
   duplicadoNosTurnos?: number[]; // índices dos turnos cuja resposta foi esse aviso
+  /** Lê a foto de um pedido médico (id da mensagem): os nomes dos exames pedidos. */
+  lerPedido?: (idMensagem: string) => Promise<PedidoLido | null>;
+  /** IA que casa os nomes do pedido com os exames do catálogo (sempre validada). */
+  casarExames?: EscolherExames;
   inicioJornada?: Date; // quando o paciente começou este pedido (primeira mensagem da jornada): comprovante feito antes disso é de outro atendimento
 };
 /** `duro`: depois desta transferência a Amanda NÃO retoma sozinha (a equipe assume), como no pedido de atendente humano. */
@@ -120,6 +127,7 @@ export function etapa(s: State, handoff?: Handoff): string {
   if (handoff?.urgente) return 'segurança (emergência/crise)';
   if (handoff) return 'transferida para a equipe';
   if (s.fim) return 'concluída';
+  if (s.orcamento) return s.orcamento.fase === 'coletando' ? 'orçamento: esperando o pedido médico' : s.orcamento.fase === 'confirmando' ? 'orçamento: confirmando os exames' : 'orçamento: oferecendo a coleta';
   if (s.ofertaCombo) return 'escolhendo entre os combos sugeridos';
   if (s.combo?.perguntando) return 'combo: decidindo a próxima etapa';
   if (!s.servico) return s.opcoes ? 'escolhendo entre opções de serviço' : 'recepção / entendendo o serviço';
@@ -147,7 +155,7 @@ export const MARCAS_FIM = [MARCA_FIM, MARCA_AGENDADO, MARCA_MAIS, MARCA_ADEUS];
 /** Mensagens com texto exato (valores, chave, marcas): não passam pelo GPT. */
 export const SEM_GPT = [MARCA_AGENDADO, MARCA_MAIS, MARCA_ADEUS, MARCA_PIX, MARCA_PAGAMENTO];
 /** Textos que o Giovanny aprovou palavra por palavra (unidades, horários, "o mais rápido", comprovante, aviso de segurança do sintoma): também não passam pelo GPT. */
-SEM_GPT.push('combo', 'Combo', MARCA_DUP, 'Está sim, confirmado!', 'Tenho sim!', 'Consegui estes aqui', 'Esses são os horários que tenho', 'Guamá: Endereço:', 'Travessa Coronel Luís Bentes com a Rua do Úna', 'Claro! Tenho estes combos', 'Claro! Tenho combos de', ' inclui: ', 'me manda por favor os dados do paciente', 'Como você prefere pagar', 'O mais rápido que tenho é', 'O último que tenho é', 'Não to conseguindo ler esse comprovante', 'Recebi o seu comprovante', 'Pelo que você contou');
+SEM_GPT.push('encontrei estes exames', 'Anotei estes exames', 'Total: R$', 'Total no ', 'total dos exames', 'foto do pedido médico', 'não entraram na soma', 'não entrou na soma', 'combo', 'Combo', MARCA_DUP, 'Está sim, confirmado!', 'Tenho sim!', 'Consegui estes aqui', 'Esses são os horários que tenho', 'Guamá: Endereço:', 'Travessa Coronel Luís Bentes com a Rua do Úna', 'Claro! Tenho estes combos', 'Claro! Tenho combos de', ' inclui: ', 'me manda por favor os dados do paciente', 'Como você prefere pagar', 'O mais rápido que tenho é', 'O último que tenho é', 'Não to conseguindo ler esse comprovante', 'Recebi o seu comprovante', 'Pelo que você contou');
 
 export const novoEstado = (): State => ({
   saudou: false, confirmPerguntado: false, servicoConfirmado: false, unidadesInformadas: false,
@@ -518,6 +526,44 @@ const DUP_REMARCAR = /\b(remarc\w*|reagend\w*|trocar|troca|alterar|altera|adiar|
 const DUP_DIA = /\b(outro dia|outra data|outro horario|mudar (o )?dia|mudar a data|dia diferente|trocar o dia)\b/;
 const DUP_CONFIRMA = /\b(ja|entao)\b.*\b(agendad\w*|marcad\w*)\b|\b(esta|ta|ficou) (agendad|marcad)\w*/;
 
+// ---------- orçamento de exames ----------
+/** Não tem o pedido médico ("não tenho", "esqueci o pedido"). */
+const ORC_SEM_PEDIDO = /\b(nao tenho( o)?( pedido)?|sem (o )?pedido|perdi( o pedido)?|esqueci( o pedido)?|nao (to|estou) com (o )?pedido|nao tenho aqui)\b/;
+/** Tirar exames da lista ("tira a glicose", "sem o colesterol", "não quero o 2"). */
+const ORC_REMOVER = /\b(tira\w*|retira\w*|remove\w*|exclui\w*|desconsidera\w*|sem|nao (quero|vou fazer|preciso)( d[oa]s?)?)\b/;
+/** Desistir do orçamento. */
+const ORC_DESISTIR = /\b(cancela\w*|deixa (pra la|assim|quieto)|esquece|nao quero (mais )?(o )?(orcamento|fazer))\b/;
+/** Falar de combo no meio do orçamento: a conversa segue pelo fluxo de combos. */
+const ORC_COMBO = /\bcombo\b|\bcheck ?-?up\b/;
+/** Palavras que sozinhas NÃO são nome de exame ("são vários", "segue o pedido", "esses mesmos"). */
+const SO_CONVERSA_EXAMES = new Set(('sao varios varias alguns algumas uns umas todos todas esses esse essas essa mesmo mesma isso estes estas aqui segue seguem anexo foto pedido medico medica exames exame quero queria preciso fazer mais tambem dois duas tres alguma coisa tudo '
+  + 'ola bom dia tarde noite obrigado obrigada favor pode ser claro sim nao ok certo ta tudo bem sei lembro nome nomes escrever mandar manda mando enviar envio enviei lista tenho vou ver depois agora hoje amanha laboratorio laboratoriais sangue coleta orcamento valor valores quanto custa total soma').split(' '));
+/** Os nomes de exames escritos numa mensagem: um por linha, por vírgula, ponto e vírgula, marcador ou "+". ("hemograma e glicemia" fica junto: quem acha o exame separa.) */
+export function extrairNomesExames(texto: string): string[] {
+  const t = texto.replace(TOKEN_MIDIA, ' ').replace(/^\s*(oi|ola|bom dia|boa tarde|boa noite)[,!.\s]+/i, '')
+    .replace(/^\s*(quero|queria|preciso|gostaria)\s+(de\s+)?(fazer|realizar)?\s*/i, '').replace(/^\s*(os exames\s+)?(s[aã]o|seguem?|segue|exames?:)\s+/i, '');
+  return t.split(/[\n,;•]+|\s+\+\s+/).map((c) => c.replace(/^(?:\s*(?:e|mais|tamb[eé]m|tbm|al[eé]m disso|ainda|falta|faltou|quero|queria|preciso|fazer|fazer o|o|a|os|as|um|uma)\b[\s,]*)+/i, '').trim()).filter((c) => norm(c).split(/[^a-z0-9]+/).some((w) => (w.length >= 3 || /\d/.test(w)) && !SO_CONVERSA_EXAMES.has(w) && !PALAVRAS_DE_CONVERSA.has(w)));
+}
+const arred2 = (n: number) => Math.round(n * 100) / 100;
+/** O preço de um exame: o mesmo valor nas unidades (um só), ou o de cada unidade. */
+const precoDoItem = (i: ItemExame): string => {
+  const v = Object.entries(i.precos);
+  if (v.length === 0) return 'valor a confirmar com a equipe';
+  if (new Set(v.map(([, p]) => p)).size === 1) return reais(v[0][1]);
+  return v.map(([u, p]) => `${reais(p)} no ${u}`).join(' e ');
+};
+/** A soma dos exames: um total só quando é igual em todas as unidades; senão um por unidade (só das unidades em que todos os exames têm valor). */
+function totaisDoOrcamento(itens: ItemExame[]) {
+  const comPreco = itens.filter((i) => Object.keys(i.precos).length > 0);
+  const semPreco = itens.filter((i) => Object.keys(i.precos).length === 0);
+  const unidades = [...new Set(comPreco.flatMap((i) => Object.keys(i.precos)))];
+  const completas = unidades.filter((u) => comPreco.every((i) => typeof i.precos[u] === 'number'));
+  const porUnidade = completas.map((u) => ({ u, total: arred2(comPreco.reduce((a, i) => a + i.precos[u], 0)) })).filter((x) => x.total > 0);
+  const unico = porUnidade.length > 0 && new Set(porUnidade.map((x) => x.total)).size === 1 && porUnidade.length === unidades.length ? porUnidade[0].total : undefined;
+  const soma = porUnidade.length ? Math.min(...porUnidade.map((x) => x.total)) : undefined;
+  return { semPreco, porUnidade, unico, soma };
+}
+
 // ---------- combo ----------
 /** Depois de agendar uma etapa do combo: o paciente não quer agendar a próxima agora ("depois", "por enquanto", "só isso", "agora não"). */
 const COMBO_PARAR = /\b(deixa(r)? (assim|pra depois|para depois|por hoje|pra outro dia|para outro dia)|fica (assim|pra depois|para depois)|por hoje|so (isso|esse|essa|esses|essas)|por enquanto|agora nao|nao (quero|vou|preciso)|nao (posso|da|consigo) (agora|hoje|mais)|ja (chega|basta|esta bom|ta bom)|outra hora|outro momento|depois (eu )?(vejo|marco|agendo|volto|chamo)|encerr\w+)\b/;
@@ -652,6 +698,7 @@ const marcaDeProgresso = (x: State) => JSON.stringify([
   x.paciente === undefined ? 'u' : x.paciente === null ? 'n' : x.paciente.nome, x.pacienteConfirmado, x.cad, x.dup?.tent, x.dup?.esclareceu,
   x.ofereceuEquipe, x.data, x.turno, x.rapido, x.apartir, x.ate,
   x.combo ? [x.combo.atual, x.combo.perguntando ?? false, x.combo.tent, x.combo.feitos.length, x.combo.etapas.map((e) => e.estado)] : null, x.ofertaCombo ? x.ofertaCombo.vezes : null, x.comboOferecido ?? false,
+  x.orcamento ? [x.orcamento.fase, x.orcamento.itens.length, x.orcamento.naoAchados.length, x.orcamento.tent, x.orcamento.pediuNomes] : null,
 ]);
 
 /** Os fatos VERIFICADOS da conversa (só o que o roteiro já sabe), de onde o leitor de contexto pode tirar a resposta. */
@@ -667,6 +714,7 @@ export function fatosDoEstado(s: State, ref: string, confirmacao?: string): stri
     const c = s.combo;
     L.push(`Combo em andamento: ${c.rotulo}${c.total ? ` (${reais(c.total)}${c.economia ? `, economia de ${reais(c.economia)}` : ''})` : ''}. Já agendado: ${c.feitos.map((f) => `${f.rotulo} em ${dataFalada(f.ymd, ref)}`).join('; ') || 'nada ainda'}. Falta agendar: ${c.etapas.filter((e) => e.estado === 'pendente').map((e) => rotuloDaEtapa(e.itens)).join(', ') || 'nada'}`);
   }
+  if (s.orcamento) L.push(`Orçamento de exames em andamento (${s.orcamento.fase}): ${s.orcamento.itens.map((i) => i.nome).join(', ') || 'nenhum exame ainda'}`);
   if (s.unidade) L.push(`Unidade escolhida: ${s.unidade.nome}`);
   if (s.slot) L.push(`Horário escolhido: ${slotFalado(s.slot, true, ref)}`);
   if (s.pagFinal) L.push(s.pagoPix ? `Pagamento: o comprovante de ${reais(s.pagoPix)} já foi recebido` : 'Pagamento: fica para a recepção, no dia do atendimento');
@@ -715,7 +763,7 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
 // ---------- núcleo ----------
 async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 0): Promise<Result> {
   // depois de uma jornada concluída, uma nova mensagem abre outra jornada (mantém a saudação já feita)
-  const s: State = prev.fim ? { ...novoEstado(), saudou: true } : { ...prev, cad: { ...prev.cad }, combo: prev.combo ? structuredClone(prev.combo) : undefined, ofertaCombo: prev.ofertaCombo ? structuredClone(prev.ofertaCombo) : undefined };
+  const s: State = prev.fim ? { ...novoEstado(), saudou: true } : { ...prev, cad: { ...prev.cad }, combo: prev.combo ? structuredClone(prev.combo) : undefined, ofertaCombo: prev.ofertaCombo ? structuredClone(prev.ofertaCombo) : undefined, orcamento: prev.orcamento ? structuredClone(prev.orcamento) : undefined };
   const base = prev.fim ? s : prev;
   const t = norm(texto.replace(TOKEN_MIDIA, ' '));
   // para achar o serviço, "o mais rápido possível", "a próxima"... saem do texto (senão "rápido" casa com "Teste Rápido de Gravidez")
@@ -912,6 +960,118 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     partes.push('Esses itens não têm um dia em comum na agenda, então a gente agenda um de cada vez.');
     return abrirEtapa(ord[0], primeira);
   };
+  // ---------- orçamento de exames: o paciente manda o pedido médico (foto ou nomes), ela acha os exames no Clinilink, mostra os valores e a soma ----------
+  const PEDIR_PEDIDO = 'Claro! Pra eu te passar o valor certinho, me manda uma foto do pedido médico. Se não tiver o pedido, pode me escrever o nome dos exames, em uma mensagem ou em várias.';
+  const novoOrcamento = (): Orcamento => ({ fase: 'coletando', itens: [], naoAchados: [], origem: 'texto', tent: 0, pediuNomes: false });
+  const dir = (r: Result): Result => ({ ...r, direta: true }); // resposta exata ao que o paciente disse: a camada de contexto não entra
+  const perguntaOrcamento = (o: Orcamento) => (o.fase === 'coletando' ? (o.pediuNomes ? 'Me escreve o nome de cada exame que você precisa, pode ser em várias mensagens. Se tiver o pedido médico, a foto também serve.' : PEDIR_PEDIDO)
+    : o.fase === 'confirmando' ? 'São esses mesmos? Se faltar algum ou tiver algum a mais, é só me avisar.' : 'Quer que eu já agende a coleta desses exames?');
+  /** A lista dos exames com o valor de cada um, a soma, o que não foi achado e a dica de combo (se houver), terminando na pergunta de confirmação. */
+  const textoOrcamento = async (o: Orcamento, intro?: string): Promise<string> => {
+    const t = totaisDoOrcamento(o.itens);
+    const total = t.unico !== undefined ? `Total: ${reais(t.unico)}` : t.porUnidade.map((x) => `Total no ${x.u}: ${reais(x.total)}`).join('\n');
+    const lista = [intro ?? (o.origem === 'foto' ? 'Li o pedido e encontrei estes exames:' : 'Anotei estes exames:'), ...o.itens.map((i) => `• ${i.nome}: ${precoDoItem(i)}`), ...(total ? ['', total] : [])].join('\n');
+    const partesO = [lista];
+    if (t.semPreco.length) partesO.push(`${juntar(t.semPreco.map((i) => i.nome))} ${t.semPreco.length > 1 ? 'estão' : 'está'} sem valor cadastrado, então ${t.semPreco.length > 1 ? 'esses não entraram' : 'esse não entrou'} na soma e a equipe confirma o preço.`);
+    if (o.naoAchados.length || o.ilegivel) partesO.push(`${o.naoAchados.length ? `Não achei no sistema: ${juntar(o.naoAchados)}. ${o.naoAchados.length > 1 ? 'Esses não entraram' : 'Esse não entrou'} na soma e a equipe pode conferir pra você.` : ''}${o.ilegivel ? `${o.naoAchados.length ? ' ' : ''}Tem trecho do pedido que eu não consegui ler.` : ''}`);
+    const dica = t.soma !== undefined && o.itens.length >= 2 ? await fonte.dicaDeCombo?.(o.itens, t.soma).catch(() => undefined) : undefined;
+    if (dica) partesO.push(dica);
+    partesO.push(perguntaOrcamento({ ...o, fase: 'confirmando' }));
+    return partesO.join('\n\n');
+  };
+  /** Casa os nomes com o Clinilink, junta aos exames já anotados e mostra a lista para o paciente confirmar. */
+  const adicionarExames = async (nomes: string[], origem: 'foto' | 'texto', ilegivel = false): Promise<Result> => {
+    const o = s.orcamento!;
+    const r = await fonte.casarExames!(nomes, ctx.casarExames);
+    for (const it of r.itens) if (!o.itens.some((x) => x.id === it.id)) o.itens.push(it);
+    for (const n of r.naoAchados) if (!o.naoAchados.includes(n)) o.naoAchados.push(n);
+    if (origem === 'foto') o.origem = 'foto';
+    o.ilegivel = o.ilegivel || ilegivel;
+    if (o.itens.length === 0) {
+      o.tent += 1;
+      if (origem === 'foto') return out(`Li o pedido, mas não achei ${o.naoAchados.length > 1 ? 'esses exames' : 'esse exame'} aqui no sistema (${juntar(o.naoAchados)}). Vou chamar alguém da equipe pra te ajudar com o orçamento. Já deixei tudo anotado. Só um instante.`, { motivo: `Orçamento de exames: li o pedido do paciente mas nenhum exame foi achado no Clinilink. Exames lidos: ${o.naoAchados.join('; ').slice(0, 400)}. Conferir se a clínica faz e passar o orçamento.` });
+      if (o.tent >= 2) return out('Não consegui achar esses exames aqui no sistema. Vou chamar alguém da equipe pra te ajudar com o orçamento. Já deixei tudo anotado. Só um instante.', { motivo: `Orçamento de exames: nenhum dos exames do paciente foi achado no Clinilink (${o.naoAchados.join('; ').slice(0, 300)}). Conferir o pedido e passar o orçamento.` });
+      return dir(out(`Não achei ${o.naoAchados.length > 1 ? 'esses exames' : 'esse exame'} aqui no sistema (${juntar(o.naoAchados)}). Pode me mandar o nome de outro jeito, ou uma foto mais nítida do pedido?`));
+    }
+    o.tent = 0; o.fase = 'confirmando';
+    return dir(out(await textoOrcamento(o)));
+  };
+  /** Quais exames da lista o paciente citou ("a glicose", "o 2"). */
+  const examesCitados = (tt: string, o: Orcamento): ItemExame[] => {
+    const palavras = new Set(tt.split(/[^a-z0-9]+/).filter(Boolean));
+    const porNumero = [...palavras].filter((w) => /^\d{1,2}$/.test(w)).map((w) => o.itens[Number(w) - 1]).filter(Boolean);
+    const porNome = o.itens.filter((i) => tokensDoNome(i.nome + ' ' + i.pedido).some((w) => palavras.has(w) || [...palavras].some((k) => k.length >= 5 && w.startsWith(k))));
+    return [...new Set([...porNumero, ...porNome])];
+  };
+  const tokensDoNome = (n: string) => [...new Set(norm(n).split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !['dos', 'das', 'com', 'para', 'exame'].includes(w)))];
+  /** O orçamento em andamento: devolve a resposta, ou undefined quando a conversa deve seguir pelo fluxo normal (agendar a coleta, combo). */
+  const rodaOrcamento = async (): Promise<Result | undefined> => {
+    const o = s.orcamento!;
+    // foto do pedido médico
+    if (midia) {
+      const lido = await ctx.lerPedido?.(midia[2]).catch(() => null);
+      if (!lido || lido.tipo === 'ilegivel') {
+        o.tent += 1;
+        if (o.tent >= 3) return out('Não to conseguindo ler as fotos. Vou chamar alguém da equipe pra te ajudar com o orçamento. Já deixei tudo anotado. Só um instante.', { motivo: 'Orçamento de exames: a foto do pedido médico não pôde ser lida (3 tentativas). Ler o pedido e passar o orçamento.' });
+        return dir(dizer('Não consegui ler essa foto. Pode mandar de novo, bem de frente, com boa luz e o pedido inteiro? Se preferir, me escreve o nome dos exames.'));
+      }
+      if (lido.tipo === 'outro') return dir(dizer('Hmm essa imagem não parece ser um pedido de exames. Pode me mandar a foto do pedido médico, ou escrever o nome dos exames?'));
+      return adicionarExames(lido.exames, 'foto', lido.incerto);
+    }
+    if (ORC_DESISTIR.test(t)) { s.orcamento = undefined; s.fim = true; return out(`Combinado, deixamos o orçamento de lado. ${MARCA_MAIS}?`); }
+    if (ORC_COMBO.test(t)) { s.orcamento = undefined; return undefined; } // "quero o check up 10": segue o fluxo de combos
+    if (faq && !SIM.test(t)) return dizer(perguntaOrcamento(o)); // dúvida: a resposta dela vem antes (prefixo) e a pergunta continua valendo
+    const semSim = texto.replace(TOKEN_MIDIA, ' ').replace(/^\s*(sim|isso|pode|ok|certo|esses?( mesmo)?|e)[,.!\s]+(e |mas |tamb[eé]m )?/i, '');
+    const nomes = extrairNomesExames(texto);
+    if (o.fase === 'coletando') {
+      if (ORC_SEM_PEDIDO.test(t) && !o.pediuNomes) { o.pediuNomes = true; return dir(dizer('Sem problema! Se puder, me escreve o nome dos exames que você precisa fazer. Pode mandar tudo numa mensagem ou em várias.')); }
+      if (nomes.length === 0) {
+        o.tent += 1;
+        if (/\b(nao sei|nao lembro|nao tenho (nada|como))\b/.test(t) || o.tent >= 3) return out('Sem problema, vou chamar alguém da equipe pra te ajudar com o orçamento. Já deixei tudo anotado. Só um instante.', { motivo: 'Orçamento de exames: o paciente não tem o pedido médico nem os nomes dos exames. Ajudar a montar o orçamento.' });
+        return dir(dizer(perguntaOrcamento(o)));
+      }
+      return adicionarExames(nomes, 'texto');
+    }
+    if (o.fase === 'confirmando') {
+      const tirar = ORC_REMOVER.test(t) ? examesCitados(t, o) : [];
+      if (tirar.length) {
+        o.itens = o.itens.filter((i) => !tirar.includes(i));
+        if (o.itens.length === 0) { o.fase = 'coletando'; return dir(dizer('Tirei. Agora não sobrou nenhum exame na lista. Me manda o pedido médico ou o nome dos exames de novo?')); }
+        return dir(out(await textoOrcamento(o, `Tirei ${juntar(tirar.map((i) => i.nome))}. Fica assim:`)));
+      }
+      const nomesExtras = extrairNomesExames(semSim);
+      if (SIM.test(t) && nomesExtras.length === 0) return fecharOrcamento();
+      if (NAO.test(t) && nomesExtras.length === 0) return dir(dizer('Sem problema. O que você quer ajustar? Pode me mandar o nome do exame que faltou, ou dizer qual eu tiro da lista.'));
+      if (nomesExtras.length) return adicionarExames(nomesExtras, 'texto');
+      o.tent += 1;
+      if (o.tent >= 3) return out('Vou chamar alguém da equipe pra conferir o orçamento com você. Já deixei tudo anotado. Só um instante.', { motivo: `Orçamento de exames: o paciente não confirmou a lista (${o.itens.map((i) => i.nome).join(', ').slice(0, 300)}).` });
+      return dir(dizer(perguntaOrcamento(o)));
+    }
+    // fase 'fechado': ela já passou o total e perguntou se agenda a coleta
+    if (NAO.test(t) || soAgradecimento(t) || NAO_MAIS.test(t)) { s.orcamento = undefined; s.fim = true; return out(`Combinado! Qualquer coisa é só me chamar. ${MARCA_MAIS}?`); }
+    if (SIM.test(t) || /\b(agenda|agendar|marcar|marca|coleta|quero)\b/.test(t)) return agendarExames();
+    if (nomes.length) return adicionarExames(nomes, 'texto');
+    return dir(dizer(perguntaOrcamento(o)));
+  };
+  /** "Sim, são esses": passa o total e oferece agendar a coleta. */
+  const fecharOrcamento = (): Result => {
+    const o = s.orcamento!; o.fase = 'fechado'; o.tent = 0;
+    const t = totaisDoOrcamento(o.itens);
+    const total = t.unico !== undefined ? `fica em ${reais(t.unico)}` : t.porUnidade.length ? `fica em ${t.porUnidade.map((x) => `${reais(x.total)} no ${x.u}`).join(' e ')}` : 'a equipe confirma na hora';
+    return dir(out(`Perfeito! O total dos exames ${total}. Quer que eu já agende a coleta?`));
+  };
+  /** "Quero agendar a coleta": os exames viram UM serviço (mesmo dia, mesma agenda no mesmo horário) e a conversa segue por unidade, dia, dados e pagamento. */
+  const agendarExames = async (): Promise<Result | undefined> => {
+    const o = s.orcamento!;
+    const sv2 = await fonte.servicoDeExames!(o.itens);
+    if ('semAgenda' in sv2) return out('Poxa, pra agendar a coleta desses exames eu vou chamar alguém da equipe pra conferir a agenda. Já deixei tudo anotado. Só um instante.', { motivo: `Orçamento de exames aprovado pelo paciente, mas sem agenda aberta para: ${o.itens.map((i) => i.nome).join(', ').slice(0, 300)}. Agendar a coleta manualmente.` });
+    s.orcamento = undefined; s.examesDoPedido = true; s.comboOferecido = true;
+    s.servico = sv2; s.opcoes = undefined; s.servicoConfirmado = true; s.confirmPerguntado = true; s.unidadesInformadas = false; s.unidade = undefined;
+    s.lista = undefined; s.slot = undefined; s.dup = undefined;
+    mudouServico = true;
+    partes.push('Beleza, vamos agendar a coleta.');
+    return undefined;
+  };
   /**
    * Serviço novo ou trocado: refaz unidade, dia e pagamento. O paciente (CPF, cadastro) é o mesmo e fica. Se ainda não havia serviço
    * (`primeiraVez`), o que ele adiantou (dia, período, "o mais rápido") fica para valer no serviço que acabou de ser entendido.
@@ -1031,7 +1191,16 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
   // 1c) imagem/arquivo: só interessa como comprovante de pix, quando estamos esperando um
   const midia = texto.match(TOKEN_MIDIA);
   const aguardandoComprovante = s.pagamento === 'pix' && s.pixEnviado && !s.pagFinal && Boolean(s.slot);
-  if (midia && !aguardandoComprovante && !t) return out(comAbertura('Recebi o arquivo, mas só leio texto e áudio por aqui. Pode me escrever?'));
+  // foto de pedido médico: lida quando não estamos esperando um comprovante e o paciente ainda não escolheu o horário (ou já está num orçamento)
+  const podePedido = Boolean(midia && !aguardandoComprovante && ctx.lerPedido && fonte.casarExames && (!s.slot || s.orcamento));
+  if (midia && !aguardandoComprovante && !podePedido && !t) return out(comAbertura('Recebi o arquivo, mas só leio texto e áudio por aqui. Pode me escrever?'));
+
+  // 1g) orçamento de exames em andamento (ou foto de pedido médico): o paciente confirma a lista, tira ou acrescenta exames, e aprova o valor
+  if (s.orcamento || podePedido) {
+    if (!s.orcamento) { s.orcamento = novoOrcamento(); s.servico = undefined; s.opcoes = undefined; }
+    const ro = await rodaOrcamento();
+    if (ro) return ro;
+  }
 
   // 2) serviço: escolha entre opções pendentes, ou descoberta na fonte
   // o paciente voltou para retomar um atendimento que ficou pela metade (e não citou o serviço)
@@ -1065,6 +1234,8 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
   };
   const aplicar = (d: Awaited<ReturnType<Fonte['descobrir']>>): Result | undefined => {
     if (!d) return undefined;
+    // pedido genérico de exame ('exame de sangue', 'coleta', 'tenho o pedido do médico'): começa o orçamento (a pergunta do pedido sai depois do passo 2)
+    if ('pedirPedido' in d) { if (!s.servico && fonte.casarExames) { s.orcamento = novoOrcamento(); s.opcoes = undefined; } return undefined; }
     if ('semAgenda' in d) return out(comAbertura(`Poxa, no momento não tenho vaga aberta pra ${d.semAgenda}. Vou chamar alguém da equipe pra conferir e te retornar.`), { motivo: `Sem vagas abertas na agenda para ${d.semAgenda}.` });
     // serviço pedido e não encontrado: diz com franqueza e oferece a equipe (só transfere se ele aceitar)
     if ('naoAchouServico' in d) {
@@ -1135,6 +1306,15 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
       if (!(await escolherEtapas(sel, inicio))) return seguirCombo(`Pra ${nomeEscolhido} não tenho vaga aberta agora, a equipe te ajuda com isso depois.`);
     }
     c.perguntando = false; c.tent = 0;
+  }
+
+  // 2a) vários exames pelo nome na mesma mensagem ("hemograma, glicose e colesterol"): orçamento com todos (só quando as regras acham 2 ou mais, sem dúvida)
+  if (!s.servico && !s.opcoes && !s.orcamento && !s.combo && !s.slot && fonte.casarExames && !faq && !midia && /\b(exames?|fazer|realizar|quero|queria|preciso|gostaria|orcamento|valor|quanto)\b/.test(t)) {
+    const nomesM = extrairNomesExames(texto);
+    if (nomesM.length >= 2 || (nomesM.length === 1 && / e /.test(nomesM[0]))) {
+      const previa = await fonte.casarExames(nomesM).catch(() => undefined);
+      if (previa && previa.itens.length >= 2 && previa.naoAchados.length === 0) { s.orcamento = novoOrcamento(); return adicionarExames(nomesM, 'texto'); }
+    }
   }
 
   // 2b) mudou de ideia antes de informar o CPF: outro serviço, outra unidade ou outro dia/horário. Ajusta e segue, sem recomeçar.
@@ -1213,6 +1393,14 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
 
   // 2c) o paciente escolheu um combo: ele vira etapas (a primeira passa a ser o serviço da conversa)
   if (s.servico?.pacote && !s.combo) { const r = await iniciaCombo(s.servico); if (r) return r; }
+
+  // 2d) orçamento de exames: começou agora (pedido genérico de exame: ela pede o pedido médico) ou o serviço pedido pelo nome é um exame de laboratório (já anota e mostra o valor)
+  if (s.orcamento && !base.orcamento && !s.servico) return dir(out(comAbertura(PEDIR_PEDIDO)));
+  if (!s.orcamento && !s.combo && !s.examesDoPedido && fonte.casarExames && s.servico && /laborat/i.test(s.servico.categoria ?? '') && mudouServico) {
+    const nomeExame = s.servico.nomeBruto ?? s.servico.nome;
+    s.servico = undefined; s.opcoes = undefined; reiniciaDepoisDoServico(true); s.orcamento = novoOrcamento();
+    return adicionarExames([nomeExame], 'texto');
+  }
 
   // 3) sem serviço: recepção
   if (!s.servico) {

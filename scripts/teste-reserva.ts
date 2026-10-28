@@ -26,6 +26,8 @@ const PROC_ECG = '43434343-4343-4434-8434-434343434343';
 const PROC_USGC = '45454545-4545-4454-8454-454545454545';
 const PROC_HEMO = '41414141-4141-4414-8414-414141414141';
 const PROC_GLIC = '42424242-4242-4424-8424-424242424242';
+const LAB = (n: number) => `47000000-0000-4000-8000-0000000000${String(n).padStart(2, '0')}`;
+const PROC_COL = LAB(1); const PROC_URINA = LAB(2); const PROC_TSH = LAB(3); const PROC_FERR = LAB(4); const PROC_TGO = LAB(5); const PROC_TRIG = LAB(6);
 const AGENDA_COLETA = '55555555-5555-4555-8555-5555555555aa';
 const AGENDA_USGC = '55555555-5555-4555-8555-5555555555bb';
 const COMBOS = [
@@ -56,7 +58,7 @@ const mk = (data: string, hora: string, inicio: string, prof = { id: MEDICO, nom
 const horarios = (ini: string, fim: string, profId?: string, unidadeId?: string) => {
   if (profId === P_REBECA) return []; // sem agenda aberta
   const procAg = (globalThis as any).__procAgenda ?? '';
-  if (procAg === PROC_HEMO || procAg === PROC_GLIC) { // coleta: outra agenda, por ordem de chegada, amanhã e depois de amanhã a partir das 07:00
+  if (procAg === PROC_HEMO || procAg === PROC_GLIC || procAg.startsWith('47000000-')) { // coleta: outra agenda, por ordem de chegada, amanhã e depois de amanhã a partir das 07:00
     const col = { id: '99999999-9999-4999-8999-999999999999', nome: 'COLETA' };
     return [dia(1), dia(2), dia(5)].flatMap((d) => ['07:00', '07:20'].map((h) => ({ ...mk(d, h, '07:00', col), agendaId: AGENDA_COLETA, agendaNome: 'Coleta' }))).filter((h) => h.data >= ini && h.data <= fim);
   }
@@ -95,6 +97,7 @@ const server = http.createServer((req, res) => {
             c('28282828-2828-4282-8282-282828282828', 'TESTE DE ESFORCO COM ECG', 'Exames', 120), c('29292929-2929-4292-8292-292929292929', 'CONSULTA SEMVALOR', 'Consulta', 0),
             ...['DENGUE IGG', 'DENGUE IGM', 'DENGUE ANTIGENO', 'COVID', 'HIV', 'SIFILIS', 'HEPATITE B', 'HEPATITE C', 'H PYLORI', 'INFLUENZA', 'ZIKA', 'CHIKUNGUNYA', 'MALARIA', 'TOXOPLASMOSE', 'ROTAVIRUS', 'STREPTOCOCO', 'LATEX', 'COOMBS', 'HCG', 'TROPONINA'].map((n, i) => c(`40000000-0000-4000-8000-0000000000${String(i).padStart(2, '0')}`, `TESTE RAPIDO ${n}`, 'Laboratório', 30)),
             c('41414141-4141-4414-8414-414141414141', 'HEMOGRAMA COMPLETO', 'Laboratório', 15), c('42424242-4242-4424-8424-424242424242', 'GLICOSE', 'Laboratório', 10),
+            c(PROC_COL, 'COLESTEROL TOTAL E FRACOES', 'Laboratório', 30), c(PROC_URINA, 'URINA ROTINA', 'Laboratório', 10), c(PROC_TSH, 'TSH - HORMONIO TIREOESTIMULANTE', 'Laboratório', un === U_TELEGRAFO ? 40 : 35), c(PROC_FERR, 'FERRITINA', 'Laboratório', 0), c(PROC_TGO, 'TRANSAMINASE OXALACETICA - ASPARTATO AMINOTRANSFERASE (TGO)', 'Laboratório', 10), c(PROC_TRIG, 'TRIGLICERIDEOS', 'Laboratório', 12),
             ...((globalThis as any).__avulsosCombos ? [c(PROC_USGC, 'USG TRANSVAGINAL', 'Exames', 90), c(PROC_ECG, 'ELETROCARDIOGRAMA', 'Exames', 40)] : []), // com o preço avulso de todos os itens o combo passa a mostrar a economia (e a ser sugerido)
             c('31313131-3131-4313-8313-313131313131', 'TESTE ERGOMETRICO', 'Exames', 140), c('32323232-3232-4323-8323-323232323232', 'TESTE RAPIDO DE GRAVIDEZ', 'Exames', 40), c('33333333-3434-4343-8343-343434343434', 'TESTE DE ALERGIA', 'Exames', 90),
           ] });
@@ -739,7 +742,9 @@ for (const frase of ['o último', 'o mais tarde', 'o mais longe']) {
 }
 // só o dia (número solto, "dia N", "N de outubro")
 const diaN = Number(String(r.state.lista?.[2]?.ymd).slice(8)); // 3ª opção
-for (const frase of [String(diaN), `dia ${diaN}`, `o dia ${diaN}`, `${diaN} de outubro`]) {
+// (o número solto só vale como dia quando não é também uma posição da lista, e "de outubro" só quando o dia cai em outubro: depende do dia em que o teste roda)
+const mesDoDia = String(r.state.lista?.[2]?.ymd).slice(5, 7);
+for (const frase of [...(diaN > (r.state.lista?.length ?? 0) ? [String(diaN)] : []), `dia ${diaN}`, `o dia ${diaN}`, ...(mesDoDia === '10' ? [`${diaN} de outubro`] : [])]) {
   const x = await dd([...ateLista2, frase]);
   confere(`H2 só o dia: "${frase}" escolhe aquele dia`, x.state.slot?.ymd === r.state.lista?.[2]?.ymd && /me manda por favor os dados do paciente/.test(x.reply), `${x.state.slot?.ymd}`);
 }
@@ -857,11 +862,7 @@ confere('O8 o resumo não traz "Fechado" nem "Combinado" e já vem o pedido dos 
 // ---- inteligência na hora de sugerir: o que a clínica mais agenda e tem agenda vem primeiro ----
 reset({ ocupados: 0 });
 let m = await turnosDe(['bom dia, preciso agendar um exame']);
-confere('M1 "preciso agendar um exame": mostra os exames mais procurados COM agenda (não pergunta no escuro)', /Estes são os exames mais procurados que tenho com agenda:/.test(m.reply) && /Qual deles você precisa\? Se for outro, me diz o nome\./.test(m.reply) && !m.handoff && (m.state.opcoes?.length ?? 0) >= 3, m.reply.replace(/\n/g, ' | ').slice(0, 330));
-confere('M1 o mais agendado vem primeiro (teste de alergia: 54 agendamentos), depois o ultrassom', /1\. Teste de Alergia/i.test(m.reply) && /2\. Usg Abdome Total/i.test(m.reply), (m.state.opcoes ?? []).map((x: any) => x.nome).join(' | '));
-confere('M1 serviço sem agenda (teste rápido de laboratório) NUNCA entra na lista', !/Rapido (Dengue|Covid|Hiv)|Coombs|Troponina/i.test(m.reply), '');
-m = await turnosDe(['bom dia, preciso agendar um exame', '1']);
-confere('M1 escolher pelo número segue o fluxo com o serviço escolhido', /(Ah, então é|Entendi, você quer|Só pra confirmar: é|Então é) Teste de Alergia/i.test(m.reply) && m.state.servico?.id === '33333333-3434-4343-8343-343434343434', m.reply.replace(/\n/g, ' | ').slice(0, 160));
+confere('M1 "preciso agendar um exame": em vez de listar exames, pede o pedido médico (foto) ou o nome dos exames para montar o orçamento', /me manda uma foto do pedido médico/.test(m.reply) && /me escrever o nome dos exames/.test(m.reply) && !m.handoff && !m.state.opcoes && m.state.orcamento?.fase === 'coletando', m.reply.replace(/\n/g, ' | ').slice(0, 330));
 m = await turnosDe(['quero marcar uma consulta']);
 confere('M2 consultas: a mais agendada vem primeiro (ginecologia), depois dermatologia e cardiologia', /1\. Consulta Ginecologia/.test(m.reply) && m.reply.indexOf('Consulta Dermatologia') < m.reply.indexOf('Consulta Cardiologia'), (m.state.opcoes ?? []).map((x: any) => x.nome).join(' | '));
 m = await turnosDe(['oi, quero remarcar minha consulta']);
@@ -873,7 +874,7 @@ confere('M4 pedido vago "ultrassom" (vários parecidos): o mais agendado e com a
 // sem dados de demanda (o Clinilink não devolveu a lista): volta para a regra dos serviços principais, sem quebrar
 (globalThis as any).__demanda = {};
 m = await turnosDe(['quero marcar um exame']);
-confere('M5 sem demanda no Clinilink: ainda sugere, pela regra dos serviços principais', /exames mais procurados/.test(m.reply) && (m.state.opcoes?.length ?? 0) >= 3, m.reply.replace(/\n/g, ' | ').slice(0, 200));
+confere('M5 sem demanda no Clinilink: o pedido de exame continua pedindo o pedido médico (não depende dos serviços mais agendados)', /foto do pedido médico/.test(m.reply) && m.state.orcamento?.fase === 'coletando', m.reply.replace(/\n/g, ' | ').slice(0, 200));
 (globalThis as any).__demanda = undefined;
 
 // ---- interpretação do pedido por IA (simulada): entende o contexto e o roteiro busca no Clinilink ----
@@ -883,7 +884,7 @@ const viaIA = async (msgs: string[], resp: any) => { chamadasIA = []; return (aw
 m = await viaIA(['oi, estou com unha encravada e doendo'], { quer: 'agendar', tipo: 'consulta', termo: 'dermatologia', sintoma: true });
 confere('I1 o intérprete acha a especialidade pelo sintoma e o roteiro CONFIRMA com aviso de segurança', /Pelo que você contou, o serviço indicado é consulta Dermatologia/.test(m.reply) && /192/.test(m.reply) && m.state.servico?.viaSintoma === true, m.reply.replace(/\n/g, ' | ').slice(0, 230));
 m = await viaIA(['preciso fazer uma coisa aí'], { quer: 'agendar', tipo: 'exame', termo: null, sintoma: false });
-confere('I2 só entendeu que é um exame: mostra os exames mais procurados', /exames mais procurados/.test(m.reply), m.reply.replace(/\n/g, ' | ').slice(0, 120));
+confere('I2 só entendeu que é um exame: pede o pedido médico', /foto do pedido médico/.test(m.reply), m.reply.replace(/\n/g, ' | ').slice(0, 120));
 m = await viaIA(['queria escutar melhor'], { quer: 'agendar', tipo: 'exame', termo: 'audiometria', sintoma: false });
 confere('I3 termo que o Clinilink não tem: diz que não achou e oferece a equipe (usa o termo entendido)', /Não achei audiometria pra agendar por aqui/.test(m.reply) && /chame alguém da equipe/.test(m.reply), m.reply.replace(/\n/g, ' | ').slice(0, 200));
 m = await viaIA(['tenho sentido muita tontura ultimamente'], { quer: 'duvida', tipo: null, termo: 'dermatologia', sintoma: true });
@@ -892,8 +893,8 @@ m = await viaIA(['quanto tempo demora o resultado?'], { quer: 'duvida', tipo: nu
 confere('I4 era só uma dúvida: o intérprete não inventa serviço', !m.state.servico && !m.state.opcoes, m.reply.replace(/\n/g, ' | ').slice(0, 140));
 m = await viaIA(['obrigado'], { quer: 'agendar', tipo: 'exame', termo: 'ultrassom', sintoma: false });
 confere('I5 agradecimento e "sim/não" nem chegam a chamar o intérprete', chamadasIA.length === 0, `chamadas: ${chamadasIA.length}`);
-m = await viaIA(['preciso agendar um exame', 'daqueles de sangue'], { quer: 'agendar', tipo: 'exame', termo: 'ginecologia', sintoma: false });
-confere('I6 o intérprete recebe o CONTEXTO (mensagens anteriores do paciente) e a busca usa o que ele entendeu', chamadasIA.some((c) => c.texto === 'daqueles de sangue' && c.anteriores.includes('preciso agendar um exame')) && /Ginecologia/.test(m.reply), JSON.stringify(chamadasIA.map((c) => c.anteriores)));
+m = await viaIA(['preciso agendar uma coisa aí', 'daqueles de sangue'], { quer: 'agendar', tipo: 'exame', termo: 'ginecologia', sintoma: false });
+confere('I6 o intérprete recebe o CONTEXTO (mensagens anteriores do paciente) e a busca usa o que ele entendeu', chamadasIA.some((c) => c.texto === 'daqueles de sangue' && c.anteriores.includes('preciso agendar uma coisa aí')) && /Ginecologia/.test(m.reply), JSON.stringify(chamadasIA.map((c) => c.anteriores)));
 m = await viaIA(['quero marcar uma consulta de ginecologia'], { quer: 'agendar', tipo: 'consulta', termo: 'dermatologia', sintoma: false });
 confere('I7 se as regras já entendem o pedido, o intérprete nem é chamado (e não muda o resultado)', chamadasIA.length === 0 && /Ginecologia/.test(m.reply), `${chamadasIA.length} chamadas | ${m.reply.replace(/\n/g, ' | ').slice(0, 80)}`);
 m = await turnosDe(['preciso resolver um problema na pele']);
@@ -991,7 +992,7 @@ for (const frase of ['então está agendado?', 'ja foi marcado?', 'ta marcado me
 }
 // o intérprete do pedido também recebe a conversa dos dois lados
 chamadasIA = [];
-await responder([['preciso agendar um exame'], ['daqueles de sangue']].map((x) => x), { ...ctx, conversa: [{ de: 'paciente', texto: 'preciso agendar um exame' }, { de: 'amanda', texto: 'Estes são os exames mais procurados: 1. Hemograma' }], interpretarPedido: async (p: any) => { chamadasIA.push(p); return null; } }, fonteClinilink);
+await responder([['preciso agendar uma coisa aí'], ['daqueles de sangue']].map((x) => x), { ...ctx, conversa: [{ de: 'paciente', texto: 'preciso agendar uma coisa aí' }, { de: 'amanda', texto: 'Estes são os exames mais procurados: 1. Hemograma' }], interpretarPedido: async (p: any) => { chamadasIA.push(p); return null; } }, fonteClinilink);
 confere('C8 o intérprete do pedido recebe a CONVERSA (inclui a última pergunta da Amanda)', chamadasIA.some((c: any) => (c.conversa ?? []).some((x: any) => x.de === 'amanda')), JSON.stringify(chamadasIA.map((c: any) => (c.conversa ?? []).length)));
 
 // ---- pagamento: pix induzido, dúvidas respondidas e link de crédito com a equipe ----
@@ -1255,13 +1256,11 @@ confere('EN6 o texto do endereço nunca passa pelo GPT (aprovado palavra por pal
 {
   reset({ ocupados: 0 });
   let m: any = await responder([['Silmara Emanuele Sousa da Silva'], ['Eu queria realizar um exame de sangue ainda hoje']], ctx, fonteClinilink);
-  confere('MA1 "exame de sangue" sem dizer qual: mostra os exames de laboratório mais procurados (não adivinha "Sangue Oculto")', /exames de laboratório mais procurados/.test(m.reply) && /Hemograma Completo/.test(m.reply) && /Glicose/.test(m.reply) && !/Oculto/.test(m.reply), m.reply.replace(/\n/g, ' | ').slice(0, 200));
+  confere('MA1 "exame de sangue" sem dizer qual: pede o pedido médico (não adivinha "Sangue Oculto" nem lista exames)', /foto do pedido médico/.test(m.reply) && !/Oculto/.test(m.reply) && m.state.orcamento?.fase === 'coletando', m.reply.replace(/\n/g, ' | ').slice(0, 200));
   m = await responder([['Eu queria realizar um exame de sangue ainda hoje'], ['Sangue']], ctx, fonteClinilink);
-  confere('MA2 e se ele só responde "Sangue", a lista continua (não vira outro serviço)', Boolean(m.state.opcoes) && !m.state.servico, `${m.state.servico?.frase} | ${m.reply.replace(/\n/g, ' | ').slice(0, 100)}`);
-  m = await responder([['exame de sangue'], ['1']], ctx, fonteClinilink);
-  confere('MA3 escolhendo o 1 da lista de exames de sangue: confirma o exame', /Hemograma|Glicose/.test(m.state.servico?.frase ?? '') && /Entendi, você quer|Ah, então é|Então é/.test(m.reply), `${m.state.servico?.frase} | ${m.reply.replace(/\n/g, ' | ').slice(0, 100)}`);
+  confere('MA2 e se ele só responde "Sangue", ela continua esperando o pedido (não vira outro serviço)', m.state.orcamento?.fase === 'coletando' && !m.state.servico, `${m.state.servico?.frase} | ${m.reply.replace(/\n/g, ' | ').slice(0, 100)}`);
   m = await responder([['quero marcar sangue oculto']], ctx, fonteClinilink);
-  confere('MA4 exame específico com a palavra sangue não vira a lista genérica', !/exames de laboratório mais procurados/.test(m.reply), m.reply.replace(/\n/g, ' | ').slice(0, 120));
+  confere('MA4 exame específico com a palavra sangue não vira o pedido genérico', !/foto do pedido médico/.test(m.reply), m.reply.replace(/\n/g, ' | ').slice(0, 120));
   // serviço em confirmação + "Posso fazer agora pela manhã?": não troca de serviço, entende hoje de manhã
   reset({ ocupados: 0 });
   m = await responder([['quero um teste ergometrico'], ['Posso fazer agora pela manhã ?']], ctx, fonteClinilink);
@@ -1491,6 +1490,135 @@ confere('EN6 o texto do endereço nunca passa pelo GPT (aprovado palavra por pal
   delete ORDEM_DOS_COMBOS['feminino 1'];
 
   (globalThis as any).__avulsosCombos = false; limparCombos(); reset({ ocupados: 0 });
+}
+
+// ---- ORÇAMENTO DE EXAMES: o paciente manda o pedido médico (foto ou os nomes), ela acha os exames no Clinilink, mostra o valor de cada um e a soma ----
+{
+  const modelosDe = (txt: string) => (txt.match(/^Paciente: /gm) ?? []).length;
+  void modelosDe;
+  /** O que a leitura da foto devolve, por id de mensagem (o agente real lê a imagem com um modelo de visão). */
+  const fotos: Record<string, any> = {
+    ped1: { tipo: 'pedido', exames: ['Hemograma completo', 'Glicose', 'Colesterol total e frações', 'EAS', 'TC de abdome superior sem contraste'] },
+    ped2: { tipo: 'pedido', exames: ['TC de abdome superior sem contraste', 'TC de abdome inferior sem contraste'] },
+    ped3: { tipo: 'pedido', exames: ['Hemograma completo', 'Glicose'] },
+    ped4: { tipo: 'pedido', exames: ['TSH', 'Ferritina', 'TGO', 'Triglicerídeos'], incerto: true },
+    doc1: { tipo: 'outro', exames: [] },
+    ruim1: { tipo: 'ilegivel', exames: [] },
+  };
+  /** IA que casa os nomes do pedido com o catálogo (simulada): só as abreviações que as regras não resolvem. */
+  const chamadasCasar: string[][] = [];
+  const casar = async ({ nomes, catalogo }: { nomes: string[]; catalogo: { id: string; nome: string }[] }) => {
+    chamadasCasar.push(nomes);
+    const ach = (parte: string) => catalogo.find((c) => c.nome.includes(parte))?.id;
+    return nomes.map((n) => (/^eas$/i.test(n) ? [ach('URINA ROTINA')] : /^tgo$/i.test(n) ? [ach('(TGO)')] : []).filter(Boolean) as string[]);
+  };
+  const ctxO = { ...ctx, lerPedido: async (id: string) => fotos[id] ?? null, casarExames: casar };
+  const corposAg = () => posts.filter((x) => x.rota.endsWith('/agendamentos')).map((x) => x.corpo);
+  const seqO = async (msgs: (string | string[])[], c: any = ctxO, m: typeof modo = { ocupados: 0 }) => {
+    reset(m);
+    let r: any; let est: any; const falas: string[] = [];
+    for (const msg of msgs) {
+      r = await responder([Array.isArray(msg) ? msg : [msg]], c, fonteClinilink, est ? { state: est } : undefined);
+      est = r.handoff ? estadoDepoisDaResposta(r) : r.state;
+      falas.push(r.reply);
+    }
+    return { r, falas, est };
+  };
+  const foto = (id: string, legenda = 'são esses') => `[[midia:image:${id}]] ${legenda}`;
+
+  // pedido genérico: ela pede o pedido médico (não lista exames)
+  let o = await seqO(['oi', 'quero fazer um exame de sangue']);
+  confere('OR1 "quero fazer um exame de sangue": pede a foto do pedido médico ou o nome dos exames (sem listar, sem transferir)', /me manda uma foto do pedido médico\. Se não tiver o pedido, pode me escrever o nome dos exames, em uma mensagem ou em várias\./.test(o.r.reply) && o.r.state.orcamento?.fase === 'coletando' && !o.r.handoff && etapa(o.r.state) === 'orçamento: esperando o pedido médico', o.r.reply.replace(/\n/g, ' | ').slice(0, 220));
+  o = await seqO(['oi', 'preciso fazer uns exames']);
+  confere('OR1 "preciso fazer uns exames" e "coleta" também', /foto do pedido médico/.test(o.r.reply), o.r.reply.replace(/\n/g, ' | ').slice(0, 120));
+  o = await seqO(['oi', 'tenho um pedido médico com exames']);
+  confere('OR1 "tenho um pedido médico" também', /foto do pedido médico/.test(o.r.reply), o.r.reply.replace(/\n/g, ' | ').slice(0, 120));
+
+  // a foto: ela lê, acha no Clinilink, mostra o valor de cada exame, a soma e o que não achou
+  o = await seqO(['oi', 'quero fazer um exame de sangue', foto('ped1')]);
+  confere('OR2 foto do pedido: lista os exames achados no Clinilink, cada um com o valor, e a soma', /^Li o pedido e encontrei estes exames:/.test(o.r.reply) && /• Hemograma Completo: R\$ 15,00/.test(o.r.reply) && /• Glicose: R\$ 10,00/.test(o.r.reply) && /• Colesterol Total E Fracoes: R\$ 30,00|• Colesterol Total e Fracoes: R\$ 30,00/i.test(o.r.reply) && /• Urina Rotina: R\$ 10,00/.test(o.r.reply) && /Total: R\$ 65,00/.test(o.r.reply), o.r.reply.replace(/\n/g, ' | ').slice(0, 420));
+  confere('OR2 o que a clínica não tem (TC) não entra na soma e ela avisa; fecha perguntando se são esses mesmos', /Não achei no sistema: .*[Tt]c de abdome superior sem contraste/i.test(o.r.reply) && /não entrou na soma e a equipe pode conferir/.test(o.r.reply) && /São esses mesmos\? Se faltar algum ou tiver algum a mais, é só me avisar\.$/.test(o.r.reply) && o.r.state.orcamento?.fase === 'confirmando', o.r.reply.split(/\n\n/).slice(1).join(' || ').slice(0, 300));
+  confere('OR2 a abreviação do pedido (EAS) foi resolvida pela IA; o que as regras já resolvem não vai para a IA; nada foi gravado', chamadasCasar.some((n) => n.some((x) => /^eas$/i.test(x))) && !chamadasCasar.some((n) => n.includes('Hemograma completo')) && posts.length === 0, JSON.stringify(chamadasCasar.slice(-1)));
+  // "sim": passa o total e oferece a coleta
+  let o2 = await seqO(['oi', 'quero fazer um exame de sangue', foto('ped1'), 'sim']);
+  confere('OR3 "sim, são esses": manda o total dos exames e oferece agendar a coleta', /^Perfeito! O total dos exames fica em R\$ 65,00\. Quer que eu já agende a coleta\?/.test(o2.r.reply) && o2.r.state.orcamento?.fase === 'fechado', o2.r.reply.replace(/\n/g, ' | ').slice(0, 200));
+  // agendar a coleta: os exames viram UM agendamento (mesma agenda, mesmo horário), sem combo
+  o2 = await seqO(['oi', 'quero fazer um exame de sangue', foto('ped1'), 'sim', 'sim', 'guama amanhã', '52998224725', 'sim', 'na recepção']);
+  const ags = corposAg();
+  confere('OR4 "sim" à oferta da coleta: agenda os exames num agendamento só (uma gravação com todos os exames, sem comboId, na agenda da coleta)', o2.r.reply.startsWith(MARCA_AGENDADO) && ags.length === 1 && ags[0].procedimentos.length === 4 && [PROC_HEMO, PROC_GLIC, PROC_COL, PROC_URINA].every((id) => ags[0].procedimentos.includes(id)) && !ags[0].comboId && ags[0].agendaId === AGENDA_COLETA, `${ags.length} POST | ${JSON.stringify(ags.map((c: any) => [c.procedimentos?.length, c.comboId, c.agendaId?.slice(-2)]))} | ${o2.r.reply.slice(0, 60)}`);
+  confere('OR4 a confirmação mostra os exames e o valor total do orçamento (R$ 65,00), e a jornada fecha', /Procedimento: HEMOGRAMA COMPLETO - COLETA/.test(o2.r.reply) && /Valor particular: R\$ 65,00/.test(o2.r.reply) && o2.r.state.fim === true && !/COMBO/.test(o2.r.reply), o2.r.reply.split(/\n\n/)[1]?.slice(0, 260));
+  let o3 = await seqO(['oi', 'quero fazer um exame de sangue', foto('ped1'), 'sim', 'sim', 'guama amanhã', '52998224725', 'sim', 'pix']);
+  confere('OR4 o pix da coleta é o total dos exames (R$ 65,00)', /o valor é R\$ 65,00/.test(o3.r.reply) && /Chave pix:/.test(o3.r.reply), o3.r.reply.replace(/\n/g, ' | ').slice(0, 200));
+  // não quer agendar
+  o3 = await seqO(['oi', 'quero fazer um exame de sangue', foto('ped1'), 'sim', 'não, obrigado']);
+  confere('OR5 "não, obrigado" à oferta da coleta: encerra sem agendar e pergunta se ajuda em mais algo', /Combinado! Qualquer coisa é só me chamar\. Posso te ajudar com mais alguma coisa\?/.test(o3.r.reply) && corposAg().length === 0 && o3.r.state.fim === true, o3.r.reply.replace(/\n/g, ' | ').slice(0, 160));
+
+  // sem o pedido: escreve os nomes (uma mensagem ou várias)
+  o = await seqO(['oi', 'quero fazer um exame de sangue', 'não tenho o pedido']);
+  confere('OR6 "não tenho o pedido": pede para escrever o nome dos exames (em uma mensagem ou em várias)', /Se puder, me escreve o nome dos exames que você precisa fazer\. Pode mandar tudo numa mensagem ou em várias\./.test(o.r.reply) && o.r.state.orcamento?.pediuNomes === true && !o.r.handoff, o.r.reply.replace(/\n/g, ' | ').slice(0, 200));
+  o = await seqO(['oi', 'quero fazer um exame de sangue', 'não tenho o pedido', 'hemograma, glicose e colesterol total']);
+  confere('OR6 os nomes digitados são achados no Clinilink, com o valor e a soma ("Anotei estes exames")', /^Anotei estes exames:/.test(o.r.reply) && /• Hemograma Completo: R\$ 15,00/.test(o.r.reply) && /• Glicose: R\$ 10,00/.test(o.r.reply) && /Total: R\$ 55,00/.test(o.r.reply), o.r.reply.replace(/\n/g, ' | ').slice(0, 360));
+  o = await seqO(['oi', 'quero fazer um exame de sangue', 'não tenho o pedido', ['hemograma', 'glicose'], 'e também o tsh']);
+  confere('OR7 vários nomes em mensagens separadas (e depois um a mais) viram uma lista só', /• Hemograma Completo: R\$ 15,00/.test(o.r.reply) && /• Glicose: R\$ 10,00/.test(o.r.reply) && /• Tsh Hormonio Tireoestimulante: R\$ 35,00 no Guamá e R\$ 40,00 no Telégrafo|• Tsh/i.test(o.r.reply), o.r.reply.replace(/\n/g, ' | ').slice(0, 420));
+  confere('OR7 exame com preço diferente por unidade mostra os dois preços e o total de cada unidade', /R\$ 35,00 no Guamá e R\$ 40,00 no Telégrafo/.test(o.r.reply) && /Total no Guamá: R\$ 60,00/.test(o.r.reply) && /Total no Telégrafo: R\$ 65,00/.test(o.r.reply), o.r.reply.replace(/\n/g, ' | ').slice(-260));
+  // o paciente não sabe nenhum nome
+  o = await seqO(['oi', 'quero fazer um exame de sangue', 'não tenho o pedido', 'não sei']);
+  confere('OR8 não tem o pedido e não sabe os nomes: chama a equipe (sem inventar exame)', Boolean(o.r.handoff) && /orçamento/i.test(o.r.handoff.motivo) && !/Total/.test(o.r.reply), o.r.handoff?.motivo?.slice(0, 160));
+  o = await seqO(['oi', 'quero fazer um exame de sangue', 'são vários']);
+  confere('OR8 "são vários" (sem nome de exame) não vira exame: ela repete o pedido', /foto do pedido médico/.test(o.r.reply) && !o.r.handoff && (o.r.state.orcamento?.itens.length ?? 0) === 0, o.r.reply.replace(/\n/g, ' | ').slice(0, 160));
+
+  // ajustes na lista
+  o = await seqO(['oi', 'quero fazer um exame de sangue', foto('ped1'), 'tira a glicose']);
+  confere('OR9 "tira a glicose": tira da lista e mostra a soma nova', /^Tirei Glicose\. Fica assim:/.test(o.r.reply) && !/• Glicose/.test(o.r.reply) && /Total: R\$ 55,00/.test(o.r.reply), o.r.reply.replace(/\n/g, ' | ').slice(0, 260));
+  o = await seqO(['oi', 'quero fazer um exame de sangue', foto('ped3'), 'sim, e também colesterol total']);
+  confere('OR9 "sim, e também colesterol": acrescenta o exame e volta a confirmar (não fecha ainda)', /• Colesterol/i.test(o.r.reply) && /São esses mesmos\?/.test(o.r.reply) && o.r.state.orcamento?.fase === 'confirmando' && o.r.state.orcamento?.itens.length === 3, o.r.reply.replace(/\n/g, ' | ').slice(0, 260));
+  o = await seqO(['oi', 'quero fazer um exame de sangue', foto('ped3'), 'não']);
+  confere('OR9 "não": pergunta o que ajustar', /O que você quer ajustar\?/.test(o.r.reply) && o.r.state.orcamento?.fase === 'confirmando', o.r.reply.replace(/\n/g, ' | ').slice(0, 160));
+  o = await seqO(['oi', 'quero fazer um exame de sangue', foto('ped3'), 'deixa pra lá']);
+  confere('OR9 desistir do orçamento fecha a conversa sem agendar', !o.r.state.orcamento && o.r.state.fim === true && /Combinado, deixamos o orçamento de lado\./.test(o.r.reply), o.r.reply.replace(/\n/g, ' | ').slice(0, 160));
+
+  // casos da foto: não é pedido, ilegível, nada achado na clínica, parte ilegível
+  o = await seqO(['oi', 'quero fazer um exame de sangue', foto('doc1')]);
+  confere('OR10 imagem que não é pedido de exames: pede o pedido ou os nomes (não inventa exame)', /não parece ser um pedido de exames/.test(o.r.reply) && (o.r.state.orcamento?.itens.length ?? 0) === 0 && !o.r.handoff, o.r.reply.replace(/\n/g, ' | ').slice(0, 160));
+  o = await seqO(['oi', 'quero fazer um exame de sangue', foto('ruim1'), foto('ruim1'), foto('ruim1')]);
+  confere('OR10 foto ilegível: pede outra (e à 3ª vez chama a equipe)', /Não consegui ler essa foto/.test(o.falas[2]) && Boolean(o.r.handoff) && /não pôde ser lida/.test(o.r.handoff.motivo), `${o.falas[2].replace(/\n/g, ' | ').slice(0, 100)} | ${o.r.handoff?.motivo?.slice(0, 80)}`);
+  o = await seqO(['oi', 'quero fazer um exame de sangue', foto('ped2')]);
+  confere('OR11 exemplo real (guia SUS de TC de abdome sem contraste): a clínica não faz esse exame, então ela diz o que leu e chama a equipe, sem trocar por outro exame', Boolean(o.r.handoff) && /Li o pedido, mas não achei esses exames aqui no sistema/.test(o.r.reply) && /abdome superior/i.test(o.r.reply) && !/USG|Usg|Total:/.test(o.r.reply) && /Exames lidos: .*abdome superior/i.test(o.r.handoff.motivo), o.r.reply.replace(/\n/g, ' | ').slice(0, 260));
+  o = await seqO(['oi', 'quero fazer um exame de sangue', foto('ped4')]);
+  confere('OR12 exame sem valor cadastrado fica "a confirmar" e fora da soma; pedido parcialmente ilegível é avisado', /• Ferritina: valor a confirmar com a equipe/.test(o.r.reply) && /Ferritina está sem valor cadastrado, então esse não entrou na soma/.test(o.r.reply) && /Tem trecho do pedido que eu não consegui ler\./.test(o.r.reply) && /• Transaminase Oxalacetica \(TGO\): R\$ 10,00/.test(o.r.reply), o.r.reply.replace(/\n/g, ' | ').slice(0, 520));
+
+  // foto sem pedir antes, e exame de laboratório pedido pelo nome
+  o = await seqO(['oi', foto('ped3', 'o médico pediu esses')]);
+  confere('OR13 a foto do pedido logo de cara (sem pedir antes) também monta o orçamento', /^Li o pedido e encontrei estes exames:/.test(o.r.reply.replace(/^Oi[^\n]*\n/, '')) && /Total: R\$ 25,00/.test(o.r.reply), o.r.reply.replace(/\n/g, ' | ').slice(0, 240));
+  o = await seqO(['oi', 'quero fazer um hemograma']);
+  confere('OR14 exame de laboratório pedido pelo nome ("hemograma"): anota e já mostra o valor (a coleta vem depois)', /^Anotei estes exames:/.test(o.r.reply.replace(/^Oi[^\n]*\n/, '')) && /• Hemograma Completo: R\$ 15,00/.test(o.r.reply) && /Total: R\$ 15,00/.test(o.r.reply) && o.r.state.orcamento?.fase === 'confirmando', o.r.reply.replace(/\n/g, ' | ').slice(0, 240));
+  o = await seqO(['oi', 'quero fazer hemograma, glicose e colesterol total']);
+  confere('OR14 vários exames pelo nome na mesma mensagem também', /Total: R\$ 55,00/.test(o.r.reply) && o.r.state.orcamento?.itens.length === 3, o.r.reply.replace(/\n/g, ' | ').slice(0, 240));
+  // dica de combo
+  o = await seqO(['oi', 'quero fazer um exame de sangue', foto('ped3')]);
+  confere('OR15 se um combo inclui todos os exames e sai por menos que a soma, ela dá a dica', /Dica: o combo Check Up 10 inclui todos esses exames e sai por R\$ 17,00, R\$ 8,00 a menos que a soma\. Se preferir o combo, é só me falar\./.test(o.r.reply), o.r.reply.split(/\n\n/).slice(1).join(' || ').slice(0, 260));
+  o = await seqO(['oi', 'quero fazer um exame de sangue', foto('ped3'), 'quero o check up 10']);
+  confere('OR15 e se o paciente pedir o combo, a conversa segue pelo fluxo de combos', !o.r.state.orcamento && /Check Up 10/.test(o.r.reply), o.r.reply.replace(/\n/g, ' | ').slice(0, 200));
+  // dúvida no meio
+  o = await seqO(['oi', 'quero fazer um exame de sangue', foto('ped3'), 'qual o endereço do guamá?']);
+  confere('OR16 dúvida no meio (endereço): responde e repete a pergunta de confirmação', /^Guamá: Endereço:/.test(o.r.reply) && /São esses mesmos\?/.test(o.r.reply) && o.r.state.orcamento?.fase === 'confirmando', o.r.reply.replace(/\n/g, ' | ').slice(0, 220));
+  // as mensagens com valores têm texto exato: não passam pela reescrita do GPT
+  o = await seqO(['oi', 'quero fazer um exame de sangue', foto('ped1'), 'sim']);
+  confere('OR17 o pedido do pedido médico, a lista com valores e o total têm texto exato (o GPT não reescreve)', [o.falas[1], o.falas[2], o.falas[3]].every((f: string) => SEM_GPT.some((x: string) => f.includes(x))), [o.falas[1], o.falas[2], o.falas[3]].map((f: string) => SEM_GPT.some((x: string) => f.includes(x))).join(','));
+  // reprocessando a conversa inteira (sem estado guardado) dá o mesmo resultado
+  reset({ ocupados: 0 });
+  const rr: any = await responder([['oi'], ['quero fazer um exame de sangue'], [foto('ped1')], ['sim']], ctxO, fonteClinilink);
+  confere('OR18 sem Redis (reprocessando tudo): mesmo resultado (total e oferta da coleta)', /O total dos exames fica em R\$ 65,00\./.test(rr.reply) && rr.state.orcamento?.fase === 'fechado', rr.reply.replace(/\n/g, ' | ').slice(0, 160));
+  // duas fotos na mesma rodada (guia SUS de duas páginas, ou duas fotos): somam na mesma lista
+  o = await seqO(['oi', 'quero fazer um exame de sangue', [foto('ped3'), foto('ped4')]]);
+  confere('OR19 duas fotos juntas: os exames das duas entram na mesma lista (sem repetir o hemograma)', (o.r.state.orcamento?.itens.length ?? 0) === 6 && /• Triglicerideos: R\$ 12,00/i.test(o.r.reply) && /• Hemograma Completo/.test(o.r.reply), `${o.r.state.orcamento?.itens.length} itens | ${o.r.reply.replace(/\n/g, ' | ').slice(0, 200)}`);
+  // sem o leitor de imagem (sem chave da OpenAI): a foto não quebra
+  o = await seqO(['oi', 'quero fazer um exame de sangue', foto('ped3')], { ...ctx, casarExames: casar } as any);
+  confere('OR20 sem leitor de imagem configurado: pede para escrever os nomes (não quebra)', /Não consegui ler essa foto/.test(o.r.reply) || /Recebi o arquivo/.test(o.r.reply), o.r.reply.replace(/\n/g, ' | ').slice(0, 160));
+  // um exame que NÃO é de laboratório pedido pelo nome segue o agendamento normal
+  o = await seqO(['oi', 'quero marcar um usg de abdome']);
+  confere('OR21 exame que não é de laboratório (ultrassom) NÃO entra no orçamento: segue o agendamento normal', !o.r.state.orcamento && /Usg Abdome Total/.test(o.r.reply), o.r.reply.replace(/\n/g, ' | ').slice(0, 160));
+  reset({ ocupados: 0 });
 }
 
 // ---- ORDEM NOVA: serviço + dia -> resumo -> dados do paciente -> (existente: confirma o nome | novo: cadastro no fim) -> forma de pagamento -> agenda ----

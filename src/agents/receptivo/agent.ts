@@ -1,6 +1,8 @@
 import { env } from '../../lib/env.js';
 import { describe, getHistory, ilegivel, sendText, textoRoteiro, transcribeMessage, transferToSector, type InovstarMessage, type MessageReceivedEvent } from '../../integrations/inovstar.js';
 import { analisarComprovante, type Comprovante } from '../../lib/comprovante.js';
+import { analisarPedidoMedico, type PedidoLido } from '../../lib/pedidoMedico.js';
+import { escolherExames } from '../../lib/interpretarExames.js';
 import { buildSystemPrompt } from './prompt.js';
 import { MARCAS_FIM, MARCA_ADEUS, MARCA_AGENDADO, MARCA_DUP, MARCA_MAIS, SEM_GPT, ehUrgencia, estadoDepoisDaResposta, etapa, handoffDuro, responder, type Pos, type Result, type State } from './script/engine.js';
 import { apagarEstado, estadoAtivo, guardarEstado, lerEstado } from '../../lib/estado.js';
@@ -86,6 +88,28 @@ function lerComprovanteDe(history: InovstarMessage[]) {
         return analisarComprovante(bytes, m?.media?.mimeType ?? res.headers.get('content-type') ?? '');
       })().catch(() => null);
       comprovantes.set(id, p);
+    }
+    return p;
+  };
+}
+
+/** Pedidos médicos já lidos (por id da mensagem): a foto não é relida a cada mensagem do paciente. */
+const pedidos = new Map<string, Promise<PedidoLido | null>>();
+function lerPedidoDe(history: InovstarMessage[]) {
+  return (id: string): Promise<PedidoLido | null> => {
+    let p = pedidos.get(id);
+    if (!p) {
+      p = (async () => {
+        const m = history.find((x) => x._id === id);
+        const url = m?.media?.url;
+        if (!url || !/^https:\/\//.test(url)) return null;
+        const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
+        if (!res.ok) return null;
+        const bytes = Buffer.from(await res.arrayBuffer());
+        if (bytes.length > 12_000_000) return null;
+        return analisarPedidoMedico(bytes, m?.media?.mimeType ?? res.headers.get('content-type') ?? '');
+      })().catch(() => null);
+      pedidos.set(id, p);
     }
     return p;
   };
@@ -276,7 +300,7 @@ async function processar(ev: MessageReceivedEvent) {
     if (ilg) {
       r = { state: undefined as never, reply: ilg === 'audio' ? 'Não consegui ouvir esse áudio. Escreve pra mim ou manda de novo?' : 'Recebi o arquivo, mas só leio texto e áudio por aqui. Pode me escrever?', handoff: undefined };
     } else try {
-      r = await responder(retomada ? retomada.turnos : turnos, { now: new Date(), nome, tz: env.timezone, telefone: ev.to, pos, lerComprovante: lerComprovanteDe(history), interpretar: interpretarEscolha, interpretarPedido, duplicadoNosTurnos: retomada ? [] : duplicados, inicioJornada, conversa, confirmacao, contexto: entenderNoContexto }, fonte, retomada && { state: retomada.state, aposHandoffDuro: retomada.aposHandoffDuro, passos: retomada.passos });
+      r = await responder(retomada ? retomada.turnos : turnos, { now: new Date(), nome, tz: env.timezone, telefone: ev.to, pos, lerComprovante: lerComprovanteDe(history), lerPedido: lerPedidoDe(history), casarExames: escolherExames, interpretar: interpretarEscolha, interpretarPedido, duplicadoNosTurnos: retomada ? [] : duplicados, inicioJornada, conversa, confirmacao, contexto: entenderNoContexto }, fonte, retomada && { state: retomada.state, aposHandoffDuro: retomada.aposHandoffDuro, passos: retomada.passos });
     } catch (e) {
       // Clinilink fora do ar / lento: não inventa dado, devolve para a equipe
       console.error(`${tag} falha ao consultar a fonte (${fonte.tipo}):`, (e as Error).message);

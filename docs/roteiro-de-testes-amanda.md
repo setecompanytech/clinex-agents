@@ -52,11 +52,11 @@ Variações para fazer o mesmo caminho:
 - 2.6 Com a lista de sugestões na tela, pedir outra coisa ("quero dermatologia") → ela atende o pedido novo, não vira "a primeira opção".
 - 2.7 "exame de gravidez" → acha o teste de gravidez.
 - 2.8 "quero marcar uma consulta" (sem dizer qual) → mostra "Estas são as consultas mais procuradas que tenho com agenda:" (até 6, numeradas) e pergunta "Qual delas você precisa? Se for outra, me diz o nome." Responder "2" ou o nome segue o fluxo.
-- 2.8a "bom dia, preciso agendar um exame" (sem dizer qual) → "Estes são os exames mais procurados que tenho com agenda:" com até 6 exames **com agenda aberta** e variedade (laboratório, imagem, métodos gráficos...), os mais agendados primeiro. Nenhum exame sem horário aparece. Depois: "2", o nome do exame, ou "de sangue".
+- 2.8a "bom dia, preciso agendar um exame" (sem dizer qual) → pede o **pedido médico** (foto) ou o nome dos exames para montar o orçamento (veja o **Fluxo 17**). Não lista mais "exames mais procurados".
 - 2.8b "consulta ou exame" (os dois tipos) → ela pergunta "Qual consulta ou exame você precisa?" sem escolher um tipo sozinha.
 - 2.8c "só um ultrassom" / "teste" (vários parecidos) → sugere primeiro o que a clínica mais agenda e que tem horário.
 - 2.8d Pedidos que as regras não pegam, mas a IA entende pelo contexto: "quero ver meu coração", "estou com tontura", "preciso de um raio x do joelho", "estou com unha encravada". Ela busca no Clinilink o que entendeu e **sempre confirma** ("Ah, então é ..., né?"). Queixa de saúde vem com o aviso do pronto-socorro/192.
-- 2.8e Contexto: "preciso agendar um exame" e depois "de sangue" ou "daqueles de hemograma" → entende como exame de sangue.
+- 2.8e Contexto: "preciso agendar uma coisa" e depois "daqueles de sangue" → entende no contexto (e segue o orçamento de exames do Fluxo 17).
 - 2.8f "quero remarcar" / "preciso cancelar minha consulta" → "Claro! Pra remarcar ou cancelar eu chamo alguém da equipe pra te ajudar." e transfere (não procura "remarcar" como serviço).
 - 2.9 "blablabla" → 1ª vez: "Hmm não peguei qual é o serviço. Me diz a especialidade ou o exame? Pode ser o nome do médico também." 2ª vez: lembra que você pode pedir a equipe. **Ela não transfere sozinha.**
 - 2.10 Serviço que não existe/não está liberado ("audiometria") → "Não achei ... pra agendar por aqui. Quer que eu chame alguém da equipe?" Responda "sim" (transfere) e, em outro teste, "não" (volta a perguntar o serviço).
@@ -255,7 +255,7 @@ Antes de responder, a Amanda lê a conversa inteira (os dois lados e a pergunta 
 | 13.7 | "a doutora é boa?" | Não opina nem elogia. Segue o fluxo. |
 | 13.8 | Desabafo: "tô com medo de ir" | Segue o fluxo, sem frase de robô ("estou aqui pra ajudar"). Me diga o que você esperava que ela dissesse. |
 | 13.9 | Logo no começo: "como funciona isso?" | Só responde se der com o que sabe; senão, "Me conta o que você precisa". Nunca "Não achei funciona pra agendar". |
-| 13.10 | "preciso agendar um exame" → (lista) → "daqueles de sangue" | Entende no contexto (exame de sangue) e procura no Clinilink. |
+| 13.10 | "preciso agendar uma coisa" → "daqueles de sangue" | Entende no contexto (exame de sangue) e segue o pedido de exames (Fluxo 17). |
 | 13.11 | Em qualquer ponto do fluxo, pergunte algo sobre o que ela acabou de dizer ("como assim?", "isso é o quê?") | Responde no contexto e repete a pergunta. Nunca reinicia o fluxo. |
 | 13.12 | Depois de dois ou três minutos parado, volte com "e aí?" | Ela retoma de onde parou (não se apresenta de novo, não recomeça). |
 
@@ -322,13 +322,27 @@ Frases de pacientes reais, com erro de digitação, gíria e várias mensagens s
 | 16.14 | CPF que já existe, mesmo mandando nome e telefone antes | Mostra só o nome para confirmar (não pede nascimento nem telefone). |
 | 16.15 | Com a lista de opções na tela, "vou pagar na recepção" ou "hoje" | Não procura serviço nessa frase (antes achava "Retenção" em "recepção"); anota e repete a pergunta. |
 | 16.16 | "Silmara EMANUELE Sousa da Silva" (só o nome, como a paciente responde ao "me diga seu nome completo e o que você gostaria") | "Prazer, Silmara! Me conta o que você precisa?" (frases de pedido como "consulta marcada anterior" ou "quero marcar" **não** viram nome). |
-| 16.17 | "Eu queria realizar um exame de sangue ainda hoje" | Lista os **exames de laboratório mais procurados com agenda** (Hemograma, Glicemia, Urina...) e pergunta qual. **Nunca** "Sangue Oculto". Depois de "Sangue" sozinho, a lista continua. "Sangue oculto" (específico) não vira a lista. |
+| 16.17 | "Eu queria realizar um exame de sangue ainda hoje" | Pede a **foto do pedido médico** (ou os nomes dos exames) para o orçamento. **Nunca** "Sangue Oculto". Depois de "Sangue" sozinho, continua esperando o pedido. "Sangue oculto" (específico) não vira o pedido genérico. |
 | 16.18 | Com um serviço pendente de confirmação: "Posso fazer agora pela manhã?" | Continua no mesmo serviço (antes virava "consulta Ortopedista", porque "posso" tem "osso") e entende **hoje de manhã**. |
 | 16.19 | "quanto custa uma transvaginal?" (valor + serviço na mesma frase) | Diz o valor ("O exame é R$ 90,00.") e confirma o serviço. "Quanto custa?" sem serviço pede qual consulta ou exame, sem "essa eu prefiro confirmar". |
 | 16.20 | "Solicitar Orçamento" | "Claro! Me diz qual consulta ou exame você quer o valor. Se for pedido médico, pode digitar o nome dos exames que eu vejo um por um." |
 | 16.21 | Serviço cujo "profissional" no Clinilink é uma sala ("Coleta", "Exames", ".SALA DE EXAMES") | Não aparece "com Coleta" nem "com Exames" (só médicos aparecem). No modelo da confirmação, o Profissional continua como está no cadastro. |
 
 **Ainda não faz (conversas reais mostram que os pacientes pedem):** gerar o recibo/OS em PDF depois do pagamento; mandar só o horário mais próximo em vez de lista (hoje manda até 4 opções).
+
+## Fluxo 17. Orçamento de exames (pedido médico em foto ou os nomes dos exames)
+
+Quando o paciente quer fazer exames ("exame de sangue", "coleta", "preciso fazer uns exames", "tenho um pedido médico"), a Amanda **pede o pedido médico** em vez de listar exames. Ela **lê a foto**, acha cada exame no Clinilink (o pedido pode ter qualquer procedimento: laboratório, ultrassom, raio-x...), mostra **o valor de cada um e a soma**, pede para o paciente **confirmar a lista** e só então manda o total e oferece agendar a coleta. O preço é sempre o campo `preco` do Clinilink. Nada é gravado até o paciente aceitar agendar.
+
+- 17.1 "quero fazer um exame de sangue" / "bom dia, preciso agendar um exame" / "tenho um pedido médico" → "Claro! Pra eu te passar o valor certinho, me manda uma foto do pedido médico. Se não tiver o pedido, pode me escrever o nome dos exames, em uma mensagem ou em várias." (não lista exames, não transfere). Exame de ultrassom, raio-x etc. pedido **pelo nome** continua no agendamento normal.
+- 17.2 **Mande a foto do pedido** (pode ser escrito à mão, de lado, ou duas páginas na mesma foto; legenda como "são esses" é ignorada) → "Li o pedido e encontrei estes exames:" + uma linha por exame com o valor ("• Hemograma Completo: R$ 15,00") + **"Total: R$ ..."** + "São esses mesmos? Se faltar algum ou tiver algum a mais, é só me avisar." A foto logo de cara (sem ela pedir antes) também funciona.
+- 17.3 Exame do pedido que não está no Clinilink → "Não achei no sistema: ... Esse não entrou na soma e a equipe pode conferir pra você." Se NENHUM exame da foto for achado (ex.: guia SUS de tomografia, que a clínica não faz), ela diz o que leu, chama a equipe e deixa os exames lidos anotados; **nunca troca por outro exame** (TC não vira ultrassom). Exame sem valor cadastrado aparece como "valor a confirmar com a equipe" e fica fora da soma. Parte ilegível do pedido é avisada ("Tem trecho do pedido que eu não consegui ler.").
+- 17.4 Exame com valor diferente em cada unidade mostra os dois valores ("R$ 35,00 no Guamá e R$ 40,00 no Telégrafo") e o total de cada unidade.
+- 17.5 **Sem o pedido:** "não tenho o pedido" → "Se puder, me escreve o nome dos exames que você precisa fazer. Pode mandar tudo numa mensagem ou em várias." Os nomes digitados (hemograma, glicose, TSH, TGO, EAS, vitamina D...) viram a lista ("Anotei estes exames:") com os valores. Várias mensagens (ou um a mais depois: "e também o TSH") somam na mesma lista. Siglas e nomes populares são entendidos (EAS = urina rotina, TGO, PCR...). "Não sei" ou 3 respostas sem nome de exame → chama a equipe. Exame pedido pelo nome sozinho ("quero fazer um hemograma") ou vários na mesma mensagem ("hemograma, glicose e colesterol") já vão direto para a lista com valor.
+- 17.6 **Ajustes:** "tira a glicose" / "sem o 2" → tira e mostra a soma nova. "sim, e também colesterol" → acrescenta e confirma de novo. "não" → "O que você quer ajustar?". "deixa pra lá" → encerra sem agendar. Imagem que não é pedido → pede o pedido ou os nomes; foto ilegível → pede outra (3ª vez chama a equipe). Dúvida no meio (endereço, horário) é respondida e a pergunta continua.
+- 17.7 **Dica de combo:** se um combo inclui TODOS os exames e sai por menos que a soma, ela avisa ("Dica: o combo Check Up 10 inclui todos esses exames e sai por R$ 60,00, R$ 25,00 a menos que a soma."). Se o paciente pedir o combo, segue o fluxo de combos.
+- 17.8 **"Sim, são esses"** → "Perfeito! O total dos exames fica em R$ ... Quer que eu já agende a coleta?" ("não, obrigado" encerra). **"Sim"** à coleta → os exames viram **um agendamento só** (mesma agenda no mesmo horário, sem combo): unidade, dia, dados do paciente, pagamento (o pix é o **total dos exames**) e confirmação no modelo da clínica com todos os exames e o valor total.
+- 17.9 **Para o seu teste real:** mande de verdade a foto de um pedido de exames de sangue (com a letra do médico) e confira se os exames lidos e os valores batem com o pedido e com o Clinilink. Depois teste a guia SUS de tomografia (deve chamar a equipe com os exames lidos) e o caminho sem pedido (só os nomes).
 
 ## Como me passar o resultado
 

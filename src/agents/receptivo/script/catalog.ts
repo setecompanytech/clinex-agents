@@ -10,6 +10,15 @@ export type Unidade = { id?: string; nome: string; profissionais?: string[]; pre
 export type ItemDeCombo = { id: string; nome: string; curto: string; preco?: number; avulso?: number; categoria?: string };
 /** O combo inteiro: os itens e as ETAPAS em que ele é agendado (um item por etapa; os exames de laboratório juntos numa coleta só). */
 export type ComboInfo = { id: string; nome: string; rotulo: string; total?: number; economia?: number; temRetorno: boolean; itens: ItemDeCombo[]; etapas: string[][] };
+/** Um exame do orçamento: o serviço do Clinilink que casa com o que está no pedido médico, com o preço de cada unidade. */
+export type ItemExame = { id: string; nome: string; nomeBruto: string; categoria?: string; precos: Record<string, number>; pedido: string };
+/** Orçamento de exames em andamento (o paciente manda o pedido médico em foto ou escreve os nomes). */
+export type Orcamento = {
+  fase: 'coletando' | 'confirmando' | 'fechado'; // coletando: espera o pedido | confirmando: mostrou os exames e os valores e espera o "é isso" | fechado: confirmou, ela ofereceu agendar a coleta
+  itens: ItemExame[]; naoAchados: string[]; origem: 'foto' | 'texto'; tent: number; pediuNomes: boolean; ilegivel?: boolean;
+};
+/** Escolhe, para cada nome do pedido, o(s) exame(s) do catálogo que ele é (IA; sempre validado). Cada resposta é uma lista de ids do catálogo. */
+export type EscolherExames = (p: { nomes: string[]; catalogo: { id: string; nome: string }[] }) => Promise<string[][] | null>;
 /** Um combo oferecido a quem pediu um serviço que faz parte dele. */
 export type OfertaCombo = { id: string; rotulo: string; total: number; economia: number; texto: string };
 
@@ -24,8 +33,10 @@ export type Servico = {
   profissional?: { id: string; nome: string }; // o paciente pediu um profissional específico: a agenda é só dela(e)
   nomeBruto?: string; // como o procedimento está cadastrado ("HOLTER 24H"), para a mensagem de confirmação
   preparo?: string; // orientação de preparo/atendimento cadastrada no Clinilink (só se for um texto útil)
+  categoria?: string; // categoria do procedimento no Clinilink (LABORATORIAL, ULTRASSONOGRAFIA...)
   detalhe?: string; // texto a mais depois do resumo das unidades (combo: o que está incluso)
-  combo?: { id: string; nome: string; itens: { id: string; nome: string; lab?: boolean }[]; ancoraId: string }; // uma ETAPA do combo com vários serviços (exames de laboratório): o horário é o da âncora, os outros entram no mesmo dia
+  combo?: { id: string; nome: string; itens: { id: string; nome: string; lab?: boolean }[]; ancoraId: string; semCombo?: boolean }; // semCombo: vários exames agendados juntos que NÃO são de um combo (o agendamento não leva comboId)
+  // // uma ETAPA do combo com vários serviços (exames de laboratório): o horário é o da âncora, os outros entram no mesmo dia
   pacote?: ComboInfo; // o COMBO inteiro, escolhido pelo paciente: o roteiro o transforma em etapas (cada uma vira um serviço normal, agendado em sequência)
 };
 
@@ -36,6 +47,7 @@ export type Descoberta =
   | { naoAchouServico: string } // o paciente pediu um serviço conhecido/claro e ele não está liberado para agendamento (ou tem outro nome no cadastro)
   | { naoAchouProfissional: string } // o paciente pediu uma pessoa pelo nome e não há ninguém assim com agenda
   | { semAgendaProfissional: { nome: string; alternativa?: Servico } } // a pessoa existe, mas sem horários abertos (alternativa = mesma especialidade, outros profissionais)
+  | { pedirPedido: true } // pedido genérico de exame (de sangue, laboratório, coleta...): o paciente manda o pedido médico (foto ou nomes) e a Amanda monta o orçamento
   | undefined; // não achou
 
 /** Um período de atendimento (ordem de chegada) numa data. `inicio` = hora em que a agenda abre. */
@@ -75,6 +87,12 @@ export interface Fonte {
   paciente(cpf: string): Promise<PacienteInfo | null>;
   /** Só a fonte real: combos que incluem o serviço e saem mais em conta (para sugerir a quem pediu só o serviço). */
   combosComServico?(sv: Servico): Promise<OfertaCombo[]>;
+  /** Só a fonte real: acha no Clinilink (serviços de categoria laboratorial/laboratório ou exames) os exames escritos no pedido. */
+  casarExames?(nomes: string[], escolher?: EscolherExames): Promise<{ itens: ItemExame[]; naoAchados: string[] }>;
+  /** Só a fonte real: o serviço para agendar a coleta de vários exames do orçamento num agendamento só. */
+  servicoDeExames?(itens: ItemExame[]): Promise<Servico | { semAgenda: string }>;
+  /** Só a fonte real: um combo que inclui TODOS esses exames e sai por menos que a soma (dica para o orçamento). */
+  dicaDeCombo?(itens: ItemExame[], soma: number): Promise<string | undefined>;
   /** Só a fonte real: o serviço de UMA etapa do combo (um item, ou os exames de laboratório juntos), com as unidades que têm agenda. */
   etapaDoCombo?(combo: { id: string; rotulo: string; total?: number }, itens: ItemDeCombo[]): Promise<Servico | { semAgenda: string }>;
 }

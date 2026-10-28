@@ -3,7 +3,7 @@ import { env } from '../../../lib/env.js';
 import { exibir, prepararGeneros } from '../../../lib/genero.js';
 import { evt } from '../../../lib/log.js';
 import { ordenarItens } from './combosOrdem.js';
-import { RAIZES, rotuloDaEtapa, type ComboInfo, type Descoberta, type Fonte, type ItemDeCombo, type OfertaCombo, type PedidoReserva, type Periodo, type ResultadoReserva, type Servico, type Slot, type Unidade } from './catalog.js';
+import { RAIZES, rotuloDaEtapa, type ComboInfo, type Descoberta, type EscolherExames, type Fonte, type ItemDeCombo, type ItemExame, type OfertaCombo, type PedidoReserva, type Periodo, type ResultadoReserva, type Servico, type Slot, type Unidade } from './catalog.js';
 
 /** Fonte REAL: unidades, médicos, preços, agenda e pacientes vêm do Clinilink. Reservar/cadastrar só com credencial rw. */
 
@@ -84,6 +84,7 @@ async function montar(c: Cand, prof?: { id: string; nome: string }): Promise<Des
     unidades: comAgenda.map(({ u, medicos, proc }): Unidade => ({ id: u.id, nome: nomeUnidade(u), profissionais: medicos, precoPix: precoDe(proc), nomeBruto: u.nome, endereco: u.endereco, telefone: u.telefone })), precoTexto,
     nomeBruto: c.proc.nome,
     preparo: preparoUtil(c.proc.preparo),
+    categoria: c.proc.categoria,
   };
   return { servico };
 }
@@ -625,7 +626,7 @@ async function reservarCombo(p: PedidoReserva): Promise<ResultadoReserva> {
   for (const h of livresA.slice(0, 3)) {
     const junto = outros.filter((i) => (disp.get(i.id) ?? []).some((x) => x.agendaId === h.agendaId));
     const dataHora = h.dataHora ?? `${h.data}T${h.hora}:00-03:00`;
-    const r = await criarAgendamento({ pacienteId, unidadeId: unidade.id, agendaId: h.agendaId, profissionalId: h.profissional?.id ?? slot.profissionalId ?? '', dataHora, procedimentoId: ancora.id, procedimentoIds: [ancora.id, ...junto.map((i) => i.id)], comboId: cmb.id, observacao: obs });
+    const r = await criarAgendamento({ pacienteId, unidadeId: unidade.id, agendaId: h.agendaId, profissionalId: h.profissional?.id ?? slot.profissionalId ?? '', dataHora, procedimentoId: ancora.id, procedimentoIds: [ancora.id, ...junto.map((i) => i.id)], comboId: cmb.semCombo ? undefined : cmb.id, observacao: obs });
     if (r.ok) { principal = h; grupoA = junto; feitos.push({ itens: [ancora.nome, ...junto.map((i) => i.nome)], hora: inicioMostrado(h), prof: nomeDePessoa(h.profissional?.nome) ?? undefined, profBruto: h.profissional?.nome }); break; }
     ultimo = r.codigo;
     if (r.codigo !== 'HORARIO_OCUPADO') return { ok: false, codigo: r.codigo, motivo: r.mensagem || r.codigo, incerto: r.incerto, cadastrou };
@@ -644,7 +645,7 @@ async function reservarCombo(p: PedidoReserva): Promise<ResultadoReserva> {
     const [agendaId, e] = melhor;
     const h2 = [...e.hs].sort((a, b) => a.hora.localeCompare(b.hora))[0];
     const grupo = restantes.filter((i) => e.ids.has(i.id));
-    const r2 = await criarAgendamento({ pacienteId, unidadeId: unidade.id, agendaId, profissionalId: h2.profissional?.id ?? '', dataHora: h2.dataHora ?? `${h2.data}T${h2.hora}:00-03:00`, procedimentoId: grupo[0].id, procedimentoIds: grupo.map((i) => i.id), comboId: cmb.id, observacao: obs });
+    const r2 = await criarAgendamento({ pacienteId, unidadeId: unidade.id, agendaId, profissionalId: h2.profissional?.id ?? '', dataHora: h2.dataHora ?? `${h2.data}T${h2.hora}:00-03:00`, procedimentoId: grupo[0].id, procedimentoIds: grupo.map((i) => i.id), comboId: cmb.semCombo ? undefined : cmb.id, observacao: obs });
     if (!r2.ok) return falhou(r2.codigo, `${grupo.map((i) => itemCurto(i.nome)).join(', ')} (${r2.codigo}${r2.mensagem ? `: ${r2.mensagem}` : ''})`, r2.incerto);
     feitos.push({ itens: grupo.map((i) => i.nome), hora: inicioMostrado(h2), prof: nomeDePessoa(h2.profissional?.nome) ?? undefined, profBruto: h2.profissional?.nome });
     extras.push({ ord: cmb.itens.findIndex((i) => i.id === grupo[0].id), txt: `${grupo.map((i) => itemCurto(i.nome)).join(', ')} ${grupo.length > 1 ? 'ficam agendados' : 'fica agendado'} no mesmo dia, a partir das ${inicioMostrado(h2)}, por ordem de chegada.` });
@@ -690,6 +691,119 @@ async function sugerirLaboratorio(): Promise<Descoberta> {
 export const ehSala = (nome?: string | null) => Boolean(nome) && /^\.?\s*(sala|coleta|exames?|laborat\w*|recepc\w*|triagem|ultrassom|usg)\b/.test(norm(nome!));
 const nomeDePessoa = (nome?: string | null) => (nome && !ehSala(nome) ? titulo(nome) : undefined);
 
+// ---------------- ORÇAMENTO DE EXAMES ----------------
+// O paciente manda o pedido médico (foto ou os nomes) e a Amanda acha cada exame no Clinilink. O pedido pode trazer qualquer procedimento (laboratório,
+// ultrassom, raio-x...), então a busca olha o catálogo todo, menos consultas e retornos. O preço é SEMPRE o campo `preco` de cada unidade.
+const ehExameDoCatalogo = (p: Procedimento) => !/^(consulta|aplica[cç][aã]o|infiltra[cç][aã]o|cauteriza[cç][aã]o|curativo|retirada)\b/i.test(p.nome.trim()) && !/\bretorno\b/i.test(p.nome);
+type ExameCat = { id: string; nome: string; categoria?: string; precos: Record<string, number> };
+
+/** Os exames do catálogo (todas as unidades), com o preço de cada unidade. */
+async function examesDoCatalogo(): Promise<ExameCat[]> {
+  const mapa = new Map<string, ExameCat>();
+  for (const c of await listClinicas()) {
+    for (const p of await listProcedimentos(c.id, '').catch(() => [] as Procedimento[])) {
+      if (!ehExameDoCatalogo(p)) continue;
+      const x = mapa.get(p.id) ?? { id: p.id, nome: p.nome.replace(/\s+/g, ' ').trim(), categoria: p.categoria, precos: {} };
+      const v = precoDe(p);
+      if (v !== undefined) x.precos[nomeUnidade(c)] = v;
+      mapa.set(p.id, x);
+    }
+  }
+  return [...mapa.values()];
+}
+
+const PALAVRAS_FRACAS_EXAME = new Set(['de', 'da', 'do', 'das', 'dos', 'e', 'em', 'com', 'para', 'por', 'a', 'o', 'as', 'os', 'exame', 'exames', 'dosagem', 'pesquisa']);
+const tokensDeExame = (s: string) => norm(s).replace(/\([^)]*\)/g, ' ').split(/[^a-z0-9]+/).filter((w) => w.length >= 1 && !PALAVRAS_FRACAS_EXAME.has(w));
+/** O nome como o paciente escreveu, sem marcador de lista, sem "exame de"/"dosagem de" e sem pontuação solta. */
+const limparNomeExame = (s: string) => s.replace(/\s+/g, ' ').replace(/^(?:\s*(?:e|mais|tamb[eé]m|tbm|o|a|os|as)\b[\s,]*)+/i, '').replace(/^[\s\-•*·]+/, '').replace(/^\d{1,2}\s*[.)-]\s+/, '').replace(/^(exame|exames|dosagem|pesquisa)\s+(de|do|da)\s+/i, '').replace(/[.;:,\s]+$/, '').trim().slice(0, 100);
+
+/** Quantas palavras do pedido aparecem no nome do exame (iguais, começo da palavra ou erro de digitação) e quanto do nome do exame elas cobrem. */
+function pontuarExame(q: string[], c: ExameCat) {
+  const nomes = tokensDeExame(c.nome);
+  let hits = 0; let score = 0;
+  for (const w of q) { const m = Math.max(0, ...nomes.map((n) => simPalavra(w, n))); if (m >= 2) { hits++; score += m; } }
+  return { hits, score, cobertura: hits / Math.max(1, nomes.length) };
+}
+/** O exame que o nome do pedido é, quando não há dúvida: todas as palavras batem e ou o nome é igual, ou são 2+ palavras, ou só há uma ou duas opções parecidas. */
+function melhorForte(nome: string, cat: ExameCat[]): ExameCat | undefined {
+  const q = tokensDeExame(nome);
+  if (q.length === 0) return undefined;
+  const pont = cat.map((c) => ({ c, ...pontuarExame(q, c) })).filter((x) => x.hits === q.length)
+    .sort((a, b) => (b.cobertura + (/laborat/i.test(b.c.categoria ?? '') ? 0.3 : 0)) - (a.cobertura + (/laborat/i.test(a.c.categoria ?? '') ? 0.3 : 0)) || b.score - a.score || a.c.nome.length - b.c.nome.length);
+  if (pont.length === 0) return undefined;
+  const topo = pont[0];
+  if (topo.cobertura >= 0.99 || q.length >= 2) return topo.c;
+  return pont.length === 1 ? topo.c : undefined; // uma palavra só ("vitamina") com mais de uma opção parecida: dúvida (vai para a IA ou fica sem achar)
+}
+const SIGLAS_DE_EXAME = new Set(['TSH', 'PCR', 'HDL', 'LDL', 'VLDL', 'TGO', 'TGP', 'PSA', 'VHS', 'T3', 'T4', 'FSH', 'LH', 'DHEA', 'ACTH', 'HIV', 'HCG', 'IGE', 'IGG', 'IGM', 'CPK', 'GGT', 'TTPA', 'EAS', 'FAN', 'ECG', 'USG', 'RX', 'TC', 'RM', 'PTH', 'HPV', 'HBSAG', 'VDRL', 'CEA']);
+/** "Transaminase Oxalacetica - Aspartato Aminotransferase (TGO)" -> "Transaminase Oxalacetica (TGO)"; siglas continuam em maiúsculas (TSH, HDL). */
+function nomeCurtoDeExame(nome: string): string {
+  const base = itemCurto(nome).replace(/\b[\p{L}\d]{1,5}\b/gu, (w) => (SIGLAS_DE_EXAME.has(w.toUpperCase()) ? w.toUpperCase() : w)); const abr = nome.match(/\(([A-Za-z0-9]{2,6})\)\s*$/)?.[1];
+  return abr && !norm(base).includes(norm(abr)) ? `${base} (${abr.toUpperCase()})` : base;
+}
+
+async function casarExamesFonte(nomes: string[], escolher?: EscolherExames): Promise<{ itens: ItemExame[]; naoAchados: string[] }> {
+  const cat = await examesDoCatalogo();
+  const brutos = [...new Set(nomes.map(limparNomeExame).filter((n) => /[\p{L}\d]{2,}/u.test(n)))];
+  // "TSH e vitamina D", "TGO/TGP": cada exame é um nome (a menos que o nome inteiro já seja UM exame, como "colesterol total e frações")
+  const limpos = [...new Set(brutos.flatMap((n) => {
+    if (melhorForte(n, cat)) return [n];
+    const partes = n.split(/\s+e\s+|\s*[+&/]\s*/i).map(limparNomeExame).filter((x) => /[\p{L}\d]{2,}/u.test(x));
+    return partes.length > 1 ? partes : [n];
+  }))];
+  const achados: ExameCat[][] = limpos.map(() => []);
+  const pend: number[] = [];
+  limpos.forEach((n, i) => { const f = melhorForte(n, cat); if (f) achados[i] = [f]; else pend.push(i); });
+  if (pend.length && escolher) {
+    const ia = await escolher({ nomes: pend.map((i) => limpos[i]), catalogo: cat.map(({ id, nome }) => ({ id, nome })) }).catch(() => null);
+    if (ia) pend.forEach((i, k) => { achados[i] = (ia[k] ?? []).map((id) => cat.find((c) => c.id === id)).filter((x): x is ExameCat => Boolean(x)); });
+  }
+  // sem IA (ou ela não achou): tenta cada pedaço de "hemograma e glicemia", "TGO/TGP"
+  for (const i of pend) {
+    if (achados[i].length) continue;
+    const partes = limpos[i].split(/\s+e\s+|\s*[+&/]\s*/i).map((p) => p.trim()).filter(Boolean);
+    if (partes.length < 2) continue;
+    const fs = partes.map((p) => melhorForte(p, cat));
+    if (fs.every(Boolean)) achados[i] = fs as ExameCat[];
+  }
+  const itens: ItemExame[] = []; const naoAchados: string[] = [];
+  limpos.forEach((n, i) => {
+    if (achados[i].length === 0) { naoAchados.push(n.length > 40 ? `${n.slice(0, 37)}...` : titulo(n)); return; }
+    for (const c of achados[i]) if (!itens.some((x) => x.id === c.id)) itens.push({ id: c.id, nome: nomeCurtoDeExame(c.nome), nomeBruto: c.nome, categoria: c.categoria, precos: c.precos, pedido: n });
+  });
+  return { itens, naoAchados };
+}
+
+/** O serviço para agendar a coleta dos exames do orçamento: um exame só é um serviço normal; vários viram UM agendamento (mesmo dia, a mesma agenda no mesmo horário), sem combo. */
+async function servicoDeExamesFonte(itens: ItemExame[]): Promise<Servico | { semAgenda: string }> {
+  const somaPorUnidade = (nomeUn: string): number | undefined => (itens.every((i) => typeof i.precos[nomeUn] === 'number') ? Math.round(itens.reduce((a, i) => a + i.precos[nomeUn], 0) * 100) / 100 : undefined);
+  const itensCombo: ItemDeCombo[] = itens.map((i) => ({ id: i.id, nome: i.nomeBruto, curto: i.nome, categoria: i.categoria }));
+  if (itensCombo.length === 1) {
+    const d = await montar(await candidatoDoItem(itensCombo[0]));
+    return d && 'servico' in d ? d.servico : { semAgenda: itens[0].nome };
+  }
+  const sv = await etapaDoComboFonte({ id: '', rotulo: 'exames' }, itensCombo);
+  if ('semAgenda' in sv) return sv;
+  return {
+    ...sv, frase: 'os exames do pedido', precoTexto: '',
+    unidades: sv.unidades.map((u) => ({ ...u, precoPix: somaPorUnidade(u.nome) })),
+    combo: sv.combo ? { ...sv.combo, semCombo: true } : sv.combo,
+  };
+}
+
+/** Um combo que inclui TODOS os exames pedidos e sai por menos que a soma: vira uma dica no orçamento. */
+async function dicaDeComboFonte(itens: ItemExame[], soma: number): Promise<string | undefined> {
+  const ids = itens.map((i) => i.id);
+  const cands = (await listCombos().catch(() => [] as Combo[]))
+    .filter((cb) => { const its = itensDoCombo(cb); return ids.every((id) => its.some((x) => x.id === id)); })
+    .map((cb) => ({ cb, total: totalDoCombo(cb) })).filter((x) => x.total !== undefined && x.total < soma - 0.009)
+    .sort((a, b) => a.total! - b.total!);
+  if (!cands.length) return undefined;
+  const { cb, total } = cands[0];
+  const extras = itensDoCombo(cb).length - ids.length;
+  return `Dica: o combo ${tituloCombo(cb.nome)} inclui todos esses exames${extras > 0 ? ` e mais ${extras}` : ''} e sai por ${reais(total!)}, ${reais(soma - total!)} a menos que a soma. Se preferir o combo, é só me falar.`;
+}
+
 export const fonteClinilink: Fonte = {
   tipo: 'clinilink',
   /** O paciente já tem este serviço neste dia? Procura nas unidades e devolve só o que vai para a conversa (unidade, hora, médico). */
@@ -711,23 +825,22 @@ export const fonteClinilink: Fonte = {
   async descobrir(t, buscando, forte = false) {
     // combo ("tem combo feminino?"): lista os combos, mostra o que inclui e o preço; escolhido, segue o fluxo normal de unidade, dia e pagamento
     if (buscando && !forte) { const combo = await descobrirCombo(t); if (combo !== undefined) return combo; }
+    // "tenho um pedido médico com exames": é o pedido de exames (antes de procurar uma pessoa pelo "com ...")
+    if (buscando && !forte && /\b(pedido (medico|de exames?)|requisicao de exames?|solicitacao de exames?|orcamento de exames?|orcar (os )?exames?)\b/.test(t)) return { pedirPedido: true };
     // pediu uma pessoa pelo nome ("com a dra Rebecca")? acha a pessoa e o atendimento dela com agenda
     const pessoa = await descobrirProfissional(t);
     if (pessoa) return pessoa;
     const raizes = RAIZES.filter((r) => r.re.test(t));
     const termos = raizes.flatMap((r) => [r.busca, ...(r.alt ?? [])]); // ex.: ultrassom -> usg -> ultrassonografia
     const palavras = palavrasDoPedido(t);
-    // "exame de sangue" sem dizer qual: como a atendente, mostra os exames de laboratório mais procurados (não adivinha "Sangue Oculto")
-    if (buscando && /\b(sangue|laboratori\w*|coleta)\b/.test(t) && palavras.filter((w) => !SO_GENERICAS_DE_SANGUE.has(w)).length === 0) {
-      const lab = await sugerirLaboratorio();
-      if (lab) return lab;
-    }
+    // "exame de sangue", "coleta", "preciso fazer uns exames", "tenho o pedido do médico": como a atendente, pede o pedido médico (foto ou os nomes) para montar o orçamento
+    if (buscando && /\b(sangue|laboratori\w*|coleta)\b/.test(t) && palavras.filter((w) => !SO_GENERICAS_DE_SANGUE.has(w)).length === 0) return { pedirPedido: true };
     // pedido genérico: quer AGENDAR um exame (ou uma consulta) e não disse qual -> mostra os que têm agenda
     if (buscando && !forte && termos.length === 0 && palavras.length === 0) {
       const exame = /\b(exames?)\b/.test(t); const consulta = /\b(consultas?)\b/.test(t);
       const querAgendar = /\b(marcar|agendar|agendamento|marcacao|quero|queria|preciso|precisando|gostaria|fazer|realizar|tem vaga|disponivel|horario)\b/.test(t);
       const outroAssunto = /\b(remarc\w*|reagend\w*|desmarc\w*|cancel\w*|resultado|laudo|retorno)\b/.test(t);
-      if (exame !== consulta && querAgendar && !outroAssunto) return sugerirPorTipo(exame ? 'exame' : 'consulta');
+      if (exame !== consulta && querAgendar && !outroAssunto) return exame ? { pedirPedido: true } : sugerirPorTipo('consulta');
     }
     // sem raiz conhecida e sem palavra que possa ser nome de serviço: não é pedido de serviço
     if (termos.length === 0 && !(buscando && palavras.length)) return undefined;
@@ -826,6 +939,9 @@ export const fonteClinilink: Fonte = {
   },
 
   combosComServico: combosComServicoFonte,
+  casarExames: casarExamesFonte,
+  servicoDeExames: servicoDeExamesFonte,
+  dicaDeCombo: dicaDeComboFonte,
   etapaDoCombo: etapaDoComboFonte,
 
   async paciente(cpf) {

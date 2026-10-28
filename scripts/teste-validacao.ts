@@ -122,5 +122,22 @@ for (const [txt, esperado] of [['estou com dor no peito', true], ['to com falta 
   console.log(`${r1 === null ? 'OK  ' : 'FALHOU'} leitor de contexto, confirmado é verdade nos fatos -> ${r1 ?? 'aceita'}`);
 }
 
+// ---- orçamento de exames: o que a leitura da foto e a IA que casa os exames podem devolver ----
+{
+  const { sanitizarExames } = await import('../src/lib/pedidoMedico.js');
+  const { validarEscolhas } = await import('../src/lib/interpretarExames.js');
+  const igual = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+  const t = (nome: string, ok: boolean, det = '') => { if (!ok) falhas++; console.log(`${ok ? 'OK  ' : 'FALHOU'} ${nome}${det ? ` -> ${det}` : ''}`); };
+  const s1 = sanitizarExames(['Hemograma completo', '  hemograma completo ', '1) Glicose', '- TSH', 'x', '12345', 'paciente@email.com', '123.456.789-00', 'CRM 18599', 'TC de abdome superior sem contraste', 42, null, { a: 1 }]);
+  t('leitura da foto: nome de exame limpo, sem repetir, sem marcador de lista', igual(s1, ['Hemograma completo', 'Glicose', 'TSH', 'TC de abdome superior sem contraste']), JSON.stringify(s1));
+  t('leitura da foto: e-mail, CPF e número de documento NUNCA passam (não viram nome de exame)', !s1.some((x) => /@|\d{4}/.test(x)));
+  t('leitura da foto: resposta que não é lista vira vazio', igual(sanitizarExames('hemograma'), []) && igual(sanitizarExames(undefined), []));
+  t('leitura da foto: no máximo 60 exames', sanitizarExames(Array.from({ length: 200 }, (_, i) => `Exame numero ${String.fromCharCode(97 + (i % 26))}${String.fromCharCode(97 + Math.floor(i / 26))}`)).length === 60);
+  const e1 = validarEscolhas({ resultado: [{ i: 0, itens: [3, 5] }, { i: 1, itens: [] }, { i: 2, itens: [99, 0, -1, 'x', 2, 2] }, { i: 7, itens: [1] }] }, 3, 10);
+  t('IA que casa exames: só números que existem no catálogo, sem repetir, e só posições que existem', igual(e1, [['3', '5'], [], ['2']]), JSON.stringify(e1));
+  t('IA que casa exames: no máximo 3 itens por nome', igual(validarEscolhas({ resultado: [{ i: 0, itens: [1, 2, 3, 4, 5] }] }, 1, 10), [['1', '2', '3']]));
+  t('IA que casa exames: JSON sem "resultado" é recusado (o roteiro segue só com as regras)', validarEscolhas({ x: 1 }, 2, 10) === null && validarEscolhas(null, 2, 10) === null);
+}
+
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTODAS AS PROTEÇÕES FUNCIONAM');
 process.exit(falhas ? 1 : 0);
