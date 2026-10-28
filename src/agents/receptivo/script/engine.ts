@@ -983,6 +983,12 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
   const adicionarExames = async (nomes: string[], origem: 'foto' | 'texto', ilegivel = false): Promise<Result> => {
     const o = s.orcamento!;
     const r = await fonte.casarExames!(nomes, ctx.casarExames);
+    if (r.externos.length) {
+      // serviço EXTERNO no pedido: a equipe atende. Vai para a linha de atendimento principal e a Amanda não retoma sozinha.
+      const achados = [...o.itens, ...r.itens].map((i) => i.nome);
+      return out(`Nesse pedido tem ${r.externos.length > 1 ? 'exames' : 'exame'} de serviço externo (${juntar(r.externos)}), que a nossa equipe atende direto. Vou te encaminhar pra nossa linha de atendimento principal e o time continua com você por lá. Já deixei tudo anotado. Só um instante.`,
+        { duro: true, motivo: `Orçamento de exames: o pedido do paciente tem serviço(s) EXTERNO(S): ${r.externos.join('; ').slice(0, 300)}. Exames da clínica que a Amanda achou: ${achados.join(', ').slice(0, 300) || 'nenhum'}. Não achados: ${[...o.naoAchados, ...r.naoAchados].join('; ').slice(0, 200) || 'nenhum'}. Atender o paciente (orçamento e agendamento).` });
+    }
     for (const it of r.itens) if (!o.itens.some((x) => x.id === it.id)) o.itens.push(it);
     for (const n of r.naoAchados) if (!o.naoAchados.includes(n)) o.naoAchados.push(n);
     if (origem === 'foto') o.origem = 'foto';
@@ -1238,6 +1244,10 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     if ('pedirPedido' in d) { if (!s.servico && fonte.casarExames) { s.orcamento = novoOrcamento(); s.opcoes = undefined; } return undefined; }
     if ('semAgenda' in d) return out(comAbertura(`Poxa, no momento não tenho vaga aberta pra ${d.semAgenda}. Vou chamar alguém da equipe pra conferir e te retornar.`), { motivo: `Sem vagas abertas na agenda para ${d.semAgenda}.` });
     // serviço pedido e não encontrado: diz com franqueza e oferece a equipe (só transfere se ele aceitar)
+    if ('servicoExterno' in d) {
+      if (s.servico) return undefined;
+      return out(comAbertura(`${cap(d.servicoExterno)} é um serviço externo, que a nossa equipe atende direto. Vou te encaminhar pra nossa linha de atendimento principal e o time continua com você por lá. Já deixei tudo anotado. Só um instante.`), { duro: true, motivo: `Paciente quer ${d.servicoExterno}, serviço EXTERNO (a Amanda não agenda). Encaminhado para a linha de atendimento principal. Mensagem: ${texto.replace(TOKEN_MIDIA, ' ').trim().slice(0, 200)}` });
+    }
     if ('naoAchouServico' in d) {
       if (s.servico) return undefined; // já está em um atendimento: ignora a menção
       s.ofereceuEquipe = d.naoAchouServico;
@@ -1393,6 +1403,12 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
 
   // 2c) o paciente escolheu um combo: ele vira etapas (a primeira passa a ser o serviço da conversa)
   if (s.servico?.pacote && !s.combo) { const r = await iniciaCombo(s.servico); if (r) return r; }
+
+  // 2d') serviço de categoria EXTERNA no catálogo (ex.: colonoscopia): a equipe atende, a Amanda não agenda
+  if (s.servico && !s.combo && /extern/i.test(s.servico.categoria ?? '') && mudouServico) {
+    const ext = s.servico.frase;
+    return out(comAbertura(`${cap(ext)} é um serviço externo, que a nossa equipe atende direto. Vou te encaminhar pra nossa linha de atendimento principal e o time continua com você por lá. Já deixei tudo anotado. Só um instante.`), { duro: true, motivo: `Paciente quer ${ext}, serviço EXTERNO (categoria externa no Clinilink; a Amanda não agenda). Encaminhado para a linha de atendimento principal.` });
+  }
 
   // 2d) orçamento de exames: começou agora (pedido genérico de exame: ela pede o pedido médico) ou o serviço pedido pelo nome é um exame de laboratório (já anota e mostra o valor)
   if (s.orcamento && !base.orcamento && !s.servico) return dir(out(comAbertura(PEDIR_PEDIDO)));

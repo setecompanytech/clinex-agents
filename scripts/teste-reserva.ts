@@ -97,7 +97,7 @@ const server = http.createServer((req, res) => {
             c('28282828-2828-4282-8282-282828282828', 'TESTE DE ESFORCO COM ECG', 'Exames', 120), c('29292929-2929-4292-8292-292929292929', 'CONSULTA SEMVALOR', 'Consulta', 0),
             ...['DENGUE IGG', 'DENGUE IGM', 'DENGUE ANTIGENO', 'COVID', 'HIV', 'SIFILIS', 'HEPATITE B', 'HEPATITE C', 'H PYLORI', 'INFLUENZA', 'ZIKA', 'CHIKUNGUNYA', 'MALARIA', 'TOXOPLASMOSE', 'ROTAVIRUS', 'STREPTOCOCO', 'LATEX', 'COOMBS', 'HCG', 'TROPONINA'].map((n, i) => c(`40000000-0000-4000-8000-0000000000${String(i).padStart(2, '0')}`, `TESTE RAPIDO ${n}`, 'Laboratório', 30)),
             c('41414141-4141-4414-8414-414141414141', 'HEMOGRAMA COMPLETO', 'Laboratório', 15), c('42424242-4242-4424-8424-424242424242', 'GLICOSE', 'Laboratório', 10),
-            c(PROC_COL, 'COLESTEROL TOTAL E FRACOES', 'Laboratório', 30), c(PROC_URINA, 'URINA ROTINA', 'Laboratório', 10), c(PROC_TSH, 'TSH - HORMONIO TIREOESTIMULANTE', 'Laboratório', un === U_TELEGRAFO ? 40 : 35), c(PROC_FERR, 'FERRITINA', 'Laboratório', 0), c(PROC_TGO, 'TRANSAMINASE OXALACETICA - ASPARTATO AMINOTRANSFERASE (TGO)', 'Laboratório', 10), c(PROC_TRIG, 'TRIGLICERIDEOS', 'Laboratório', 12),
+            c(PROC_COL, 'COLESTEROL TOTAL E FRACOES', 'Laboratório', 30), c(PROC_URINA, 'URINA ROTINA', 'Laboratório', 10), c(PROC_TSH, 'TSH - HORMONIO TIREOESTIMULANTE', 'Laboratório', un === U_TELEGRAFO ? 40 : 35), c(PROC_FERR, 'FERRITINA', 'Laboratório', 0), c(LAB(7), 'TEMPO DE COAGULACAO - TC', 'Laboratório', 5), c('48000000-0000-4000-8000-000000000001', 'COLONOSCOPIA (ANESTESISTA INCLUSO)', 'EXAME EXTERNO (IMAGEM)', 2000), c(PROC_TGO, 'TRANSAMINASE OXALACETICA - ASPARTATO AMINOTRANSFERASE (TGO)', 'Laboratório', 10), c(PROC_TRIG, 'TRIGLICERIDEOS', 'Laboratório', 12),
             ...((globalThis as any).__avulsosCombos ? [c(PROC_USGC, 'USG TRANSVAGINAL', 'Exames', 90), c(PROC_ECG, 'ELETROCARDIOGRAMA', 'Exames', 40)] : []), // com o preço avulso de todos os itens o combo passa a mostrar a economia (e a ser sugerido)
             c('31313131-3131-4313-8313-313131313131', 'TESTE ERGOMETRICO', 'Exames', 140), c('32323232-3232-4323-8323-323232323232', 'TESTE RAPIDO DE GRAVIDEZ', 'Exames', 40), c('33333333-3434-4343-8343-343434343434', 'TESTE DE ALERGIA', 'Exames', 90),
           ] });
@@ -110,7 +110,9 @@ const server = http.createServer((req, res) => {
         if (/ergometrico|fonoaudiologo|audiom|hemoglob|glicada/i.test(b)) return j(200, { ok: true, procedimentos: [] });
         if (/semvalor/i.test(b)) return j(200, { ok: true, procedimentos: [{ id: '29292929-2929-4292-8292-292929292929', nome: 'CONSULTA SEMVALOR', categoria: 'Consulta', preco: 0, precoDinheiro: 0 }] });
         const consulta = (id: string, nome: string) => ({ id, nome, categoria: 'Consulta', preco: 100, precoDinheiro: un === U_GUAMA ? 0 : 100 });
-        const lista = /zzz|qqq|rebec|zuleide|xavier|silva|pix/i.test(b) || /^ultrassom$/i.test(b) ? []
+        const lista = /tomograf|ressonanc|ecocardio/i.test(b) ? [] // serviços externos: não aparecem na lista do chatbot
+          : /colonosc/i.test(b) ? [{ id: '48000000-0000-4000-8000-000000000001', nome: 'COLONOSCOPIA (ANESTESISTA INCLUSO)', categoria: 'EXAME EXTERNO (IMAGEM)', preco: 2000, precoDinheiro: 0 }]
+          : /zzz|qqq|rebec|zuleide|xavier|silva|pix/i.test(b) || /^ultrassom$/i.test(b) ? []
           : /usg|ultrassonografia/i.test(b) ? [{ id: PROC_USG, nome: 'USG ABDOME TOTAL', categoria: 'Exames', preco: 150, precoDinheiro: 150, preparo: PREPARO_LONGO }]
           : /dermat/i.test(b) ? [consulta(PROC2, 'CONSULTA DERMATOLOGIA')]
           : /cardio/i.test(b) ? [consulta(PROC3, 'CONSULTA CARDIOLOGIA')]
@@ -168,7 +170,7 @@ process.env.CLINILINK_BASE_URL = `http://127.0.0.1:${(server.address() as any).p
 process.env.CLINILINK_API_KEY = 'chave-de-teste';
 process.env.LOG_QUIET = '1';
 
-const { responder, MARCA_AGENDADO, MARCAS_FIM, SEM_GPT, estadoDepoisDaResposta, etapa } = await import('../src/agents/receptivo/script/engine.js');
+const { responder, MARCA_AGENDADO, MARCAS_FIM, SEM_GPT, estadoDepoisDaResposta, etapa, handoffDuro } = await import('../src/agents/receptivo/script/engine.js');
 const { fonteClinilink } = await import('../src/agents/receptivo/script/clinilinkFonte.js');
 const ctx = { now: new Date(), nome: 'Teste', tz: 'America/Sao_Paulo', telefone: '5591999990000' };
 
@@ -1498,7 +1500,9 @@ confere('EN6 o texto do endereço nunca passa pelo GPT (aprovado palavra por pal
   void modelosDe;
   /** O que a leitura da foto devolve, por id de mensagem (o agente real lê a imagem com um modelo de visão). */
   const fotos: Record<string, any> = {
-    ped1: { tipo: 'pedido', exames: ['Hemograma completo', 'Glicose', 'Colesterol total e frações', 'EAS', 'TC de abdome superior sem contraste'] },
+    ped1: { tipo: 'pedido', exames: ['Hemograma completo', 'Glicose', 'Colesterol total e frações', 'EAS', 'Dosagem de marcador raro xyz'] },
+    ped5: { tipo: 'pedido', exames: ['Hemograma completo', 'TC de abdome superior sem contraste'] },
+    ped6: { tipo: 'pedido', exames: ['Tempo de coagulação (TC)', 'Hemograma completo'] },
     ped2: { tipo: 'pedido', exames: ['TC de abdome superior sem contraste', 'TC de abdome inferior sem contraste'] },
     ped3: { tipo: 'pedido', exames: ['Hemograma completo', 'Glicose'] },
     ped4: { tipo: 'pedido', exames: ['TSH', 'Ferritina', 'TGO', 'Triglicerídeos'], incerto: true },
@@ -1537,7 +1541,7 @@ confere('EN6 o texto do endereço nunca passa pelo GPT (aprovado palavra por pal
   // a foto: ela lê, acha no Clinilink, mostra o valor de cada exame, a soma e o que não achou
   o = await seqO(['oi', 'quero fazer um exame de sangue', foto('ped1')]);
   confere('OR2 foto do pedido: lista os exames achados no Clinilink, cada um com o valor, e a soma', /^Li o pedido e encontrei estes exames:/.test(o.r.reply) && /• Hemograma Completo: R\$ 15,00/.test(o.r.reply) && /• Glicose: R\$ 10,00/.test(o.r.reply) && /• Colesterol Total E Fracoes: R\$ 30,00|• Colesterol Total e Fracoes: R\$ 30,00/i.test(o.r.reply) && /• Urina Rotina: R\$ 10,00/.test(o.r.reply) && /Total: R\$ 65,00/.test(o.r.reply), o.r.reply.replace(/\n/g, ' | ').slice(0, 420));
-  confere('OR2 o que a clínica não tem (TC) não entra na soma e ela avisa; fecha perguntando se são esses mesmos', /Não achei no sistema: .*[Tt]c de abdome superior sem contraste/i.test(o.r.reply) && /não entrou na soma e a equipe pode conferir/.test(o.r.reply) && /São esses mesmos\? Se faltar algum ou tiver algum a mais, é só me avisar\.$/.test(o.r.reply) && o.r.state.orcamento?.fase === 'confirmando', o.r.reply.split(/\n\n/).slice(1).join(' || ').slice(0, 300));
+  confere('OR2 o que a clínica não tem não entra na soma e ela avisa; fecha perguntando se são esses mesmos', /Não achei no sistema: .*[Mm]arcador raro xyz/i.test(o.r.reply) && /não entrou na soma e a equipe pode conferir/.test(o.r.reply) && /São esses mesmos\? Se faltar algum ou tiver algum a mais, é só me avisar\.$/.test(o.r.reply) && o.r.state.orcamento?.fase === 'confirmando', o.r.reply.split(/\n\n/).slice(1).join(' || ').slice(0, 300));
   confere('OR2 a abreviação do pedido (EAS) foi resolvida pela IA; o que as regras já resolvem não vai para a IA; nada foi gravado', chamadasCasar.some((n) => n.some((x) => /^eas$/i.test(x))) && !chamadasCasar.some((n) => n.includes('Hemograma completo')) && posts.length === 0, JSON.stringify(chamadasCasar.slice(-1)));
   // "sim": passa o total e oferece a coleta
   let o2 = await seqO(['oi', 'quero fazer um exame de sangue', foto('ped1'), 'sim']);
@@ -1583,7 +1587,17 @@ confere('EN6 o texto do endereço nunca passa pelo GPT (aprovado palavra por pal
   o = await seqO(['oi', 'quero fazer um exame de sangue', foto('ruim1'), foto('ruim1'), foto('ruim1')]);
   confere('OR10 foto ilegível: pede outra (e à 3ª vez chama a equipe)', /Não consegui ler essa foto/.test(o.falas[2]) && Boolean(o.r.handoff) && /não pôde ser lida/.test(o.r.handoff.motivo), `${o.falas[2].replace(/\n/g, ' | ').slice(0, 100)} | ${o.r.handoff?.motivo?.slice(0, 80)}`);
   o = await seqO(['oi', 'quero fazer um exame de sangue', foto('ped2')]);
-  confere('OR11 exemplo real (guia SUS de TC de abdome sem contraste): a clínica não faz esse exame, então ela diz o que leu e chama a equipe, sem trocar por outro exame', Boolean(o.r.handoff) && /Li o pedido, mas não achei esses exames aqui no sistema/.test(o.r.reply) && /abdome superior/i.test(o.r.reply) && !/USG|Usg|Total:/.test(o.r.reply) && /Exames lidos: .*abdome superior/i.test(o.r.handoff.motivo), o.r.reply.replace(/\n/g, ' | ').slice(0, 260));
+  confere('OR11 exemplo real (guia SUS de TC de abdome sem contraste): é serviço EXTERNO, então ela encaminha para a linha de atendimento principal (transferência definitiva: a Amanda não retoma) com os exames lidos anotados, sem trocar por outro exame', Boolean(o.r.handoff) && o.r.handoff.duro === true && /serviço externo \(Tc de Abdome Superior Sem Contraste e Tc de Abdome Inferior Sem Contraste\)/.test(o.r.reply) && /linha de atendimento principal/.test(o.r.reply) && !/USG|Usg|Total:/.test(o.r.reply) && /EXTERNO/.test(o.r.handoff.motivo) && /abdome superior/i.test(o.r.handoff.motivo) && handoffDuro(o.r.handoff), `${o.r.reply.replace(/\n/g, ' | ').slice(0, 260)} | duro=${o.r.handoff?.duro}`);
+  o = await seqO(['oi', 'quero fazer um exame de sangue', foto('ped5')]);
+  confere('OR22 pedido com exame da clínica E exame externo: vai tudo para a linha principal (a equipe faz o orçamento), listando o que a Amanda achou e o que é externo', Boolean(o.r.handoff?.duro) && /Exames da clínica que a Amanda achou: Hemograma Completo/.test(o.r.handoff?.motivo ?? '') && /EXTERNO.*abdome superior/i.test(o.r.handoff?.motivo ?? ''), o.r.handoff?.motivo?.slice(0, 260));
+  o = await seqO(['oi', 'quero fazer uma tomografia de abdome']);
+  confere('OR23 tomografia pedida pelo nome: serviço externo, encaminha para a linha principal na hora (sem perguntar se quer a equipe)', Boolean(o.r.handoff?.duro) && /Tomografia( de abdome)? é um serviço externo/i.test(o.r.reply) && /linha de atendimento principal/.test(o.r.reply) && /EXTERNO/.test(o.r.handoff?.motivo ?? ''), o.r.reply.replace(/\n/g, ' | ').slice(0, 200));
+  o = await seqO(['oi', 'quero marcar um ecocardiograma']);
+  confere('OR24 ecocardiograma (externo, fora do catálogo do chatbot): encaminha para a linha principal', Boolean(o.r.handoff?.duro) && /serviço externo/.test(o.r.reply), o.r.reply.replace(/\n/g, ' | ').slice(0, 160));
+  o = await seqO(['oi', 'quero fazer uma colonoscopia']);
+  confere('OR25 serviço que está no catálogo mas com categoria EXAME EXTERNO (colonoscopia): também vai para a linha principal, sem agendar', Boolean(o.r.handoff?.duro) && /serviço externo/.test(o.r.reply) && corposAg().length === 0, o.r.reply.replace(/\n/g, ' | ').slice(0, 160));
+  o = await seqO(['oi', 'quero fazer um exame de sangue', foto('ped6')]);
+  confere('OR26 "Tempo de coagulação (TC)" é exame de laboratório da clínica (a sigla TC no nome NÃO o torna externo): entra no orçamento', !o.r.handoff && /• Tempo De Coagulacao|• Tempo de Coagulação|Tempo/i.test(o.r.reply) && /Total: R\$ 20,00/.test(o.r.reply), o.r.reply.replace(/\n/g, ' | ').slice(0, 220));
   o = await seqO(['oi', 'quero fazer um exame de sangue', foto('ped4')]);
   confere('OR12 exame sem valor cadastrado fica "a confirmar" e fora da soma; pedido parcialmente ilegível é avisado', /• Ferritina: valor a confirmar com a equipe/.test(o.r.reply) && /Ferritina está sem valor cadastrado, então esse não entrou na soma/.test(o.r.reply) && /Tem trecho do pedido que eu não consegui ler\./.test(o.r.reply) && /• Transaminase Oxalacetica \(TGO\): R\$ 10,00/.test(o.r.reply), o.r.reply.replace(/\n/g, ' | ').slice(0, 520));
 

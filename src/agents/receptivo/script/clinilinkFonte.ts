@@ -3,6 +3,7 @@ import { env } from '../../../lib/env.js';
 import { exibir, prepararGeneros } from '../../../lib/genero.js';
 import { evt } from '../../../lib/log.js';
 import { ordenarItens } from './combosOrdem.js';
+import { ehServicoExterno } from './servicosExternos.js';
 import { RAIZES, rotuloDaEtapa, type ComboInfo, type Descoberta, type EscolherExames, type Fonte, type ItemDeCombo, type ItemExame, type OfertaCombo, type PedidoReserva, type Periodo, type ResultadoReserva, type Servico, type Slot, type Unidade } from './catalog.js';
 
 /** Fonte REAL: unidades, médicos, preços, agenda e pacientes vêm do Clinilink. Reservar/cadastrar só com credencial rw. */
@@ -50,6 +51,8 @@ export const precoDe = (p: Pick<Procedimento, 'preco'>): number | undefined => (
 const preparoUtil = (x?: string | null) => { const t = (x ?? '').replace(/\r\n?/g, '\n').replace(/[ \t]+/g, ' ').replace(/ ?\n ?/g, '\n').replace(/\n{3,}/g, '\n\n').trim(); return t.length > 3 && t !== '0' ? t : undefined; }; // mantém as quebras de linha do cadastro
 
 async function montar(c: Cand, prof?: { id: string; nome: string }): Promise<Descoberta> {
+  // categoria EXTERNA no Clinilink (colonoscopia...): a equipe atende, com ou sem agenda; a Amanda não agenda
+  if (/extern/i.test(c.proc.categoria ?? '')) return { servicoExterno: itemCurto(c.proc.nome) };
   const ini = hojeYmd();
   const fim = somaDias(ini, 30);
   // unidade só conta como disponível com agenda confirmada nesta consulta
@@ -742,7 +745,7 @@ function nomeCurtoDeExame(nome: string): string {
   return abr && !norm(base).includes(norm(abr)) ? `${base} (${abr.toUpperCase()})` : base;
 }
 
-async function casarExamesFonte(nomes: string[], escolher?: EscolherExames): Promise<{ itens: ItemExame[]; naoAchados: string[] }> {
+async function casarExamesFonte(nomes: string[], escolher?: EscolherExames): Promise<{ itens: ItemExame[]; naoAchados: string[]; externos: string[] }> {
   const cat = await examesDoCatalogo();
   const brutos = [...new Set(nomes.map(limparNomeExame).filter((n) => /[\p{L}\d]{2,}/u.test(n)))];
   // "TSH e vitamina D", "TGO/TGP": cada exame é um nome (a menos que o nome inteiro já seja UM exame, como "colesterol total e frações")
@@ -752,11 +755,20 @@ async function casarExamesFonte(nomes: string[], escolher?: EscolherExames): Pro
     return partes.length > 1 ? partes : [n];
   }))];
   const achados: ExameCat[][] = limpos.map(() => []);
+  const externos: string[] = [];
+  const externoCat = (c: ExameCat) => /extern/i.test(c.categoria ?? '');
+  const nomeExterno = (n: string) => (n.length > 50 ? `${n.slice(0, 47)}...` : titulo(n));
   const pend: number[] = [];
-  limpos.forEach((n, i) => { const f = melhorForte(n, cat); if (f) achados[i] = [f]; else pend.push(i); });
+  limpos.forEach((n, i) => {
+    const f = melhorForte(n, cat);
+    if (f) { if (externoCat(f)) externos.push(nomeExterno(n)); else achados[i] = [f]; } // exame de categoria "externo" no catálogo
+    else if (ehServicoExterno(n)) externos.push(nomeExterno(n)); // tomografia, ressonância...: não está no catálogo do chatbot e NUNCA vai para a IA (ela não pode trocar por outro exame)
+    else pend.push(i);
+  });
   if (pend.length && escolher) {
     const ia = await escolher({ nomes: pend.map((i) => limpos[i]), catalogo: cat.map(({ id, nome }) => ({ id, nome })) }).catch(() => null);
     if (ia) pend.forEach((i, k) => { achados[i] = (ia[k] ?? []).map((id) => cat.find((c) => c.id === id)).filter((x): x is ExameCat => Boolean(x)); });
+    for (const i of pend) if (achados[i].some(externoCat)) { externos.push(nomeExterno(limpos[i])); achados[i] = []; }
   }
   // sem IA (ou ela não achou): tenta cada pedaço de "hemograma e glicemia", "TGO/TGP"
   for (const i of pend) {
@@ -768,10 +780,10 @@ async function casarExamesFonte(nomes: string[], escolher?: EscolherExames): Pro
   }
   const itens: ItemExame[] = []; const naoAchados: string[] = [];
   limpos.forEach((n, i) => {
-    if (achados[i].length === 0) { naoAchados.push(n.length > 40 ? `${n.slice(0, 37)}...` : titulo(n)); return; }
+    if (achados[i].length === 0) { if (externos.includes(nomeExterno(n))) return; naoAchados.push(n.length > 40 ? `${n.slice(0, 37)}...` : titulo(n)); return; }
     for (const c of achados[i]) if (!itens.some((x) => x.id === c.id)) itens.push({ id: c.id, nome: nomeCurtoDeExame(c.nome), nomeBruto: c.nome, categoria: c.categoria, precos: c.precos, pedido: n });
   });
-  return { itens, naoAchados };
+  return { itens, naoAchados, externos: [...new Set(externos)] };
 }
 
 /** O serviço para agendar a coleta dos exames do orçamento: um exame só é um serviço normal; vários viram UM agendamento (mesmo dia, a mesma agenda no mesmo horário), sem combo. */
@@ -827,6 +839,16 @@ export const fonteClinilink: Fonte = {
     if (buscando && !forte) { const combo = await descobrirCombo(t); if (combo !== undefined) return combo; }
     // "tenho um pedido médico com exames": é o pedido de exames (antes de procurar uma pessoa pelo "com ...")
     if (buscando && !forte && /\b(pedido (medico|de exames?)|requisicao de exames?|solicitacao de exames?|orcamento de exames?|orcar (os )?exames?)\b/.test(t)) return { pedirPedido: true };
+    // serviço EXTERNO pedido pelo nome ("tomografia de abdome", "ecocardiograma"): não vira ultrassom só porque cita o mesmo órgão. Se o catálogo do chatbot NÃO tem um
+    // serviço com todas as palavras do pedido, é com a equipe (linha de atendimento principal).
+    if (buscando && !forte && ehServicoExterno(t)) {
+      const q = tokensDeExame(palavrasDoPedido(t).join(' '));
+      const catalogoExames = await examesDoCatalogo();
+      if (!(q.length > 0 && catalogoExames.some((c) => pontuarExame(q, c).hits === q.length))) {
+        const nomeDito = titulo(t.replace(/\b(quero|queria|preciso|precisando|gostaria|marcar|agendar|agendamento|fazer|realizar|um|uma|uns|umas|o|a|os|as|pra|para|por favor|favor)\b/g, ' ').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()).slice(0, 60);
+        return { servicoExterno: nomeDito || 'esse exame' };
+      }
+    }
     // pediu uma pessoa pelo nome ("com a dra Rebecca")? acha a pessoa e o atendimento dela com agenda
     const pessoa = await descobrirProfissional(t);
     if (pessoa) return pessoa;
@@ -885,6 +907,8 @@ export const fonteClinilink: Fonte = {
     }
     // nada igual nem parecido (ou não está liberado para agendamento pelo chatbot): o paciente fica sabendo
     evt('servico_nao_encontrado', { termo: rotulo || palavras.join(' '), tentativas: termos, palavras });
+    // tomografia, ressonância, ecocardiograma...: serviço EXTERNO (não aparece no catálogo do chatbot); a equipe atende
+    if (buscando && ehServicoExterno(t)) return { servicoExterno: rotulo || palavras.join(' ') || 'esse exame' };
     return rotulo ? { naoAchouServico: rotulo } : undefined;
   },
 

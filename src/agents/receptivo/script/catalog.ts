@@ -47,6 +47,7 @@ export type Descoberta =
   | { naoAchouServico: string } // o paciente pediu um serviço conhecido/claro e ele não está liberado para agendamento (ou tem outro nome no cadastro)
   | { naoAchouProfissional: string } // o paciente pediu uma pessoa pelo nome e não há ninguém assim com agenda
   | { semAgendaProfissional: { nome: string; alternativa?: Servico } } // a pessoa existe, mas sem horários abertos (alternativa = mesma especialidade, outros profissionais)
+  | { servicoExterno: string } // o paciente pediu um serviço EXTERNO (tomografia, ressonância...): a equipe atende, a Amanda não agenda
   | { pedirPedido: true } // pedido genérico de exame (de sangue, laboratório, coleta...): o paciente manda o pedido médico (foto ou nomes) e a Amanda monta o orçamento
   | undefined; // não achou
 
@@ -88,7 +89,7 @@ export interface Fonte {
   /** Só a fonte real: combos que incluem o serviço e saem mais em conta (para sugerir a quem pediu só o serviço). */
   combosComServico?(sv: Servico): Promise<OfertaCombo[]>;
   /** Só a fonte real: acha no Clinilink (serviços de categoria laboratorial/laboratório ou exames) os exames escritos no pedido. */
-  casarExames?(nomes: string[], escolher?: EscolherExames): Promise<{ itens: ItemExame[]; naoAchados: string[] }>;
+  casarExames?(nomes: string[], escolher?: EscolherExames): Promise<{ itens: ItemExame[]; naoAchados: string[]; externos: string[] }>;
   /** Só a fonte real: o serviço para agendar a coleta de vários exames do orçamento num agendamento só. */
   servicoDeExames?(itens: ItemExame[]): Promise<Servico | { semAgenda: string }>;
   /** Só a fonte real: um combo que inclui TODOS esses exames e sai por menos que a soma (dica para o orçamento). */
