@@ -34,26 +34,10 @@ export const clientJs = String.raw`
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
   function store(key, val) { try { if (val == null) return localStorage.getItem(key); localStorage.setItem(key, val); } catch (e) {} return null; }
 
-  /* ------------------------------------------------------------------ tema */
-  function applyTheme(t, persist) {
-    document.documentElement.setAttribute('data-theme', t);
-    var b = document.getElementById('btnTheme');
-    if (b) b.textContent = t === 'dark' ? 'Tema claro' : 'Tema escuro';
-    if (persist) store('painel-theme', t);
-  }
-  (function initTheme() {
-    var t = store('painel-theme');
-    if (!t) t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-    applyTheme(t, false);
-    document.getElementById('btnTheme').addEventListener('click', function () {
-      applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark', true);
-    });
-  })();
-
   /* ------------------------------------------------------------------ vista (zoom / arrastar) */
   function applyView() {
     world.style.transform = 'translate(' + view.x + 'px,' + view.y + 'px) scale(' + view.k + ')';
-    vp.style.setProperty('--grid', Math.max(12, 28 * view.k) + 'px');
+    vp.style.setProperty('--gs', Math.max(12, 28 * view.k) + 'px');
     vp.style.backgroundPosition = view.x + 'px ' + view.y + 'px';
     var z = document.getElementById('zoomPct');
     if (z) z.textContent = Math.round(view.k * 100) + '%';
@@ -479,9 +463,9 @@ export const clientJs = String.raw`
   }
   function setResumo(show) {
     document.getElementById('resumo').classList.toggle('hide', !show);
-    document.getElementById('btnResumo').textContent = show ? 'Ocultar resumo' : 'Mostrar resumo';
+    document.querySelector('#btnResumo span').textContent = show ? 'Fechar visão geral' : 'Visão geral';
+    document.getElementById('btnResumo').classList.toggle('on', show);
     store('painel-resumo', show ? '1' : '0');
-    if (lastFit && tab === 'mapa') fitRect(lastFit.r, lastFit.pad, lastFit.maxK, lastFit.left);
   }
 
   /* ------------------------------------------------------------------ exemplo de conversa */
@@ -663,9 +647,10 @@ export const clientJs = String.raw`
     buildResumo();
     buildConversas();
     var saved = store('painel-resumo');
-    var show = saved === '1' || (saved !== '0' && window.innerWidth > 760);
+    var show = saved === '1';
     document.getElementById('resumo').classList.toggle('hide', !show);
-    document.getElementById('btnResumo').textContent = show ? 'Ocultar resumo' : 'Mostrar resumo';
+    document.querySelector('#btnResumo span').textContent = show ? 'Fechar visão geral' : 'Visão geral';
+    document.getElementById('btnResumo').classList.toggle('on', show);
     document.getElementById('btnResumo').addEventListener('click', function () { setResumo(document.getElementById('resumo').classList.contains('hide')); });
     document.getElementById('btnFit').addEventListener('click', fitAll);
     document.getElementById('btnConfig').addEventListener('click', function () { setTab('mapa'); renderConfig(); });
@@ -689,7 +674,7 @@ export const clientJs = String.raw`
     window.__painel = { fit: function (ids) { fitRect(bboxOfBands(ids), 24, 1); }, select: function (id) { selectNode(id, true); }, tab: setTab, fitAll: fitAll };
   }
 
-  fetch('/painel/flow.json', { credentials: 'same-origin', cache: 'no-store' })
+  fetch('/painel/receptivo/flow.json', { credentials: 'same-origin', cache: 'no-store' })
     .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
     .then(function (j) { flow = j; start(); })
     .catch(function (err) {

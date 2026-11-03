@@ -3,6 +3,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { flow } from './flow.js';
 import { pageHtml } from './page.js';
 import { clientJs } from './client.js';
+import { DS_CSP } from '../ui/ds.js';
 
 /**
  * Painel somente-leitura do fluxo do agente (GET /painel).
@@ -42,7 +43,8 @@ function basicAuth(req: Request, res: Response, next: NextFunction) {
 
 router.use(basicAuth);
 
-const CSP = "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+// o CSS e o JS do design system vêm do próprio servidor (/painel/ds.css e /painel/ds.js)
+const CSP = DS_CSP;
 
 router.get('/', (_req, res) => {
   res.setHeader('Content-Security-Policy', CSP);

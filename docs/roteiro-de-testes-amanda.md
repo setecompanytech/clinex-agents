@@ -7,7 +7,7 @@ Escrito para: Giovanny, para testar a Amanda no WhatsApp com vários cenários e
 - **Só números autorizados recebem resposta.** De outro número ela fica quieta (isso também é um teste: o fluxo 10).
 - **Ela espera cerca de 15 segundos** depois da sua última mensagem para responder (para você terminar de escrever). Emergência e crise respondem em poucos segundos.
 - **Agendamento e cadastro são REAIS.** Se você chegar até o "sim" final, a Amanda grava no Clinilink. Use um paciente de teste e cancele depois no Clinilink (ela não cancela). Para testar sem gravar, pare antes do último "sim" ou responda "não" quando ela perguntar se o paciente é aquele.
-- Os logs de cada resposta ficam em `/painel/logs` (mostra o que o paciente disse, a etapa, o texto do roteiro, se o GPT foi usado e se transferiu).
+- Os logs de cada resposta ficam em `/painel/receptivo/logs` (mostra o que o paciente disse, a etapa, o texto do roteiro, se o GPT foi usado e se transferiu).
 - Cada fluxo tem uma lista de cenários: **você manda** → **o que esperar**. Os horários, médicos e preços mudam com a agenda real.
 
 ### O que conferir em TODA mensagem dela
@@ -347,4 +347,4 @@ Quando o paciente quer fazer exames ("exame de sangue", "coleta", "preciso fazer
 
 ## Como me passar o resultado
 
-Para cada cenário que falhar ou ficar estranho, me mande o número (ex.: **4.10**), o que você escreveu e o que ela respondeu (print ou texto). Se puder, cole também a linha do `/painel/logs`. Assim eu corrijo e acrescento o caso nos testes automáticos.
+Para cada cenário que falhar ou ficar estranho, me mande o número (ex.: **4.10**), o que você escreveu e o que ela respondeu (print ou texto). Se puder, cole também a linha do `/painel/receptivo/logs`. Assim eu corrijo e acrescento o caso nos testes automáticos.

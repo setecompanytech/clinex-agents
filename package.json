@@ -4,9 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "tsx watch --env-file=.env src/server.ts",
     "simular": "tsx src/simular.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "supabase:verificar": "tsx --env-file=.env scripts/supabase-verificar.ts"
   },
   "dependencies": {
     "@vercel/functions": "^2.0.0",

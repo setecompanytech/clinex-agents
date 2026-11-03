@@ -38,10 +38,17 @@ function limpar(v: unknown, chave = '', fundo = 0): unknown {
 const ctx = new AsyncLocalStorage<{ atendimento: string }>();
 export const comAtendimento = <T>(atendimento: string, fn: () => Promise<T>) => ctx.run({ atendimento }, fn);
 
+type Ouvinte = (e: Record<string, unknown>) => void;
+const ouvintes: Ouvinte[] = [];
+/** Deixa outros módulos (ex.: BI do CRM) receberem cada evento já mascarado. Só leitura: quem ouve não altera o evento. */
+export const aoEvento = (fn: Ouvinte) => { ouvintes.push(fn); };
+
 /** tipo: webhook | ignorado | clinilink | inovstar | gpt | resposta | transferencia | erro */
 export function evt(tipo: string, dados: Record<string, unknown> = {}) {
   try {
-    console.log(JSON.stringify({ app: 'amanda', t: new Date().toISOString(), evt: tipo, atendimento: ctx.getStore()?.atendimento, ...(limpar(dados) as object) }));
+    const e = { app: 'amanda', t: new Date().toISOString(), evt: tipo, atendimento: ctx.getStore()?.atendimento, ...(limpar(dados) as object) };
+    console.log(JSON.stringify(e));
+    for (const fn of ouvintes) { try { fn(e); } catch { /* um ouvinte com defeito nunca derruba o agente */ } }
   } catch {
     console.log(JSON.stringify({ app: 'amanda', evt: 'erro', mensagem: 'falha ao registrar evento' }));
   }
