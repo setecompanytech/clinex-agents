@@ -6,6 +6,7 @@ import { aplicarAutomacoes, atrasado, diaBRT, diasNaEtapa, diffDia, estrelas, fu
 import { sincronizar } from './ingestao.js';
 import { logMovimentacoes, painelExecutivo, relatorio } from './metricas.js';
 import { FunilError, type Atribuicao, type Dimensao, type Funil } from './tipos.js';
+import { responsaveis } from '../../lib/usuarios.js';
 
 /**
  * API dos funis (montada em /painel/crm/api/pipelines). Segue o documento "pipelines-crm-tecnico".
@@ -53,7 +54,7 @@ pipelines.get('/', (_req, res) => {
   // ordem estável (o banco devolve por id): Orçamentos, No-show, Leads e, dentro do tipo, do mais antigo ao mais novo
   const ordemTipo = { orcamento: 0, agendamento: 1, lead: 2 };
   const ordenados = [...P().funis].sort((x, y) => ordemTipo[x.dimensao] - ordemTipo[y.dimensao] || x.criadoEm.localeCompare(y.criadoEm) || x.nome.localeCompare(y.nome));
-  res.json({ funis: ordenados.map(resumoFunil), rotina: P().rotina, clinilink: clinilinkConfigurado(), atendentes: estado.atendentes });
+  res.json({ funis: ordenados.map(resumoFunil), rotina: P().rotina, clinilink: clinilinkConfigurado(), atendentes: responsaveis(estado.atendentes) });
 });
 
 pipelines.post('/', (req, res) => {
@@ -194,7 +195,7 @@ pipelines.post('/contatos/:cardId', (req, res) => {
 
 pipelines.post('/sincronizar', (req, res, next) => {
   rodarSincronizacao(req.body)
-    .then((r) => res.status(r.erros.length && !r.orcamentos && !r.agendamentos ? 502 : 200).json({ ...r, rotina: P().rotina }))
+    .then((r) => { const falhou = r.erros.length > 0 && !r.orcamentos && !r.agendamentos; res.status(falhou ? 502 : 200).json({ ...r, ...(falhou ? { erro: 'clinilink', mensagem: String(r.erros[0]) } : {}), rotina: P().rotina }); })
     .catch(next); // Express 4 não captura rejeição de rota assíncrona
 });
 

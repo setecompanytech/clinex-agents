@@ -411,7 +411,7 @@ function dialogoAtendentes() {
   var area = h('textarea', { class: 'in area', rows: 7, 'aria-label': 'Responsáveis, um por linha' });
   area.value = listaAtendentes().join('\n');
   var m = modal({
-    titulo: 'Responsáveis', sub: 'Quem atende os leads. Um nome por linha.', largura: 460, classe: 'peq', corpo: [area, h('p', { class: 'mut peq', text: 'O nome escolhido no topo ("Eu sou") entra nas mensagens como [Atendente] e no histórico de cada contato.' })],
+    titulo: 'Responsáveis', sub: 'Quem atende os leads. Um nome por linha.', largura: 460, classe: 'peq', corpo: [area, h('p', { class: 'mut peq', text: 'O nome de quem está logado entra nas mensagens como [Atendente] e no histórico de cada contato.' })],
     rodape: [botao('Cancelar', '', function () { m.fechar(); }), botao('Salvar', 'pri', function () {
       api('PUT', '/atendentes', { lista: area.value.split('\n') }).then(function () { m.fechar(); aviso('Responsáveis salvos.', 'ok'); carregar(); }).catch(function (e) { aviso(e.message, 'erro'); });
     })]

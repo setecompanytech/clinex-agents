@@ -2,6 +2,7 @@ import { sbApagar, sbGravar, sbLer } from '../lib/supabase.js';
 import type { Estado } from './banco.js';
 import type { Regra, LogAuto } from './automacoes.js';
 import type { Lead } from './motor.js';
+import type { Usuario } from '../lib/usuarios.js';
 import type { Atribuicao, CardSnap, Contato, Etapa, Extras, Followup, Funil, RegraAuto } from './pipeline/tipos.js';
 
 /**
@@ -14,7 +15,7 @@ import type { Atribuicao, CardSnap, Contato, Etapa, Extras, Followup, Funil, Reg
 
 type Linha = Record<string, unknown>;
 type Col<T> = {
-  tabela: string; chave: string[]; ordem: string;
+  tabela: string; chave: string[]; ordem: string; opcional?: boolean;
   lista: (e: Estado) => T[]; definir: (e: Estado, xs: T[]) => void;
   paraLinha: (x: T) => Linha; deLinha: (r: Linha) => T;
 };
@@ -86,6 +87,7 @@ function docs<T extends { id: string }>(tabela: string, get: (e: Estado) => T[],
 }
 const leads = docs<Lead>('crm_leads', (e) => e.leads, (e, xs) => { e.leads = xs; });
 const automacoes = docs<Regra>('crm_automacoes', (e) => e.automacoes, (e, xs) => { e.automacoes = xs; });
+const usuarios: Col<Usuario> = { ...docs<Usuario>('painel_usuarios', (e) => e.usuarios, (e, xs) => { e.usuarios = xs; }), opcional: true };
 const logAuto = docs<LogAuto>('crm_log_auto', (e) => e.logAuto, (e, xs) => { e.logAuto = xs.sort((a, b) => b.quando.localeCompare(a.quando)); });
 
 /** Configurações soltas (atendentes e a rotina do Clinilink): uma linha por chave. */
@@ -100,7 +102,11 @@ const config: Col<Cfg> = {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ColAny = Col<any>;
 // A ordem importa na gravação (funis antes dos cards, por causa das chaves estrangeiras).
-export const COLECOES = [funis, atribuicoes, extras, followups, contatos, leads, automacoes, logAuto, config] as unknown as ColAny[];
+export const COLECOES = [funis, atribuicoes, extras, followups, contatos, leads, automacoes, logAuto, config, usuarios] as unknown as ColAny[];
+/** Tabelas opcionais que ainda não existem no Supabase (o servidor segue sem elas e avisa). */
+const ausentes = new Set<string>();
+export const tabelasAusentes = () => [...ausentes];
+const tabelaFaltando = (e: unknown) => /PGRST205|42P01|schema cache|does not exist/i.test(String((e as Error)?.message ?? e));
 export const TABELAS_CRM = COLECOES.map((c) => c.tabela);
 
 // ------------------------------------------------------------------------------------------------ diferença
@@ -113,12 +119,17 @@ const chaveDe = (c: ColAny, l: Linha) => c.chave.map((k) => String(l[k])).join('
 export async function carregarDoBanco(estado: Estado): Promise<number> {
   let total = 0;
   const lidas = new Map<string, Linha[]>();
-  for (const c of COLECOES) { const linhas = await sbLer<Linha>(c.tabela, { ordem: c.ordem }); lidas.set(c.tabela, linhas); total += linhas.length; }
+  for (const c of COLECOES) {
+    try { const linhas = await sbLer<Linha>(c.tabela, { ordem: c.ordem }); lidas.set(c.tabela, linhas); total += linhas.length; }
+    catch (e) { if (c.opcional && tabelaFaltando(e)) { ausentes.add(c.tabela); lidas.set(c.tabela, []); console.warn(`[crm] a tabela ${c.tabela} ainda não existe no Supabase (rode o SQL de docs/supabase-schema-crm.sql).`); } else throw e; }
+  }
   // crm_config tem uma linha fixa só depois da 1ª gravação: banco "vazio" = nenhum funil, lead nem card
   const sinais = ['pipelines', 'pipeline_card_assignments', 'crm_leads', 'crm_automacoes'].reduce((s, t) => s + (lidas.get(t)?.length ?? 0), 0);
   if (!sinais) return 0;
   for (const c of COLECOES) {
     const linhas = lidas.get(c.tabela)!;
+    // tabela opcional vazia ou inexistente: mantém o que já veio do arquivo ou do backup (e grava depois, se a tabela existir)
+    if (c.opcional && !linhas.length) { noBanco.set(c.tabela, new Map()); continue; }
     const objs = linhas.map((r) => c.deLinha(r));
     // funis e automações do guia sempre existem: se o banco ainda não tem, mantém os padrões já em memória
     if (c.tabela === 'pipelines' && !objs.length) continue;
@@ -141,6 +152,7 @@ export function gravarMudancas(estado: Estado): Promise<unknown> {
   fila = fila.then(async () => {
     try {
       for (const c of COLECOES) {
+        if (ausentes.has(c.tabela)) continue;
         const antes = noBanco.get(c.tabela) ?? new Map<string, string>();
         const agora = new Map<string, { l: Linha; s: string }>();
         for (const x of (c.lista as (e: Estado) => unknown[])(estado)) { const l = (c.paraLinha as (x: unknown) => Linha)(x); agora.set(chaveDe(c, l), { l, s: JSON.stringify(l) }); }

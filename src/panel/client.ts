@@ -672,6 +672,8 @@ export const clientJs = String.raw`
     fitRect(bboxOfBands(window.innerWidth > 760 ? ['p1', 'p2', 'p3'] : ['p1']), 24, 1, true);
     document.getElementById('loading').style.display = 'none';
     window.__painel = { fit: function (ids) { fitRect(bboxOfBands(ids), 24, 1); }, select: function (id) { selectNode(id, true); }, tab: setTab, fitAll: fitAll };
+    function abrirDoEndereco() { var m = /^#passo\/(.+)$/.exec(location.hash); if (m && nodesById[m[1]]) { setTab('mapa'); selectNode(m[1], true); } }
+    abrirDoEndereco(); window.addEventListener('hashchange', abrirDoEndereco);
   }
 
   fetch('/painel/receptivo/flow.json', { credentials: 'same-origin', cache: 'no-store' })

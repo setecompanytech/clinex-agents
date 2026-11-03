@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { Lead } from './motor.js';
+import type { Usuario } from '../lib/usuarios.js';
 import { regrasPadrao, type LogAuto, type Regra } from './automacoes.js';
 import { funisPadrao } from './pipeline/regras.js';
 import type { EstadoFunis } from './pipeline/tipos.js';
@@ -13,7 +14,7 @@ import { agendarGravacao, carregarDoBanco, erroDoBanco, esvaziar } from './persi
  * de hoje. Na Vercel o disco é só leitura: lá o CRM funciona só na memória da instância e a tela avisa.
  * CRM_ARQUIVO muda o local; CRM_PERSISTIR=false desliga a gravação.
  */
-export type Estado = { versao: 1; atendentes: string[]; leads: Lead[]; automacoes: Regra[]; logAuto: LogAuto[]; pipelines: EstadoFunis };
+export type Estado = { versao: 1; atendentes: string[]; leads: Lead[]; automacoes: Regra[]; logAuto: LogAuto[]; pipelines: EstadoFunis; usuarios: Usuario[] };
 
 const ARQUIVO = process.env.CRM_ARQUIVO || '.data/crm.json';
 /** Com SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY o banco é o Supabase (CRM_ARMAZENAMENTO=arquivo força o arquivo). */
@@ -23,7 +24,7 @@ export const PERSISTENTE = USA_BANCO || USA_ARQUIVO;
 /** Se o Supabase estiver fora do ar na subida, o servidor segue no arquivo (sem escrever no banco) e a tela avisa. */
 let bancoIndisponivel = false;
 
-export const estado: Estado = { versao: 1, atendentes: [], leads: [], automacoes: regrasPadrao(new Date()), logAuto: [], pipelines: { funis: funisPadrao(new Date()), atribuicoes: [], extras: {}, followups: [], contatos: [], rotina: {} } };
+export const estado: Estado = { usuarios: [], versao: 1, atendentes: [], leads: [], automacoes: regrasPadrao(new Date()), logAuto: [], pipelines: { funis: funisPadrao(new Date()), atribuicoes: [], extras: {}, followups: [], contatos: [], rotina: {} } };
 let fila: Promise<unknown> = Promise.resolve();
 let pastaOk = false;
 let ultimoErro: string | null = null;
@@ -35,6 +36,7 @@ async function carregarArquivo() {
     estado.atendentes = Array.isArray(dados.atendentes) ? dados.atendentes : [];
     estado.leads = Array.isArray(dados.leads) ? dados.leads : [];
     estado.logAuto = Array.isArray(dados.logAuto) ? dados.logAuto : [];
+    estado.usuarios = Array.isArray(dados.usuarios) ? dados.usuarios : [];
     const pl = dados.pipelines;
     if (pl && Array.isArray(pl.funis) && pl.funis.length) {
       estado.pipelines = { funis: pl.funis, atribuicoes: Array.isArray(pl.atribuicoes) ? pl.atribuicoes : [], extras: pl.extras ?? {}, followups: Array.isArray(pl.followups) ? pl.followups : [], contatos: Array.isArray(pl.contatos) ? pl.contatos : [], rotina: pl.rotina ?? {} };
@@ -66,7 +68,13 @@ async function carregar() {
     console.error(`[crm] ${ultimoErro}`);
   }
 }
-const carregado = carregar();
+async function carregarTudo() {
+  await carregar();
+  // contas do painel: se o banco ainda não tem a tabela (ou veio vazia), volta do backup local
+  const { restaurarBackup } = await import('../lib/usuarios.js');
+  restaurarBackup();
+}
+const carregado = carregarTudo();
 export const pronto = () => carregado;
 
 /** Chame depois de qualquer mudança em `estado`. */

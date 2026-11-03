@@ -1,5 +1,5 @@
-import { Router, type NextFunction, type Request, type Response } from 'express';
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { Router } from 'express';
+import { exigirModulo, painelAuth } from '../lib/painel-auth.js';
 import { buscarEventos, logsConfigurado, type Evento } from './vercel.js';
 import { eventosDaMemoria, estadoArmazem } from '../bi/armazem.js';
 import { DS_CSP, paginaModulo } from '../ui/ds.js';
@@ -11,24 +11,7 @@ import { clientJs } from './client.js';
  * se configurado, também os logs de execução da Vercel. Dados pessoais já saem mascarados na origem (src/lib/log.ts).
  */
 const router = Router();
-const digest = (v: string) => createHash('sha256').update(v, 'utf8').digest();
-
-function basicAuth(req: Request, res: Response, next: NextFunction) {
-  res.setHeader('Cache-Control', 'private, no-store');
-  res.setHeader('X-Robots-Tag', 'noindex, nofollow');
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  const expected = process.env.PAINEL_PASSWORD ?? '';
-  if (!expected) return res.status(503).type('text/plain; charset=utf-8').send('Painel desativado: a variável PAINEL_PASSWORD não está configurada.');
-  const header = req.header('authorization') ?? '';
-  let given = '';
-  if (/^basic /i.test(header)) { const d = Buffer.from(header.slice(6).trim(), 'base64').toString('utf8'); given = d.slice(d.indexOf(':') + 1); }
-  if (!(timingSafeEqual(digest(given), digest(expected)) && header.length > 0)) {
-    res.setHeader('WWW-Authenticate', 'Basic realm="Painel do agente", charset="UTF-8"');
-    return res.status(401).type('text/plain; charset=utf-8').send('Autenticação necessária.');
-  }
-  next();
-}
-router.use(basicAuth);
+router.use(painelAuth, exigirModulo('agente'));
 
 const css = `
 .lg-tipo{--tc:var(--mut);border-color:color-mix(in srgb,var(--tc) 45%,transparent);color:var(--tc);background:color-mix(in srgb,var(--tc) 10%,transparent)}

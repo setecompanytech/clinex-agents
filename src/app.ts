@@ -3,6 +3,7 @@ import webhooks from './routes/webhooks.js';
 import painel from './panel/router.js';
 import logsRouter from './logs/router.js';
 import hub from './hub/router.js';
+import geral from './geral/router.js';
 import crm from './crm/router.js';
 import bi from './bi/router.js';
 
@@ -17,6 +18,7 @@ app.use('/painel/receptivo/logs', logsRouter); // antes do /painel/receptivo par
 app.use('/painel/receptivo/bi', bi);
 app.use('/painel/receptivo', painel);
 app.use('/painel/crm', crm);
+app.use('/painel', geral); // login, visão geral e usuários (cada rota se protege)
 app.use('/painel', hub);
 
 export default app;

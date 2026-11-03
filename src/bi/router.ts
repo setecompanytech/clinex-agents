@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { painelAuth } from '../lib/painel-auth.js';
+import { exigirModulo, painelAuth } from '../lib/painel-auth.js';
 import { montarBI, PERIODOS, type Fonte, type Periodo } from './fonte.js';
 import { base } from './ui/base.js';
 import { charts } from './ui/charts.js';
@@ -14,7 +14,7 @@ import { DS_CSP } from '../ui/ds.js';
  *   /painel/receptivo/bi/dados.json?periodo=24h|7d|30d&fonte=real|demo
  */
 const router = Router();
-router.use(painelAuth);
+router.use(painelAuth, exigirModulo('agente'));
 
 // o CSS e o JS do design system vêm do próprio servidor (/painel/ds.css e /painel/ds.js)
 const CSP = DS_CSP;

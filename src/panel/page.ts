@@ -55,7 +55,7 @@ body{overflow:hidden}
 #btnResumo.on{border-color:var(--cy);color:var(--cy)}
 
 /* ---- área do mapa */
-.fx-main{position:relative;flex:1;min-height:0;border-top:1px solid var(--line)}
+.fx-main{position:relative;flex:1;min-height:0;border-top:1px solid var(--line);overflow:hidden}
 #viewport{position:absolute;inset:0;overflow:hidden;touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none;
   background-image:radial-gradient(circle,color-mix(in srgb,var(--ink) 16%,transparent) 1.2px,transparent 1.5px);background-size:var(--gs,28px) var(--gs,28px)}
 #viewport::after{content:"";position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at 50% 40%,transparent 55%,color-mix(in srgb,var(--bg) 70%,transparent))}

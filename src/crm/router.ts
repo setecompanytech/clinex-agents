@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { painelAuth } from '../lib/painel-auth.js';
+import { exigirEscrita, exigirModulo, painelAuth } from '../lib/painel-auth.js';
 import api from './api.js';
 import { MODELO } from './modelo.js';
 import { base } from './ui/base.js';
@@ -21,6 +21,8 @@ import { report } from './ui/report.js';
 import { leadUi } from './ui/lead.js';
 import { agente } from './ui/agente.js';
 import { app } from './ui/app.js';
+import { selectModerno } from '../ui/selectModerno.js';
+import { dataModerna } from '../ui/dataModerna.js';
 import { pagina } from './ui/page.js';
 
 /**
@@ -32,12 +34,12 @@ import { pagina } from './ui/page.js';
  *   /painel/crm/api/...    a API (api.ts)
  */
 const router = Router();
-router.use(painelAuth);
+router.use(painelAuth, exigirModulo('crm'));
 
 const CSP = "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
-const clientJs = `(function () {\n'use strict';\nvar M = ${JSON.stringify(MODELO)};\n${base}\n${graficos}\n${graficos2}\n${graficos3}\n${graficos4}\n${fluxo}\n${etapa}\n${pipeline}\n${funis}\n${funis2}\n${funis3}\n${telas}\n${hoje}\n${analises}\n${executivo}\n${report}\n${leadUi}\n${agente}\n${app}\n})();`;
+const clientJs = `(function () {\n'use strict';\nvar M = ${JSON.stringify(MODELO)};\n${base}\n${graficos}\n${graficos2}\n${graficos3}\n${graficos4}\n${fluxo}\n${etapa}\n${pipeline}\n${funis}\n${funis2}\n${funis3}\n${telas}\n${hoje}\n${analises}\n${executivo}\n${report}\n${leadUi}\n${agente}\n${selectModerno}\n${dataModerna}\n${app}\n})();`;
 
-router.use('/api', api);
+router.use('/api', exigirEscrita, api);
 
 router.get('/', (_req, res) => {
   res.setHeader('Content-Security-Policy', CSP);

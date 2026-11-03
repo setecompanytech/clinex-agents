@@ -54,10 +54,12 @@ function atualizarTopo() {
     limpar(janelaEl);
     kids(janelaEl, [h('i', { 'aria-hidden': 'true' }), (ab ? 'Contato liberado' : 'Fora do horário') + ' · ' + String(t.h).padStart(2, '0') + ':' + String(t.m).padStart(2, '0')]);
   }
-  if (euEl && S.D) {
+  if (euEl && S.euInfo) {
+    var pode = S.euInfo.master || S.euInfo.perfil === 'admin' || S.euInfo.perfil === 'gestor';
     limpar(euEl);
-    kids(euEl, [h('option', { value: '', text: 'Eu sou…' })].concat(listaAtendentes().map(function (a) { return h('option', { value: a, text: a, selected: S.eu === a ? 'selected' : null }); })).concat([h('option', { value: '__gerenciar', text: 'Gerenciar responsáveis…' })]));
-    euEl.value = S.eu;
+    kids(euEl, [avatar(S.euInfo.nome), h('span', { class: 'eu-n', text: S.euInfo.nome }),
+      pode ? h('button', { class: 'eu-g', type: 'button', title: 'Gerenciar responsáveis', 'aria-label': 'Gerenciar responsáveis', onclick: function () { dialogoAtendentes(); } }, ico('users', 16)) : null]);
+    euEl.title = S.euInfo.master ? 'Acesso mestre' : 'Você está usando o CRM como ' + S.euInfo.nome;
   }
 }
 
@@ -70,12 +72,13 @@ function construirChrome() {
   if (lado) {
     var atalho = function (rotulo, icone, href) { return h('a', { href: href, title: rotulo }, [ico(icone, 17), h('span', { text: rotulo })]); };
     lado.insertBefore(h('div', { class: 'side-m' }, [h('div', { class: 'nav-cap', text: 'Módulos' }), atalho('Início', 'home', '/painel'), atalho('Agente receptivo', 'bolt', '/painel/receptivo')]), lado.querySelector('.side-f'));
+    lado.appendChild(h('button', { class: 'side-sair', type: 'button', title: 'Sair do painel', 'aria-label': 'Sair do painel', onclick: function () {
+      var ir = function () { location.href = '/painel/login'; };
+      fetch('/painel/sair', { method: 'POST', credentials: 'same-origin' }).then(ir, ir);
+    } }, [ico('back', 17), h('span', { text: 'Sair' })]));
   }
   janelaEl = h('span', { class: 'janela' });
-  euEl = h('select', { class: 'in eu', 'aria-label': 'Quem está usando o CRM', onchange: function (e) {
-    if (e.target.value === '__gerenciar') { e.target.value = S.eu; dialogoAtendentes(); return; }
-    S.eu = e.target.value; gravarLS('crm-eu', S.eu); desenhar(true); if (AG.iniciou) { AG.vistos = {}; agBuscarAlertas(); }
-  } });
+  euEl = h('div', { class: 'eu-chip', 'aria-label': 'Usuário logado' });
   kids(topoDir, [
     h('button', { class: 'busca-b', type: 'button', onclick: paleta, 'aria-label': 'Buscar (Ctrl+K)' }, [ico('search', 16), h('span', { text: 'Buscar…' }), h('kbd', { text: 'Ctrl K' })]),
     janelaEl, euEl,
@@ -135,12 +138,20 @@ window.addEventListener('error', function (e) {
   if (el) { el.textContent = 'Erro na tela: ' + (e.message || 'desconhecido') + (e.lineno ? ' (linha ' + e.lineno + ')' : ''); el.style.display = 'block'; }
 });
 
+/* quem está usando o CRM é quem entrou no painel (o acesso mestre não é uma pessoa: sem filtro "meus") */
+function identificar() {
+  return fetch('/painel/eu', { credentials: 'same-origin', cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; }).then(function (eu) {
+    if (!eu) return;
+    S.euInfo = eu; S.eu = eu.master ? '' : eu.nome;
+  });
+}
+
 (function iniciar() {
   var tema = lerLS('crm-tema'); if (tema === 'dark' || tema === 'light') document.documentElement.setAttribute('data-theme', tema);
   construirChrome();
   var hs = location.hash.replace('#', '').split('/');
   if (ABAS.some(function (a) { return a.id === hs[0]; })) S.aba = hs[0];
-  carregar().then(function () {
+  identificar().then(function () { return carregar(); }).then(function () {
     agConstruir();
     if (hs[1]) { if (hs[1].indexOf('lead-') === 0) abrirLead(hs[1].slice(5)); else if (itemDef(hs[1])) abrirItem(hs[1]); }
   }).catch(function () { limpar(raiz); raiz.appendChild(h('div', { class: 'cartao boas' }, [h('h2', { text: 'Não consegui carregar o CRM' }), botao('Tentar de novo', 'pri', function () { location.reload(); })])); });

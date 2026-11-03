@@ -1,47 +1,19 @@
-import { Router, type NextFunction, type Request, type Response } from 'express';
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { Router } from 'express';
+import { exigirEscrita, exigirModulo, painelAuth } from '../lib/painel-auth.js';
 import { flow } from './flow.js';
 import { pageHtml } from './page.js';
 import { clientJs } from './client.js';
 import { DS_CSP } from '../ui/ds.js';
+import { alertasDoAgente, assistenteComIA, responderAssistente, sugestoesDoAssistente } from './assistente.js';
 
 /**
  * Painel somente-leitura do fluxo do agente (GET /painel).
- * Protegido por HTTP Basic Auth: usuário livre, senha = PAINEL_PASSWORD.
- * Sem PAINEL_PASSWORD configurada responde 503 (nunca fica público).
+ * Protegido pelo login do painel (conta com o módulo Agente receptivo ou acesso mestre PAINEL_PASSWORD).
  * Não lê banco, não lê dados de pacientes e não expõe nenhuma variável de ambiente.
  */
 const router = Router();
 
-const digest = (v: string) => createHash('sha256').update(v, 'utf8').digest();
-
-function basicAuth(req: Request, res: Response, next: NextFunction) {
-  res.setHeader('Cache-Control', 'private, no-store');
-  res.setHeader('X-Robots-Tag', 'noindex, nofollow');
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('Referrer-Policy', 'no-referrer');
-
-  const expected = process.env.PAINEL_PASSWORD ?? '';
-  if (!expected) {
-    return res.status(503).type('text/plain; charset=utf-8').send('Painel desativado: a variável PAINEL_PASSWORD não está configurada.');
-  }
-
-  const header = req.header('authorization') ?? '';
-  let given = '';
-  if (/^basic /i.test(header)) {
-    const decoded = Buffer.from(header.slice(6).trim(), 'base64').toString('utf8');
-    given = decoded.slice(decoded.indexOf(':') + 1);
-  }
-  // compara os hashes (tamanho fixo) em tempo constante, sem vazar o tamanho da senha
-  const ok = timingSafeEqual(digest(given), digest(expected)) && header.length > 0;
-  if (!ok) {
-    res.setHeader('WWW-Authenticate', 'Basic realm="Painel do agente", charset="UTF-8"');
-    return res.status(401).type('text/plain; charset=utf-8').send('Autenticação necessária.');
-  }
-  next();
-}
-
-router.use(basicAuth);
+router.use(painelAuth, exigirModulo('agente'), exigirEscrita);
 
 // o CSS e o JS do design system vêm do próprio servidor (/painel/ds.css e /painel/ds.js)
 const CSP = DS_CSP;
@@ -53,6 +25,20 @@ router.get('/', (_req, res) => {
 
 router.get('/app.js', (_req, res) => {
   res.type('application/javascript; charset=utf-8').send(clientJs);
+});
+
+/** Assistente flutuante: alertas e perguntas em linguagem natural (também usado pelas telas de BI e Logs). */
+router.get('/agente/alertas', (_req, res, next) => {
+  alertasDoAgente()
+    .then((alertas) => res.json({ titulo: 'Assistente da Amanda', subtitulo: 'Fluxo, números e logs do agente receptivo', ia: assistenteComIA(), sugestoes: sugestoesDoAssistente(), alertas }))
+    .catch(next); // Express 4 não captura rejeição de rota assíncrona
+});
+router.post('/agente', (req, res, next) => {
+  const b = (req.body ?? {}) as { pergunta?: unknown; historico?: unknown };
+  const pergunta = typeof b.pergunta === 'string' ? b.pergunta.slice(0, 500) : '';
+  const historico = (Array.isArray(b.historico) ? b.historico : []).slice(-8)
+    .filter((m): m is { papel: 'user' | 'agent'; texto: string } => !!m && typeof m === 'object' && (m.papel === 'user' || m.papel === 'agent') && typeof m.texto === 'string');
+  responderAssistente(pergunta, historico).then((r) => res.json(r)).catch(next);
 });
 
 router.get('/flow.json', (_req, res) => {

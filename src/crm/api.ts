@@ -11,6 +11,7 @@ import { atrasado as cardAtrasado, valorExibido as valorDoCard, visiveis as card
 import { FunilError } from './pipeline/tipos.js';
 import { cfgDeRegras, logDoGuia, MODELOS, regrasPadrao, rodarRegras, simular, validarRegra, type Regra } from './automacoes.js';
 import { MOTIVOS_DESCARTE } from './modelo.js';
+import { responsaveis } from '../lib/usuarios.js';
 import { agenteComIA, alertasDoAgente, responderAgente } from './agente.js';
 
 /**
@@ -52,7 +53,7 @@ router.get('/estado', (_req, res) => {
   const contagens: Record<string, number> = {};
   for (const l of leads) contagens[l.v.item] = (contagens[l.v.item] ?? 0) + 1;
   res.json({
-    agora: agora.toISOString(), hoje: hojeDe(agora), atendentes: estado.atendentes, armazenamento: infoArmazenamento(),
+    agora: agora.toISOString(), hoje: hojeDe(agora), atendentes: responsaveis(estado.atendentes), armazenamento: infoArmazenamento(),
     leads, tarefas, contagens, resumo: resumo(estado.leads, agora), analise: analisarHoje(estado.leads, agora, tarefas, vistas),
   });
 });
@@ -95,7 +96,7 @@ router.get('/meu-report', (req, res) => {
 const dadosAutomacoes = (agora: Date) => ({
   regras: estado.automacoes.map((r) => ({ ...r, pendentes: r.builtin || !r.ativa ? null : simular(estado.leads, r, agora).total })),
   log: estado.logAuto.slice(0, 80), modelos: MODELOS, motivos: MOTIVOS_DESCARTE,
-  atendentes: estado.atendentes, unidades: [...new Set(estado.leads.map((l) => l.unidade).filter(Boolean))].sort(),
+  atendentes: responsaveis(estado.atendentes), unidades: [...new Set(estado.leads.map((l) => l.unidade).filter(Boolean))].sort(),
 });
 router.get('/automacoes', (_req, res) => { const agora = new Date(); automatizarTodos(agora); res.json(dadosAutomacoes(agora)); });
 router.post('/automacoes/simular', (req, res) => {

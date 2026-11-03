@@ -54,7 +54,7 @@ const css = `
 /* ---- leitura automática */
 .bloco-h h2{font:800 20px "Segoe UI Variable Display","Segoe UI",system-ui;letter-spacing:-.02em}
 .bloco-h p{font-size:13px;color:var(--muted);margin-top:2px}
-.insights{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;margin-top:14px}
+.insights{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(300px,100%),1fr));gap:14px;margin-top:14px}
 .insight{position:relative;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px 18px 16px 20px;box-shadow:var(--shadow);animation:entra .5s both;overflow:hidden;transition:transform .18s,border-color .18s}
 .insight:hover{transform:translateY(-2px);border-color:var(--line2)}
 .insight::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--neutro)}

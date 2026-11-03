@@ -175,7 +175,7 @@ function fvConfig() {
         h('input', { class: 'in au-num', type: 'number', min: '1', max: '365', placeholder: 'SLA (dias)', title: 'Cadência da coluna em dias (alerta de atraso no card)', value: e.cadenciaDias ? String(e.cadenciaDias) : null, 'aria-label': 'Cadência em dias', oninput: function (ev) { e.cadenciaDias = ev.target.value === '' ? undefined : Number(ev.target.value); } }),
         h('button', { type: 'button', class: 'ic-btn', disabled: i <= 1, 'aria-label': 'Subir', onclick: function () { var t = E.stages[i - 1]; E.stages[i - 1] = E.stages[i]; E.stages[i] = t; pintarTudo(); } }, h('span', { text: '↑' })),
         h('button', { type: 'button', class: 'ic-btn', disabled: topo || i === E.stages.length - 1, 'aria-label': 'Descer', onclick: function () { var t = E.stages[i + 1]; E.stages[i + 1] = E.stages[i]; E.stages[i] = t; pintarTudo(); } }, h('span', { text: '↓' })),
-        h('button', { type: 'button', class: 'ic-btn', disabled: topo || E.stages.length === 1, 'aria-label': 'Excluir coluna', onclick: function () { E.stages.splice(i, 1); pintarTudo(); } }, ico('x', 14))
+        h('button', { type: 'button', class: 'ic-btn btn-rm', disabled: topo || E.stages.length === 1, 'aria-label': 'Excluir coluna', onclick: function () { E.stages.splice(i, 1); pintarTudo(); } }, ico('x', 14))
       ]));
       if (topo) secE.lastChild.appendChild(h('span', { class: 'fv-topo-sel', text: 'entrada' }));
     });
@@ -198,12 +198,14 @@ function fvConfig() {
       else par.push(campo('Horário', h('input', { class: 'in', type: 'time', value: r.horario || '', onchange: function (ev) { r.horario = ev.target.value; } })));
       if (r.tipo === 'horario_semanal') par.push(campo('Dia da semana', h('select', { class: 'in', onchange: function (ev) { r.diaSemana = Number(ev.target.value); } }, ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'].map(function (d, k) { return h('option', { value: String(k), text: d, selected: r.diaSemana === k }); }))));
       secA.appendChild(h('div', { class: 'fv-cfg-a' }, [
+        h('div', { class: 'fv-cfg-a-h' }, [h('b', { text: 'Automação ' + (i + 1) }),
+          h('button', { type: 'button', class: 'ic-btn btn-rm', title: 'Remover esta automação', 'aria-label': 'Remover a automação ' + (i + 1), onclick: function () { E.automacoes.splice(i, 1); pintarAuto(); } }, ico('x', 15))]),
         h('div', { class: 'au-linha' }, [
           campo('Tipo', auSel([['apos_horas', 'Após X horas'], ['horario_diario', 'Todo dia em um horário'], ['horario_semanal', 'Toda semana em um dia e horário']], r.tipo, function (v) { r.tipo = v; if (v === 'apos_horas' && !r.horas) r.horas = 24; if (v !== 'apos_horas' && !r.horario) r.horario = '08:00'; if (v === 'horario_semanal' && r.diaSemana === undefined) r.diaSemana = 1; pintarAuto(); })),
           campo('Mover de', h('input', { class: 'in', value: topo.label, disabled: true })),
           campo('Para', auSel(E.stages.slice(1).map(function (e) { return [e.id, e.label]; }), r.paraStageId, function (v) { r.paraStageId = v; }))
         ]),
-        h('div', { class: 'au-linha' }, par.concat([h('button', { type: 'button', class: 'btn peq-b', onclick: function () { E.automacoes.splice(i, 1); pintarAuto(); } }, [ico('x', 14), 'Remover'])]))
+        h('div', { class: 'au-linha' }, par)
       ]));
     });
     secA.appendChild(botao('Adicionar automação', '', function () { E.automacoes.push({ tipo: 'apos_horas', deStageId: topo.id, paraStageId: (E.stages[1] || {}).id, horas: 24 }); pintarAuto(); }, 'plus'));

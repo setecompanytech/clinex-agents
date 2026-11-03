@@ -64,7 +64,7 @@ function heroHoje(A) {
     b(brlCompacto(K.pipelineValor)), ' em andamento', K.riscoValor ? [', ', b(brlCompacto(K.riscoValor)), ' em risco'] : '', '.'
   ];
   return h('section', { class: 'hh' }, [
-    h('div', { class: 'hh-t' }, [h('small', { class: 'hh-data', text: dataExtenso(A.hoje) }), h('h1', { text: saudacao() + (S.eu ? ', ' + S.eu : '') }), h('p', { class: 'hh-frase' }, frase)]),
+    h('div', { class: 'hh-t' }, [h('small', { class: 'hh-data', text: dataExtenso(A.hoje) }), h('h1', { text: saudacao() + (S.eu ? ', ' + primeiroNome(S.eu) : '') }), h('p', { class: 'hh-frase' }, frase)]),
     h('div', { class: 'hh-aneis' }, [
       anel({ titulo: 'Progresso do dia', tam: 104, pct: P.pct, centro: P.feitas + '/' + (P.feitas + P.pendentes), sub: 'tarefas', cor: 'var(--g3)', dica: { titulo: 'Progresso do dia', linhas: [{ valor: String(P.feitas), rotulo: 'concluídas hoje' }, { valor: String(P.pendentes), rotulo: 'ainda na fila' }, { valor: String(P.atrasadas), rotulo: 'delas atrasadas' }] } }),
       anel({ titulo: 'Janela de contato', tam: 104, pct: passou * 100, centro: restantes > 0 ? nf1.format(restantes) + ' h' : 'fechada', sub: restantes > 0 ? 'restantes' : '', cor: 'var(--g1)', dica: { titulo: 'Janela de contato', linhas: [{ valor: M.LIMITES.janelaInicioH + 'h às ' + M.LIMITES.janelaFimH + 'h', rotulo: 'horário permitido' }, { valor: P.ritmoPorHora === null ? '–' : nf1.format(P.ritmoPorHora), rotulo: 'tarefas por hora para zerar a fila' }] } })
@@ -95,8 +95,7 @@ function linhaTarefa(t) {
     h('div', { class: 'tarefa-quem' }, [avatar(l.nome), h('div', null, [h('b', { text: l.nome }), h('small', { text: (l.exame || 'sem exame') + ' · ' + brl(l.valor) })])]),
     h('div', { class: 'tarefa-acoes' }, [
       botao(p.decisao ? 'Decidir' : 'Contatar', 'pri', function (e) { e.stopPropagation(); abrirLead(l.id); }),
-      h('a', { class: 'btn ic-only', href: linkWA(l.telefone, ''), target: '_blank', rel: 'noopener', title: 'Abrir conversa no WhatsApp', onclick: function (e) { e.stopPropagation(); } }, ico('message', 16)),
-      h('a', { class: 'btn ic-only', href: 'tel:+55' + l.telefone.replace(/\D/g, '').replace(/^55/, ''), title: 'Ligar', onclick: function (e) { e.stopPropagation(); } }, ico('phone', 16))
+      h('a', { class: 'btn ic-only', href: linkWA(l.telefone, ''), target: '_blank', rel: 'noopener', title: 'Abrir conversa no WhatsApp', onclick: function (e) { e.stopPropagation(); } }, ico('message', 16))
     ])
   ]);
   r.addEventListener('click', function () { abrirLead(l.id); });

@@ -132,7 +132,7 @@ function agAlternar(abrir) {
 }
 function agBoasVindas() {
   var v = agVisiveis().filter(function (a) { return a.nivel !== 'info'; });
-  var nome = S.eu ? ', ' + S.eu : '';
+  var nome = S.eu ? ', ' + primeiroNome(S.eu) : '';
   var txt = 'Oi' + nome + '! Sou o agente do CRM. Respondo sobre leads, fila do dia, números e regras do guia, e aviso quando algo precisa de atenção.';
   if (v.length) txt += '\n\nAgora: **' + v[0].titulo + '**' + (v.length > 1 ? ' (e mais ' + (v.length - 1) + ' ' + (v.length - 1 === 1 ? 'alerta' : 'alertas') + ')' : '') + '.';
   agAdicionar({ papel: 'agent', texto: txt, sugestoes: ['O que eu faço agora?', 'Quais tarefas estão atrasadas?', 'Como está a conversão?', 'Quais as regras de ouro?'] });

@@ -266,7 +266,7 @@ function auEditor(regra, pre) {
     par.push(campo(rot, auNum(g2.dias, g2.tipo === 'parado_etapa' || g2.tipo === 'sem_contato' ? 1 : 0, 90, function (v) { g2.dias = v; atualizar(); }, rot)));
     secG.appendChild(h('div', { class: 'au-linha' }, par));
     secG.appendChild(h('h5', { text: 'Só para leads que...' }));
-    secG.appendChild(h('div', { class: 'au-linha' }, [
+    secG.appendChild(h('div', { class: 'au-linha dois' }, [
       campo('Unidade', auSel([['', 'Todas']].concat(unidades.map(function (u) { return [u, u]; })), E.filtros.unidade || '', function (v) { E.filtros.unidade = v || undefined; atualizar(); }, 'Unidade')),
       campo('Responsável', auSel([['', 'Todos']].concat(atendentes.map(function (u) { return [u, u]; })), E.filtros.atendente || '', function (v) { E.filtros.atendente = v || undefined; atualizar(); }, 'Responsável')),
       campo('Valor mínimo (R$)', h('input', { class: 'in au-num', type: 'number', min: '0', placeholder: 'sem mínimo', value: E.filtros.valorMin !== undefined ? String(E.filtros.valorMin) : null, oninput: function (e) { E.filtros.valorMin = e.target.value === '' ? undefined : Number(e.target.value); atualizar(); } })),
@@ -291,7 +291,7 @@ function auEditor(regra, pre) {
         auSel(AU_ACOES, a.tipo, function (v) { var n = { tipo: v }; if (v === 'mover') n.para = 'sem_retorno'; if (v === 'descartar') n.motivo = A.motivos[0]; E.acoes[i] = n; desenharAcoes(); atualizar(); }, 'Tipo da ação'),
         h('div', { class: 'au-acao-c' }, campos),
         h('button', { type: 'button', class: 'ic-btn', 'aria-label': 'Subir', disabled: i === 0, onclick: function () { var t = E.acoes[i - 1]; E.acoes[i - 1] = E.acoes[i]; E.acoes[i] = t; desenharAcoes(); atualizar(); } }, h('span', { text: '↑' })),
-        h('button', { type: 'button', class: 'ic-btn', 'aria-label': 'Remover ação', disabled: E.acoes.length === 1, onclick: function () { E.acoes.splice(i, 1); desenharAcoes(); atualizar(); } }, ico('x', 14))
+        h('button', { type: 'button', class: 'ic-btn btn-rm', 'aria-label': 'Remover ação', disabled: E.acoes.length === 1, onclick: function () { E.acoes.splice(i, 1); desenharAcoes(); atualizar(); } }, ico('x', 14))
       ]));
     });
     if (E.acoes.length < 4) secA.appendChild(h('button', { type: 'button', class: 'btn peq-b', onclick: function () { E.acoes.push({ tipo: 'nota', texto: '' }); desenharAcoes(); atualizar(); } }, [ico('plus', 14), 'Adicionar ação']));
