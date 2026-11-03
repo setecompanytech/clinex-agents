@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, stat } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { aoEvento } from '../lib/log.js';
 import { sbApagar, sbInserir, sbLer, sbVazia, supabaseConfigurado } from '../lib/supabase.js';
@@ -56,6 +56,22 @@ async function lerArquivo(): Promise<Evento[]> {
     }
   } catch { /* arquivo ainda não existe */ }
   return lidos;
+}
+
+/** Se outro processo acrescentou eventos ao arquivo (ex.: scripts/bi-importar-vercel.ts), traz para a memória sem duplicar. */
+let mtimeVisto = 0; let recarregouEm = 0;
+async function recarregarSeMudou() {
+  if (!PERSISTIR || Date.now() - recarregouEm < ATUALIZA_A_CADA_MS) return;
+  recarregouEm = Date.now();
+  try {
+    const m = (await stat(ARQUIVO)).mtimeMs;
+    if (m === mtimeVisto) return;
+    mtimeVisto = m;
+    const doArquivo = await lerArquivo();
+    const vistos = new Set(memoria.map((e) => JSON.stringify(e)));
+    const novos = doArquivo.filter((e) => !vistos.has(JSON.stringify(e)));
+    if (novos.length) memoria = [...memoria, ...novos].sort((a, b) => Date.parse(a.t) - Date.parse(b.t)).slice(-MAX_MEMORIA);
+  } catch { /* arquivo ainda não existe */ }
 }
 
 // ------------------------------------------------------------------------------------------------ modo Supabase
@@ -148,7 +164,7 @@ if (USA_BANCO) setInterval(() => { if (!USA_BANCO) return; sbApagar(TABELA, { t:
 
 export async function eventosDaMemoria(desdeMs: number): Promise<Evento[]> {
   await carregado;
-  if (USA_BANCO) await atualizar();
+  if (USA_BANCO) await atualizar(); else await recarregarSeMudou();
   const base = memoria.filter((e) => Date.parse(e.t) >= desdeMs);
   // eventos ainda a caminho do banco também contam (senão sumiriam por alguns segundos)
   return USA_BANCO ? [...base, ...pendentes.filter((e) => Date.parse(e.t) >= desdeMs)] : base;

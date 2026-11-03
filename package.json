@@ -7,6 +7,7 @@
     "dev": "tsx watch --env-file=.env src/server.ts",
     "simular": "tsx src/simular.ts",
     "typecheck": "tsc --noEmit",
+    "bi:importar": "tsx scripts/bi-importar-vercel.ts",
     "supabase:verificar": "tsx --env-file=.env scripts/supabase-verificar.ts"
   },
   "dependencies": {

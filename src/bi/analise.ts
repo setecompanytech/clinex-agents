@@ -45,20 +45,27 @@ export const ETAPAS_FUNIL = [
   'Serviço confirmado',
   'Unidade escolhida',
   'Horário escolhido',
+  'Dados do paciente',
   'Pagamento definido',
   'Agendamento confirmado',
 ];
 
-/** Posição da etapa em que a conversa está esperando o paciente (-1 = fora do funil: transferida, falha, etc.). */
+/**
+ * Posição do funil JÁ ALCANÇADA quando a conversa fica esperando o paciente em certa etapa (-1 = fora do funil: transferida, falha, etc.).
+ * Ordem do agendamento: serviço -> unidade -> horário -> DADOS do paciente -> forma de pagamento -> agenda. Os textos vêm de `etapa()` em
+ * src/agents/receptivo/script/engine.ts; combos e orçamento de exames também aparecem aqui.
+ */
 function posicaoEtapa(etapa: string): number {
   const e = etapa.toLowerCase();
   if (e.includes('segurança') || e.includes('transferida') || e.includes('falha ao consultar') || e.includes('ilegível')) return -1;
-  if (e.startsWith('recepção') || e.includes('opções de serviço')) return 0;
+  if (e.startsWith('recepção') || e.includes('opções de serviço') || e.includes('esperando o pedido médico')) return 0;
   if (e.includes('confirmando o serviço')) return 1;
+  if (e.includes('combos sugeridos') || e.includes('confirmando os exames') || e.includes('oferecendo a coleta')) return 2;
   if (e.includes('unidade')) return 2;
   if (e.includes('data e turno')) return 3;
-  if (e.includes('pagamento') || e.includes('comprovante')) return 4;
-  if (e.includes('cpf') || e.includes('paciente')) return 5;
+  if (e.includes('cpf') || e.includes('paciente') || e.includes('cadastro')) return 4; // pedindo/consultando/confirmando os dados do paciente: o horário já foi escolhido
+  if (e.includes('pagamento') || e.includes('comprovante')) return 5; // os dados já foram dados
+  if (e.includes('concluindo o agendamento') || e.includes('decidindo a próxima etapa')) return 6; // pagamento resolvido (no combo, o primeiro agendamento já foi gravado)
   return -1;
 }
 
@@ -235,7 +242,7 @@ export function analisar(todos: Evento[], o: Opcoes) {
   for (const c of convs) { const d = local(c.inicio); horas[d.getUTCHours()]++; calor[d.getUTCDay()][d.getUTCHours()]++; }
 
   // ---- funil
-  const alcance = convs.map((c) => (c.agendada ? 6 : c.maxEtapa));
+  const alcance = convs.map((c) => (c.agendada ? ETAPAS_FUNIL.length - 1 : c.maxEtapa));
   const funil = ETAPAS_FUNIL.map((etapa, i) => {
     const chegaram = i === 0 ? convs.length : alcance.filter((a) => a >= i).length;
     return { etapa, chegaram, pct: arred(porcento(chegaram, convs.length)) };
