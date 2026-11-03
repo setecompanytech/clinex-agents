@@ -57,19 +57,19 @@ function jornada(r: Rng, t0: number, id: string, tendencia: number): Evento[] {
 
   // probabilidade de seguir em cada etapa (melhora de leve com o tempo: "tendencia" vai de 0 a 1)
   const sobe = 0.04 * tendencia;
-  const cont = [0.95 + sobe / 2, 0.96, 0.92 + sobe, 0.88 + sobe, 0.86 + sobe, 0.9 + sobe / 2, 0.98];
-  const etapas = ['recepção / entendendo o serviço', 'confirmando o serviço', 'escolhendo a unidade', 'escolhendo data e turno', 'escolhendo a forma de pagamento', 'pedindo o CPF', 'confirmando o paciente'];
+  const cont = [0.95 + sobe / 2, 0.96, 0.92 + sobe, 0.88 + sobe, 0.9 + sobe / 2, 0.86 + sobe, 0.98];
+  const etapas = ['recepção / entendendo o serviço', 'confirmando o serviço', 'escolhendo a unidade', 'escolhendo data e turno', 'pedindo o CPF', 'confirmando o paciente', 'escolhendo a forma de pagamento'];
   const falas = [
     () => disse[0], () => 'isso mesmo', () => unidade.replace('Unidade ', ''), () => ['o mais rápido', 'quinta de manhã', 'a segunda opção', 'sexta à tarde'][Math.floor(r() * 4)],
-    () => (r() < 0.6 ? 'pix' : 'no balcão mesmo'), () => '123.456.789-00', () => 'sim, sou eu',
+    () => '123.456.789-00', () => 'sim, sou eu', () => (r() < 0.6 ? 'pix' : 'no balcão mesmo'),
   ];
   const respostas = [
     () => `Oi! Aqui é a Amanda, da Clinex. Você quer agendar ${nomeServ}, é isso?`, () => `Tenho sim! Qual unidade fica melhor pra você?`,
-    () => `Consegui estes aqui na ${unidade}. Qual prefere?`, () => `Pra esse horário, você prefere pagar no pix pra garantir ou na recepção?`,
-    () => `Perfeito. Me passa o seu CPF pra eu achar o seu cadastro?`, () => `Achei aqui o cadastro. Esse é o seu nome?`, () => `Agendamento confirmado! Te espero na ${unidade}.`,
+    () => `Consegui estes aqui na ${unidade}. Qual prefere?`, () => `Perfeito. Me passa o seu CPF pra eu achar o seu cadastro?`,
+    () => `Achei aqui o cadastro. Esse é o seu nome?`, () => `Como prefere pagar: pix pra garantir o horário ou na recepção?`, () => `Agendamento confirmado! Te espero na ${unidade}.`,
   ];
 
-  const gastos = (k: number) => lognormal(r, k === 3 ? 22_000 : k === 4 ? 160_000 : 35_000, 0.9);
+  const gastos = (k: number) => lognormal(r, k === 3 ? 22_000 : k === 6 ? 160_000 : 35_000, 0.9);
   let transf: { motivo: string; urgente: boolean } | null = null;
   const urgenciaNoInicio = r() < 0.004;
 
@@ -77,9 +77,9 @@ function jornada(r: Rng, t0: number, id: string, tendencia: number): Evento[] {
     t += i === 0 ? 0 : Math.max(8_000, gastos(i));
     const eUltimo = i === 6;
     // consultas ao Clinilink nas etapas que precisam de dado real
-    if (i === 0 || i === 2 || i === 3 || i === 5 || eUltimo) {
+    if (i === 0 || i === 2 || i === 3 || i === 4 || eUltimo) {
       const lento = r() < 0.025;
-      const caminho = i === 0 ? '/procedimentos' : i === 2 ? '/unidades' : i === 3 ? '/agenda/horarios' : i === 5 ? '/pacientes' : '/agendamentos';
+      const caminho = i === 0 ? '/procedimentos' : i === 2 ? '/unidades' : i === 3 ? '/agenda/horarios' : i === 4 ? '/pacientes' : '/agendamentos';
       const falhou = r() < (lento ? 0.35 : 0.012) * (1 - 0.5 * tendencia + 0.5);
       emit('clinilink', { metodo: eUltimo ? 'POST' : 'GET', caminho, status: falhou ? 504 : 200, ms: lento ? lognormal(r, 6500, 0.5) : lognormal(r, eUltimo ? 900 : 520, 0.9), ok: !falhou, erro: falhou ? 'tempo esgotado' : undefined, tentativa: 1 });
       if (r() < 0.2) emit('clinilink', { cache: true, recurso: 'unidades' });
@@ -88,7 +88,7 @@ function jornada(r: Rng, t0: number, id: string, tendencia: number): Evento[] {
     if (i === 0 && naoAchou) { emit('servico_nao_encontrado', { termo: pedido, tentativas: [] }); transf = transf ?? { motivo: 'O serviço pedido não foi encontrado no catálogo.', urgente: false }; }
     if (i === 0 && urgenciaNoInicio) transf = { motivo: 'URGÊNCIA: paciente relatou dor no peito.', urgente: true };
     if (i === 3 && r() < 0.08) emit('interpretar', { indice: r() < 0.8 ? 1 : null, ms: lognormal(r, 1400, 0.5) });
-    if (i === 4 && r() < 0.5) { // pix: lê o comprovante
+    if (i === 6 && r() < 0.5) { // pix: lê o comprovante
       const ruim = r() < 0.16;
       emit('comprovante', { tipo: 'pix', valor: 180, data: 'hoje', status: ruim ? 'ilegível' : 'concluído', ms: lognormal(r, 2600, 0.5) });
       if (ruim && r() < 0.5) transf = transf ?? { motivo: 'Comprovante de pix sem valor igual ao do procedimento. Conferir no extrato.', urgente: false };
