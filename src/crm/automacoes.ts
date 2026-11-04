@@ -105,6 +105,7 @@ export function validarRegra(b: unknown, atual?: Regra): Omit<Regra, 'id' | 'cri
       case 'etiqueta': { const t = texto(a.texto, 30); if (!t) throw new RegraError('dados', 'Etiqueta: escreva o texto.'); return { tipo: 'etiqueta', texto: t }; }
       case 'nota': { const t = texto(a.texto, 300); if (!t) throw new RegraError('dados', 'Nota: escreva o texto.'); return { tipo: 'nota', texto: t }; }
       case 'alerta': { const t = texto(a.texto, 300); if (!t) throw new RegraError('dados', 'Alerta: escreva o texto.'); return { tipo: 'alerta', texto: t }; }
+      case 'mensagem': { const t = texto(a.texto, 1000); if (!t) throw new RegraError('dados', 'Mensagem: escreva o texto do template.'); return { tipo: 'mensagem', texto: t }; }
       default: throw new RegraError('dados', 'Ação desconhecida.');
     }
   });
@@ -172,7 +173,7 @@ export function rodarRegras(leads: Lead[], regras: Regra[], agora: Date): LogAut
       const feitos: string[] = [];
       let alerta = false;
       for (const a of r.acoes) {
-        try { feitos.push(executarAcaoAuto(l, a, agora, r.nome)); if (a.tipo === 'alerta') alerta = true; } catch (e) { if (!(e instanceof RegraError)) throw e; }
+        try { feitos.push(executarAcaoAuto(l, a, agora, r.nome)); if (a.tipo === 'alerta' || a.tipo === 'mensagem') alerta = true; } catch (e) { if (!(e instanceof RegraError)) throw e; }
       }
       // marca mesmo se nada coube, para não tentar de novo a cada 10 minutos neste mesmo ponto da jornada
       l.autoRegras = { ...(l.autoRegras ?? {}), [chave(r, l)]: agora.toISOString() };

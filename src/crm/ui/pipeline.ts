@@ -11,7 +11,7 @@ var AU_GATILHOS = [
   ['parado_etapa', 'Lead parado numa etapa'], ['sem_contato', 'Sem contato há alguns dias'], ['lead_novo', 'Lead novo (ainda em aberto)'],
   ['agendamento_proximo', 'Consulta se aproximando'], ['no_show', 'No show sem remarcação']
 ];
-var AU_ACOES = [['mover', 'Mover de etapa'], ['descartar', 'Descartar com motivo'], ['atribuir', 'Atribuir responsável'], ['etiqueta', 'Aplicar etiqueta'], ['nota', 'Registrar nota'], ['alerta', 'Avisar a equipe (alerta)']];
+var AU_ACOES = [['mover', 'Mover de etapa'], ['descartar', 'Descartar com motivo'], ['atribuir', 'Atribuir responsável'], ['etiqueta', 'Aplicar etiqueta'], ['nota', 'Registrar nota'], ['alerta', 'Avisar a equipe (alerta)'], ['mensagem', 'Deixar mensagem pronta (template)']];
 
 function auPlural(n, a, b) { return n + ' ' + (n === 1 ? a : b); }
 function auQuando(iso) {
@@ -39,6 +39,7 @@ function auAcaoTxt(a) {
     case 'etiqueta': return 'etiquetar "' + (a.texto || '…') + '"';
     case 'nota': return 'registrar nota';
     case 'alerta': return 'avisar a equipe';
+    case 'mensagem': return 'deixar a mensagem pronta para enviar';
   }
   return '';
 }
@@ -66,7 +67,7 @@ function pedirAutomacoes(forcar) {
   if (S.AU && !S.AUstale && !forcar) return;
   if (S.AUerro && !S.AU && !forcar) return;
   S.AUcarregando = true;
-  api('GET', '/automacoes').then(function (d) { S.AU = d; S.AUstale = false; S.AUcarregando = false; S.AUerro = null; if (S.aba === 'funil' && S.fnTab === 'pipeline') desenhar(true); })
+  api('GET', '/automacoes').then(function (d) { S.AU = d; S.AUstale = false; S.AUcarregando = false; S.AUerro = null; if (S.aba === 'funil' && S.fnTab === 'pipeline') desenhar(true); if (itemModal && itemModal.refAuto) itemModal.refAuto(); })
     .catch(function (e) { S.AUcarregando = false; S.AUerro = e.message; if (S.aba === 'funil') desenhar(true); });
 }
 function auRecarregar() { S.AUstale = true; return carregar().then(function () { pedirAutomacoes(true); }); }
@@ -202,6 +203,32 @@ function auNum(valor, min, max, fn, rotulo) {
   return h('input', { class: 'in au-num', type: 'number', min: String(min), max: String(max), value: String(valor), 'aria-label': rotulo || null, oninput: function (e) { fn(e.target.value === '' ? '' : Number(e.target.value)); } });
 }
 
+/* template de mensagem: texto com [Nome], [Valor] e [Exame], atalhos para inserir os campos e uma prévia com um paciente de exemplo */
+function auMsgCampo(a, atualizar) {
+  var ta = h('textarea', { class: 'in au-msg-ta', rows: '6', maxlength: '1000', placeholder: 'Olá, [Nome]! Passando para lembrar do seu [Exame]...', 'aria-label': 'Texto do template de mensagem' });
+  ta.value = a.texto || '';
+  var previa = h('div', { class: 'au-msg-previa' });
+  function pintar() {
+    limpar(previa);
+    var t = String(a.texto || '').trim();
+    previa.appendChild(h('small', { text: 'Prévia com um paciente de exemplo' }));
+    if (!t) { previa.appendChild(h('p', { class: 'mut', text: 'Escreva a mensagem acima para ver como ela chega.' })); return; }
+    var ex = t.replace(/\[Nome\]/g, 'Maria').replace(/\[Valor\]/g, 'R$ 850').replace(/\[Exame\]/g, 'ressonância').replace(/\[Atendente\]/g, 'Amanda');
+    previa.appendChild(h('p', null, ex.split('\n').map(function (l, i) { return [i ? h('br') : null, l]; })));
+  }
+  ta.addEventListener('input', function () { a.texto = ta.value; pintar(); atualizar(); });
+  var campos = ['[Nome]', '[Valor]', '[Exame]', '[Atendente]'].map(function (c) {
+    return h('button', { type: 'button', class: 'au-msg-chip', title: 'Inserir ' + c + ' no texto', onclick: function () {
+      var i = ta.selectionStart === undefined ? ta.value.length : ta.selectionStart, f = ta.selectionEnd === undefined ? i : ta.selectionEnd;
+      ta.value = ta.value.slice(0, i) + c + ta.value.slice(f); a.texto = ta.value;
+      ta.focus(); ta.setSelectionRange(i + c.length, i + c.length); pintar(); atualizar();
+    }, text: c });
+  });
+  pintar();
+  return h('div', { class: 'au-msg' }, [ta, h('div', { class: 'au-msg-campos' }, [h('span', { text: 'Inserir:' })].concat(campos)), previa,
+    h('small', { class: 'mut', text: 'Quando a automação disparar, esta mensagem fica pronta na linha do tempo do lead, com os campos preenchidos, e aparece como aviso para a equipe copiar e enviar.' })]);
+}
+
 function auEditor(regra, pre) {
   var builtin = !!(regra && regra.builtin);
   var base = regra || pre || {};
@@ -225,7 +252,7 @@ function auEditor(regra, pre) {
   function payloadSim() {
     var p = payload();
     p.nome = p.nome || 'simulação';
-    p.acoes = p.acoes.map(function (a) { var c = JSON.parse(JSON.stringify(a)); if (c.tipo === 'atribuir' && !c.atendente) c.atendente = 'x'; if ((c.tipo === 'etiqueta' || c.tipo === 'nota' || c.tipo === 'alerta') && !c.texto) c.texto = 'x'; return c; });
+    p.acoes = p.acoes.map(function (a) { var c = JSON.parse(JSON.stringify(a)); if (c.tipo === 'atribuir' && !c.atendente) c.atendente = 'x'; if ((c.tipo === 'etiqueta' || c.tipo === 'nota' || c.tipo === 'alerta' || c.tipo === 'mensagem') && !c.texto) c.texto = 'x'; return c; });
     return p;
   }
   function atualizar() {
@@ -283,10 +310,11 @@ function auEditor(regra, pre) {
       if (a.tipo === 'descartar') campos.push(auSel(A.motivos.map(function (m) { return [m, m]; }), a.motivo || A.motivos[0], function (v) { a.motivo = v; atualizar(); }, 'Motivo'));
       if (a.tipo === 'atribuir') campos.push(auSel([['', 'Escolha…']].concat(atendentes.map(function (u) { return [u, u]; })), a.atendente || '', function (v) { a.atendente = v; atualizar(); }, 'Responsável'));
       if (a.tipo === 'etiqueta') campos.push(h('input', { class: 'in', maxlength: '30', placeholder: 'Ex.: Esfriando', value: a.texto || null, 'aria-label': 'Etiqueta', oninput: function (e) { a.texto = e.target.value; atualizar(); } }));
+      if (a.tipo === 'mensagem') campos.push(auMsgCampo(a, atualizar));
       if (a.tipo === 'nota' || a.tipo === 'alerta') campos.push(h('input', { class: 'in', maxlength: '300', placeholder: 'Use [Nome], [Valor] e [Exame]', value: a.texto || null, 'aria-label': 'Texto', oninput: function (e) { a.texto = e.target.value; atualizar(); } }));
       if (a.tipo === 'mover' && !a.para) a.para = 'sem_retorno';
       if (a.tipo === 'descartar' && !a.motivo) a.motivo = A.motivos[0];
-      secA.appendChild(h('div', { class: 'au-acao' }, [
+      secA.appendChild(h('div', { class: 'au-acao' + (a.tipo === 'mensagem' ? ' msg' : '') }, [
         h('span', { class: 'au-ord', text: String(i + 1) }),
         auSel(AU_ACOES, a.tipo, function (v) { var n = { tipo: v }; if (v === 'mover') n.para = 'sem_retorno'; if (v === 'descartar') n.motivo = A.motivos[0]; E.acoes[i] = n; desenharAcoes(); atualizar(); }, 'Tipo da ação'),
         h('div', { class: 'au-acao-c' }, campos),
@@ -302,7 +330,7 @@ function auEditor(regra, pre) {
   desenharGatilho(); desenharAcoes(); atualizar();
 
   var m = modal({
-    titulo: builtin ? 'Automação do guia' : regra ? 'Editar automação' : 'Nova automação', sub: builtin ? regra.nome : 'Defina quando ela dispara, para quem vale e o que faz.', largura: 1040, classe: 'au-modal',
+    titulo: builtin ? 'Automação do guia' : regra ? 'Editar automação' : (pre && pre.titulo) || 'Nova automação', sub: builtin ? regra.nome : (pre && pre.sub) || 'Defina quando ela dispara, para quem vale e o que faz.', largura: 1040, classe: 'au-modal',
     corpo: [h('div', { class: 'au-editor' }, [
       h('div', { class: 'au-form' }, [
         campo('Nome', nome),

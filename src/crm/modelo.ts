@@ -4,6 +4,8 @@
  * Para mudar o processo (um dia, uma mensagem, um limite), é só mexer neste arquivo.
  */
 
+import { GRADE_NOSHOW, ITENS_NOSHOW, MAPA_NOSHOW, REGRAS_NOSHOW } from './modelo-noshow.js';
+
 export type Fase = 'aberto' | 'sem_retorno' | 'negociacao';
 export type Canal = 'whatsapp' | 'ligacao';
 export type Status = 'aberto' | 'sem_retorno' | 'negociacao' | 'agendado' | 'convertido_ativo' | 'convertido_organico' | 'descarte';
@@ -147,6 +149,8 @@ export type Item = {
   cadencia?: string[];
   pai?: string;
   extra?: { titulo: string; texto: string }[];
+  /** itens do fluxo do No-show (modelo-noshow.ts); sem isto, o item é do fluxo de leads */
+  fluxo?: 'noshow';
 };
 
 export const ITENS: Item[] = [
@@ -284,4 +288,8 @@ export const GLOSSARIO = [
   { termo: 'Linha tracejada', texto: 'Voltou ou exceção.' },
 ];
 
-export const MODELO = { MOTIVOS_DESCARTE, LIMITES, PASSOS, MENSAGENS, GRUPOS_MSG, DICAS_VENDA, REGRAS_OURO, PRIORIDADE_DO_DIA, ITENS, MAPA, GRADE, GLOSSARIO };
+/** Vai inteiro para o navegador. Os itens do No-show entram na mesma lista (ids "ns-"), então busca, modal e links funcionam igual. */
+export const MODELO = {
+  MOTIVOS_DESCARTE, LIMITES, PASSOS, MENSAGENS, GRUPOS_MSG, DICAS_VENDA, REGRAS_OURO, PRIORIDADE_DO_DIA, ITENS: [...ITENS, ...ITENS_NOSHOW], MAPA, GRADE, GLOSSARIO,
+  NOSHOW: { MAPA: MAPA_NOSHOW, GRADE: GRADE_NOSHOW, REGRAS: REGRAS_NOSHOW },
+};

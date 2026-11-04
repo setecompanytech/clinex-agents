@@ -137,6 +137,15 @@ function agBoasVindas() {
   if (v.length) txt += '\n\nAgora: **' + v[0].titulo + '**' + (v.length > 1 ? ' (e mais ' + (v.length - 1) + ' ' + (v.length - 1 === 1 ? 'alerta' : 'alertas') + ')' : '') + '.';
   agAdicionar({ papel: 'agent', texto: txt, sugestoes: ['O que eu faço agora?', 'Quais tarefas estão atrasadas?', 'Como está a conversão?', 'Quais as regras de ouro?'] });
 }
+ICO.expand = 'M15 4h5v5M9 20H4v-5M20 4l-6.5 6.5M4 20l6.5-6.5'; ICO.shrink = 'M20 9h-5V4M4 15h5v5M15 9l6-6M9 15l-6 6';
+/* expande o chat para quase a tela inteira (e lembra a escolha) */
+function agExpandir(forcar) {
+  var g = forcar === undefined ? !AG.painel.classList.contains('grande') : forcar;
+  AG.painel.classList.toggle('grande', g); gravarLS('ag-grande', g ? '1' : '0');
+  var b = AG.painel.querySelector('.ag-expandir');
+  if (b) { limpar(b); b.appendChild(ico(g ? 'shrink' : 'expand', 16)); b.title = g ? 'Reduzir' : 'Expandir'; b.setAttribute('aria-label', g ? 'Reduzir o agente' : 'Expandir o agente'); }
+  setTimeout(agRolar, 60);
+}
 function agConstruir() {
   if (AG.iniciou) return; AG.iniciou = true;
   AG.selo = h('span', { class: 'ag-selo', style: 'display:none' });
@@ -147,6 +156,7 @@ function agConstruir() {
   var cab = h('div', { class: 'ag-cab' }, [
     h('span', { class: 'ag-av' }, [ico('bolt', 20)]),
     h('div', { class: 'ag-cab-t' }, [h('b', { text: 'Agente Clinex' }), AG.status]),
+    h('button', { type: 'button', class: 'ag-ic ag-expandir', 'aria-label': 'Expandir o agente', title: 'Expandir', onclick: function () { agExpandir(); } }, [ico('expand', 16)]),
     h('button', { type: 'button', class: 'ag-ic', 'aria-label': 'Limpar a conversa', title: 'Limpar a conversa', onclick: function () { AG.msgs = []; limpar(AG.lista); agBoasVindas(); } }, [ico('edit', 16)]),
     h('button', { type: 'button', class: 'ag-ic', 'aria-label': 'Fechar o agente', onclick: function () { agAlternar(false); } }, [ico('x', 18)])
   ]);
@@ -159,6 +169,7 @@ function agConstruir() {
   AG.listaAl = h('div', { class: 'ag-alertas', style: 'display:none' });
   AG.painel = h('section', { class: 'ag-painel', id: 'ag-painel', role: 'dialog', 'aria-label': 'Agente do CRM' }, [cab, h('div', { class: 'ag-abas', role: 'tablist' }, [AG.abaBtns.conversa, AG.abaBtns.alertas]), conversa, AG.listaAl]);
   document.body.appendChild(AG.painel); document.body.appendChild(AG.botao);
+  if (lerLS('ag-grande') === '1') agExpandir(true);
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && AG.aberto && !pilha.length) agAlternar(false); }, true);
   agBuscarAlertas();
   setInterval(function () { if (document.visibilityState === 'visible') agBuscarAlertas(); }, 60000);

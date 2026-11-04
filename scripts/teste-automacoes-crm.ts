@@ -70,6 +70,16 @@ teste('executa ações em ordem, não repete e conta a execução', () => {
   assert.equal(r.execucoes, 1);
   assert.equal(rodarRegras([l], [r], em(HOJE, '15:00')).length, 0, 'não repete no mesmo ponto da jornada');
 });
+teste('template de mensagem: preenche [Nome], [Valor] e [Exame], registra na linha do tempo e conta como aviso', () => {
+  const r = mk({ gatilho: { tipo: 'parado_etapa', etapa: 'aberto', dias: 2 }, acoes: [{ tipo: 'mensagem', texto: 'Oi, [Nome]! Seu [Exame] de [Valor] segue reservado.' }] });
+  const l = novo('Maria Souza', dia(3), 900);
+  const log = rodarRegras([l], [r], AGORA);
+  assert.equal(log.length, 1); assert.equal(log[0].alerta, true);
+  assert.ok(log[0].resumo.startsWith('mensagem pronta: Oi, Maria! Seu ultrassom de R$ 900'), log[0].resumo);
+  assert.ok(l.eventos.some((e) => e.tipo === 'nota' && e.texto.includes('mensagem pronta para enviar') && e.texto.includes('Oi, Maria!')));
+  assert.match(erroDe(() => validarRegra({ nome: 'x', gatilho: { tipo: 'sem_contato', dias: 3 }, acoes: [{ tipo: 'mensagem', texto: '   ' }] }))!, /texto do template/);
+  assert.equal(validarRegra({ nome: 'x', gatilho: { tipo: 'sem_contato', dias: 3 }, acoes: [{ tipo: 'mensagem', texto: 'a'.repeat(1500) }] }).acoes[0].tipo, 'mensagem');
+});
 teste('mover para Sem retorno funciona e a linha do tempo reconhece a etapa', () => {
   const r = mk({ gatilho: { tipo: 'parado_etapa', etapa: 'negociacao', dias: 5 }, acoes: [{ tipo: 'mover', para: 'sem_retorno' }] });
   const l = novo('A', dia(8)); aplicar(l, { tipo: 'resposta' }, em(dia(6)));
