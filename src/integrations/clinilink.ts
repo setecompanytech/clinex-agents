@@ -155,9 +155,14 @@ export async function getPacientePorCpf(cpf: string): Promise<Paciente[]> {
   return (await get<{ pacientes: Paciente[] }>('/v1/agendamento/pacientes', { cpf })).pacientes;
 }
 
+/** Consulta de paciente por telefone (o Clinilink compara só os dígitos, número inteiro). Vários pacientes podem ter o mesmo telefone (família). Dado pessoal: nunca em cache e nunca logado. */
+export async function getPacientesPorTelefone(telefone: string): Promise<Paciente[]> {
+  return (await get<{ pacientes: Paciente[] }>('/v1/agendamento/pacientes', { telefone })).pacientes;
+}
+
 // ---------------------------- ESCRITA (exige credencial rw) ----------------------------
 
-export type NovoPaciente = { nome: string; cpf: string; dataNascimento?: string; sexo?: 'feminino' | 'masculino'; telefone?: string };
+export type NovoPaciente = { nome: string; cpf?: string; dataNascimento?: string; sexo?: 'feminino' | 'masculino'; telefone?: string };
 export type NovoAgendamento = { pacienteId: string; unidadeId: string; agendaId: string; profissionalId: string; dataHora: string; procedimentoId: string; observacao?: string; /** combo: vários serviços do mesmo combo no mesmo horário */ comboId?: string; procedimentoIds?: string[] };
 export type RespostaEscrita<T> = { ok: true; dados: T } | { ok: false; codigo: string; mensagem: string; incerto?: boolean; corpo?: any };
 

@@ -14,8 +14,8 @@ import { RAIZES, rotuloDaEtapa, type AgendamentoExistente, type ComboInfo, type 
  *  1 recepção -> 2 paciente diz o que precisa (serviço direto ou sintoma) -> 3 IA sugere o serviço e o paciente confirma
  *  -> 4 IA consulta a agenda e informa as unidades que têm o serviço, com o médico de cada uma, e pergunta qual
  *  -> 5 paciente escolhe a unidade (e talvez já o dia) -> 6 IA lista datas e turnos com vaga (início da agenda)
- *  -> 7 paciente escolhe -> 8 IA resume e pede os dados (nome, nascimento, telefone, CPF; em qualquer ordem) -> 9 IA consulta o paciente
- *  e mostra o nome para confirmar -> 10 se o CPF não existe: pede o que falta do cadastro (o cadastro só é criado no fim)
+ *  -> 7 paciente escolhe -> 8 IA resume e pede os dados (nome, nascimento, telefone e, se ele tiver, CPF; em qualquer ordem) -> 9 IA consulta o paciente
+ *  (pelo CPF, ou pelo telefone com nome parecido e nascimento) e mostra o nome para confirmar -> 10 se não achou: pede o que falta do cadastro (o cadastro só é criado no fim)
  *  -> 11 IA pergunta a forma de pagamento (pix manda a chave e espera o comprovante) -> 12 conclui: cadastra se novo e agenda.
  * Estilo Amanda v7.3: sem emoji, sem travessão, sem asterisco, uma pergunta por mensagem.
  */
@@ -49,7 +49,9 @@ export type State = {
   data?: string;
   turno?: Periodo;
   slot?: Slot;
-  cpf?: string;
+  cpf?: string; // opcional: sem ele o paciente é achado pelo telefone, nome parecido e nascimento
+  buscouPorDados?: boolean; // já procurou o cadastro pelo telefone, nome e nascimento
+  achadoPorDados?: boolean; // o cadastro em `paciente` veio dessa busca (não do CPF)
   paciente?: PacienteInfo | null; // undefined = ainda não consultado; null = não existe
   pacienteConfirmado: boolean;
   cad: Cadastro;
@@ -102,6 +104,7 @@ export type Ctx = {
   /** Leitor de contexto (IA): a mensagem não respondeu à pergunta pendente; lê a conversa e responde só com os fatos verificados. */
   contexto?: (p: { conversa: MensagemConversa[]; mensagem: string; fatos: string; perguntaPendente: string }) => Promise<RespostaContextual | null>;
   ultima?: boolean; // é a última mensagem da última rodada (só ela recebe resposta de verdade)
+  maisNaRajada?: boolean; // o paciente mandou mais mensagens junto com esta (ainda vão ser lidas)
   anteriores?: string[]; // o que o paciente já tinha dito nesta jornada (contexto para o intérprete)
   /** Reprocessamento: a resposta que a Amanda deu a ESTA mensagem foi o aviso de "já tem esse atendimento no dia" (o agente deduz do histórico). */
   duplicadoAqui?: boolean;
@@ -134,7 +137,7 @@ export function etapa(s: State, handoff?: Handoff): string {
   if (!s.servicoConfirmado) return 'confirmando o serviço';
   if (!s.unidade) return 'escolhendo a unidade';
   if (!s.slot) return 'escolhendo data e turno';
-  if (!s.cpf) return 'pedindo o CPF';
+  if (!s.cpf && !s.paciente && !(s.cad.nome && s.cad.nascimento && s.cad.telefone)) return 'pedindo os dados do paciente';
   if (s.paciente === undefined) return 'consultando o paciente';
   if (s.paciente === null && !(s.cad.nome && s.cad.nascimento && s.cad.telefone && s.cad.sexo)) return 'cadastro do paciente novo';
   if (s.paciente && !s.pacienteConfirmado) return 'confirmando o paciente';
@@ -155,7 +158,7 @@ export const MARCAS_FIM = [MARCA_FIM, MARCA_AGENDADO, MARCA_MAIS, MARCA_ADEUS];
 /** Mensagens com texto exato (valores, chave, marcas): não passam pelo GPT. */
 export const SEM_GPT = [MARCA_AGENDADO, MARCA_MAIS, MARCA_ADEUS, MARCA_PIX, MARCA_PAGAMENTO];
 /** Textos que o Giovanny aprovou palavra por palavra (unidades, horários, "o mais rápido", comprovante, aviso de segurança do sintoma): também não passam pelo GPT. */
-SEM_GPT.push('encontrei estes exames', 'Anotei estes exames', 'Total: R$', 'Total no ', 'total dos exames', 'foto do pedido médico', 'não entraram na soma', 'não entrou na soma', 'combo', 'Combo', MARCA_DUP, 'Está sim, confirmado!', 'Tenho sim!', 'Consegui estes aqui', 'Esses são os horários que tenho', 'Guamá: Endereço:', 'Travessa Coronel Luís Bentes com a Rua do Úna', 'Claro! Tenho estes combos', 'Claro! Tenho combos de', ' inclui: ', 'me manda por favor os dados do paciente', 'Como você prefere pagar', 'O mais rápido que tenho é', 'O último que tenho é', 'Não to conseguindo ler esse comprovante', 'Recebi o seu comprovante', 'Pelo que você contou');
+SEM_GPT.push('encontrei estes exames', 'Anotei estes exames', 'Total: R$', 'Total no ', 'total dos exames', 'foto do pedido médico', 'não entraram na soma', 'não entrou na soma', 'combo', 'Combo', MARCA_DUP, 'Está sim, confirmado!', 'Tenho sim!', 'Cada serviço tem o seu médico', 'Consegui estes aqui', 'Esses são os horários que tenho', 'Guamá: Endereço:', 'Travessa Coronel Luís Bentes com a Rua do Úna', 'Claro! Tenho estes combos', 'Claro! Tenho combos de', ' inclui: ', 'me manda por favor os dados do paciente', 'Como você prefere pagar', 'O mais rápido que tenho é', 'O último que tenho é', 'Não to conseguindo ler esse comprovante', 'Recebi o seu comprovante', 'Pelo que você contou');
 
 export const novoEstado = (): State => ({
   saudou: false, confirmPerguntado: false, servicoConfirmado: false, unidadesInformadas: false,
@@ -204,12 +207,14 @@ const nomesExib = (nomes: (string | undefined)[]) => { const u = [...new Set(nom
 const juntar = (itens: string[]) => (itens.length <= 1 ? (itens[0] ?? '') : `${itens.slice(0, -1).join(', ')} e ${itens[itens.length - 1]}`);
 /** Uma lista de horários com um item só vira pergunta de sim ou não ("Esse horário fica bom?"), como a atendente faz. */
 const fechoLista = (n: number) => (n === 1 ? 'Esse horário fica bom pra você?' : 'Qual desses fica bom pra você?');
-const numerada = (slots: Slot[], comMedico: boolean, ref: string) => {
+const numerada = (slots: Slot[], comMedico: boolean, ref: string, quem?: string) => {
   const nomes = nomesExib(slots.map((x) => x.profissional));
-  return slots.map((s, i) => `${i + 1}. ${cap(dataCurta(s.ymd, ref))}, ${periodoTxt(s.turno)}, a partir das ${hora(s.inicio)}${comMedico && s.profissional ? `, com ${nomes.get(s.profissional)}` : ''}`).join('\n');
+  return slots.map((s, i) => `${i + 1}. ${cap(dataCurta(s.ymd, ref))}, ${periodoTxt(s.turno)}, a partir das ${hora(s.inicio)}${comMedico && s.profissional ? `, ${quem ? `${quem} ` : ''}com ${nomes.get(s.profissional)}` : ''}`).join('\n');
 };
 /** Um horário numa frase corrida, quase sem vírgula: "quinta dia 22 de manhã a partir das 8h com a Dra. Fernanda". */
-const slotFalado = (s: Slot, comMedico: boolean, ref: string) => `${dataFalada(s.ymd, ref)} ${periodoTxt(s.turno)} a partir das ${hora(s.inicio)}${comMedico && s.profissional ? ` com ${exibir(s.profissional, { artigo: true })}` : ''}`;
+const slotFalado = (s: Slot, comMedico: boolean, ref: string, quem?: string) => `${dataFalada(s.ymd, ref)} ${periodoTxt(s.turno)} a partir das ${hora(s.inicio)}${comMedico && s.profissional ? `${quem ? `, ${quem}` : ''} com ${exibir(s.profissional, { artigo: true })}` : ''}`;
+/** Vários serviços no mesmo dia: o médico do horário é o do serviço principal (os outros serviços têm outros médicos), então a lista diz de qual serviço ele é. */
+const servicoDoMedico = (sv: Servico): string | undefined => { const a = sv.combo?.itens.find((i) => i.id === sv.combo!.ancoraId); return a ? titulo(a.nome.split(/\s+[-(]/)[0].replace(/[.\s]+$/, '').trim()) : undefined; };
 
 const SEMANA: [RegExp, number][] = [[/domingo/, 0], [/segunda/, 1], [/terca/, 2], [/quarta/, 3], [/quinta/, 4], [/sexta/, 5], [/sabado/, 6]];
 
@@ -315,7 +320,8 @@ const pick = <T,>(arr: T[], n: number) => arr[n % arr.length];
 
 const MESES = ['janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
 function lerNascimento(t: string): string | undefined {
-  const m = t.match(/\b(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})\b/);
+  // "08/07/1999" ou só os números, como muita gente digita: "08071999"
+  const m = t.match(/\b(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})\b/) ?? t.match(/^\s*(\d{2})\s?(\d{2})\s?(\d{4})\s*$/);
   // por extenso (áudio): "10 de maio de 1990"
   const e = norm(t).match(new RegExp(`\\b(\\d{1,2})\\s*(?:de\\s+)?(${MESES.join('|')})\\s*(?:de\\s+)?(\\d{4})\\b`));
   if (!m && !e) return undefined;
@@ -363,12 +369,11 @@ const soAgradecimento = (t: string) => {
   const w = t.split(/[^a-z]+/).filter(Boolean);
   return w.length > 0 && w.length <= 10 && w.every((x) => AGRADECE.has(x));
 };
-const NAO_MAIS = /\b(so isso|era so isso|e so isso|so era isso|nada mais|mais nada|nao preciso|nao precisa|nao,? obrigad[oa]|por hoje|por enquanto|tudo certo|pode encerrar|tchau|ate (mais|logo|breve))\b|^(nao|n)[\s!.,]*$/;
+const NAO_MAIS = /\b((so|apenas|somente) isso|(era|e) (so |apenas |somente )?isso|so era isso|ja (ta|esta) (bom|otimo|certo)|nada mais|mais nada|nao preciso|nao precisa|nao,? obrigad[oa]|por hoje|por enquanto|tudo certo|pode encerrar|tchau|ate (mais|logo|breve))\b|^(nao|n)[\s!.,]*$/;
 const SO_SIM = /^(sim|s|quero|quero sim|claro|pode|pode sim|gostaria|preciso|isso|uhum|aham|por favor|queria|tenho sim|tenho)[\s!.,]*$/;
 
-const PERG_CPF = 'Me passa o CPF do paciente pra eu reservar?';
 /** Os dados do paciente, pedidos de uma vez assim que o serviço e o dia estão definidos (como a atendente faz). */
-const PEDIDO_DADOS = 'Pra gerar o agendamento, me manda por favor os dados do paciente:\n• Nome completo\n• Data de nascimento\n• Telefone para contato (pode ser esse número do WhatsApp)\n• CPF';
+const PEDIDO_DADOS = 'Pra gerar o agendamento, me manda por favor os dados do paciente:\n• Nome completo\n• Data de nascimento\n• Telefone para contato (pode ser esse número do WhatsApp)\n• CPF (se tiver à mão)';
 /** Forma de pagamento dita com todas as letras (sem tratar "não" como resposta). */
 function lerPagamentoFirme(t: string): 'pix' | 'link' | 'recepcao' | undefined {
   if (RECEPCAO.test(t)) return 'recepcao';
@@ -376,7 +381,6 @@ function lerPagamentoFirme(t: string): 'pix' | 'link' | 'recepcao' | undefined {
   if (LINK.test(t)) return 'link';
   return undefined;
 }
-const PERG_CPF_APOS = 'Agora pra eu fazer a reserva pode me passar o CPF do paciente?';
 export const TXT_MAIS ='Imagina, foi um prazer! Posso te ajudar com mais alguma coisa?';
 export const TXT_ADEUS = 'Por nada! Foi um prazer te atender. Tenha um ótimo dia e se cuida, tá?';
 export type Pos = 'confirmado' | 'perguntou_mais' | 'encerrou';
@@ -506,16 +510,26 @@ export function textoEnderecos(t: string, unidadeEscolhida?: string): string {
   const doEscolhido = unidadeEscolhida ? ENDERECOS.filter((e) => e.re.test(norm(unidadeEscolhida))) : [];
   return (citadas.length ? citadas : doEscolhido.length ? doEscolhido : ENDERECOS).map((e) => e.texto).join('\n\n');
 }
+/** "todos", "tudo", "quero agendar tudo pro mesmo dia", "o combo inteiro", "pode agendar o resto", "os que faltam" (mas não "tudo bem" nem "não quero tudo"). */
+const querTudoDoCombo = (t: string) => /\b(todos|todas)\b|\btudo\b(?!\s+(bem|certo|ok|joia|bom|otimo|tranquilo|beleza))|\bcombo (todo|inteiro|completo)\b|\b(resto|restante|restantes|demais)\b|\b(que|os|as) faltam?\b/.test(t) && !/\b(nao|nem)\b[^.!?]*\b(tudo|todos|todas)\b/.test(t);
+/** "qual serviço você tá agendando?" */
+const COMBO_QUAL = /\b(qual|quais|que)\b.*\b(agendando|marcando|reservando)\b|\b(agendando|marcando|reservando) (o )?(que|qual|quais)\b/;
 /** Marca do texto que informa as unidades (a dúvida "quais unidades?" não repete o que já foi dito). */
 const MARCA_UNIDADES = 'Tenho sim!';
 /** Onde e com quem: "Tenho sim! No Guamá com a Dra. Giovanna e a Dra. Ebenezaide, e no Telégrafo com a Dra. Ebenezaide." Os nomes saem com Dr./Dra. */
-function textoUnidades(sv: Servico, modo: 'resposta' | 'duvida'): string {
-  const exib = nomesExib(sv.unidades.flatMap((u) => u.profissionais ?? []));
+function textoUnidades(sv: Servico, modo: 'resposta' | 'duvida', abertura = MARCA_UNIDADES): string {
+  const exib = nomesExib(sv.unidades.flatMap((u) => [...(u.profissionais ?? []), ...(u.porServico ?? []).flatMap((x) => x.profissionais)]));
+  // vários serviços no mesmo dia: cada médico aparece só no serviço que faz (a lista da unidade sozinha daria a entender que ele faz todos)
+  if (sv.combo && !sv.profissional && sv.unidades.some((u) => u.porServico?.length)) {
+    const ou = (n: string[]) => (n.length <= 1 ? (n[0] ?? '') : `${n.slice(0, -1).join(', ')} ou ${n[n.length - 1]}`);
+    const linhas = sv.unidades.map((u) => (u.porServico?.length ? [`No ${u.nome}:`, ...u.porServico.map((x) => `- ${x.nome} com ${ou(x.profissionais.map((p) => exib.get(p) ?? p))}`)].join('\n') : `No ${u.nome}`));
+    return modo === 'resposta' ? `Cada serviço tem o seu médico:\n${linhas.join('\n')}` : `${cap(sv.frase)} tem agenda no mesmo dia:\n${linhas.join('\n')}`;
+  }
   // com profissional pedido pelo nome, a frase do serviço já diz "com a Dra. X": não repete
   const medicos = (u: Unidade) => (!sv.profissional && u.profissionais?.length ? ` com ${juntar(u.profissionais.map((x) => exib.get(x) ?? x))}` : '');
   const trechos = sv.unidades.map((u) => `no ${u.nome}${medicos(u)}`);
   const corpo = trechos.length === 1 ? trechos[0] : trechos.join(sv.unidades.some((u) => medicos(u)) ? ', e ' : ' e ');
-  return modo === 'resposta' ? `${MARCA_UNIDADES} ${cap(corpo)}.` : `${cap(sv.frase)} tem agenda ${corpo}.`;
+  return modo === 'resposta' ? `${abertura} ${cap(corpo)}.` : `${cap(sv.frase)} tem agenda ${corpo}.`;
 }
 
 // ---------- paciente que já tem o atendimento no dia ----------
@@ -684,7 +698,7 @@ const FALTA_DA_ETAPA: Record<string, string> = {
   'escolhendo data e turno': 'falta escolher o dia e o horário',
   'escolhendo a forma de pagamento': 'falta combinar a forma de pagamento',
   'aguardando o comprovante do pix': 'tô só esperando o comprovante do pix',
-  'pedindo o CPF': 'faltam os dados do paciente (nome, data de nascimento, telefone e CPF)',
+  'pedindo os dados do paciente': 'faltam os dados do paciente (nome, data de nascimento e telefone; o CPF é opcional)',
   'cadastro do paciente novo': 'falta terminar o cadastro do paciente',
   'confirmando o paciente': 'falta você confirmar se o cadastro é do paciente',
 };
@@ -741,6 +755,11 @@ export async function step(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n
   if (!ctx.ultima || r.handoff || r.silencio || !r.reply || r.state.fim || r.faq || r.direta) return r;
   const t = norm(texto.replace(TOKEN_MIDIA, ' '));
   if (t.length < 6 || SIM.test(t) || NAO.test(t) || SO_CUMPRIMENTO.test(t) || soAgradecimento(t) || TOKEN_MIDIA.test(texto)) return r;
+  // "qual serviço você tá agendando?" (vem antes da agenda: "tá agendando" parece pedido de horário)
+  if (COMBO_QUAL.test(t) && r.state.combo && !r.state.combo.perguntando) {
+    const cb = r.state.combo; const depois = cb.etapas.filter((e, i) => e.estado === 'pendente' && i !== cb.atual).map((e) => rotuloDaEtapa(e.itens));
+    return { ...r, reply: `Agora tô agendando ${rotuloDaEtapa(cb.etapas[cb.atual].itens)}.${depois.length ? ` Depois ainda falta ${juntar(depois)}. Se quiser agendar tudo junto, é só me falar.` : ''}\n${r.reply}` };
+  }
   if (QUER_AGENDA.test(t)) return r; // pergunta pela agenda: o roteiro responde com os horários (a camada de contexto não entra)
   if (marcaDeProgresso(prev.fim ? novoEstado() : prev) !== marcaDeProgresso(r.state)) return r; // a conversa avançou: a mensagem era a resposta esperada
   const antes = (extra: string): Result => {
@@ -921,14 +940,15 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
       if (dela.some((w) => palavras.has(w) || [...palavras].some((k) => k.length >= 5 && w.startsWith(k)))) achadas.add(x.i);
     }
     if (/\bconsulta\b/.test(tt)) { const cs = pend.filter((x) => x.e.itens.some((i) => /^consulta\b/.test(norm(i.nome)))); if (cs.length === 1) achadas.add(cs[0].i); }
-    if (/\b(laborat\w*|coleta|sangue)\b/.test(tt)) { const ls = pend.filter((x) => x.e.itens.some((i) => /laborat/i.test(i.categoria ?? ''))); if (ls.length === 1) achadas.add(ls[0].i); }
+    if (/\braio ?-?x\b|\bradiografia\b/.test(tt)) { const rs = pend.filter((x) => x.e.itens.some((i) => /^(rx|raio)\b/.test(norm(i.curto)))); if (rs.length === 1) achadas.add(rs[0].i); }
+    if (/\b(laborat\w*|coleta|sangue|exames)\b/.test(tt)) { const ls = pend.filter((x) => x.e.itens.some((i) => /laborat/i.test(i.categoria ?? ''))); if (ls.length === 1) achadas.add(ls[0].i); }
     return [...achadas].sort((a, b) => a - b);
   };
   /** O que o paciente escolheu entre as opções pendentes: todas, pelos números ("1 e 3"), pelo nome ou "o primeiro". Posições em `c.etapas`; undefined = não escolheu. */
   const lerSelecao = (tt: string, c: ComboAndamento): number[] | undefined => {
     const pend = pendentesDoCombo(c);
     if (pend.length === 0) return undefined;
-    if (/\b(todos|todas)\b|\btudo (junto|de uma vez|isso|agora)\b|\b(quero|pode ser|vamos de|marca) tudo\b|^\s*tudo[\s!.]*$/.test(tt) || (pend.length === 2 && /\b(os dois|as duas|ambos|ambas|os 2)\b/.test(tt))) return pend.map((x) => x.i);
+    if (querTudoDoCombo(tt) || (pend.length === 2 && /\b(os dois|as duas|ambos|ambas|os 2)\b/.test(tt))) return pend.map((x) => x.i);
     const palavras = tt.split(/[^a-z0-9]+/).filter(Boolean);
     const nums = palavras.filter((w) => /^[1-9]$/.test(w));
     const LIGACAO = new Set(['o', 'a', 'os', 'as', 'item', 'itens', 'numero', 'numeros', 'opcao', 'opcoes', 'quero', 'queria', 'pode', 'ser', 'so', 'apenas', 'somente', 'agendar', 'marcar', 'e', 'com', 'mais', 'junto', 'juntos', 'tambem', 'agora', 'vamos', 'sim', 'por', 'favor', 'pfv']);
@@ -938,6 +958,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     }
     const citadas = etapasCitadas(tt, c);
     if (citadas.length) return citadas;
+    if (/\b(no|pro|para o|num) mesmo dia\b/.test(tt)) return pend.map((x) => x.i); // "no mesmo dia", sem dizer quais
     const o = lerEscolha(tt, pend.length);
     return o >= 0 && o < pend.length ? [pend[o].i] : undefined;
   };
@@ -1297,6 +1318,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
 
   // 1e) combo: ela perguntou quais itens o paciente quer agendar agora. Um número, vários ("1 e 3"), "todos" ou o nome do item escolhe o que agendar (vários itens
   // entram no mesmo agendamento); "sim" (ou já dizendo unidade, dia ou período) segue com a sugestão dela; "depois" fecha o combo com o que já foi agendado.
+  let comboDireto = false; // os dados e o pagamento já foram resolvidos e o paciente pediu tudo o que falta: ela escolhe o horário e agenda, sem perguntar
   if (s.combo?.perguntando) {
     const c = s.combo; const inicio = c.feitos.length === 0;
     if (faq && !SIM.test(t)) return dizer(perguntaProxima(c)); // dúvida: a resposta dela vem antes (prefixo) e a pergunta continua valendo
@@ -1306,6 +1328,8 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     if (sel === undefined && !positivo && (NAO.test(t) || /^(depois|mais tarde)[\s!.,]*$/.test(t))) return finalizaCombo();
     const nomesUnG = await fonte.nomesUnidades();
     const temInfo = Boolean(lerData(t, ctx) || lerTurno(t) || lerIntencao(t, ctx) || nomesUnG.some((u) => t.includes(norm(u))));
+    const pendAgora = pendentesDoCombo(c);
+    const agendaDireto = !inicio && Boolean(sel) && pendAgora.every((x) => sel!.includes(x.i)) && (sel!.length > 1 || querTudoDoCombo(t));
     if (sel === undefined && !positivo && !temInfo) {
       c.tent += 1;
       if (c.tent >= 3) return finalizaCombo();
@@ -1316,6 +1340,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
       if (!(await escolherEtapas(sel, inicio))) return seguirCombo(`Pra ${nomeEscolhido} não tenho vaga aberta agora, a equipe te ajuda com isso depois.`);
     }
     c.perguntando = false; c.tent = 0;
+    comboDireto = agendaDireto;
   }
 
   // 2a) vários exames pelo nome na mesma mensagem ("hemograma, glicose e colesterol"): orçamento com todos (só quando as regras acham 2 ou mais, sem dúvida)
@@ -1374,9 +1399,14 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     } else if (s.combo && !s.ofertaCombo) {
       // dentro do combo não se procura outro serviço: só vale o paciente citar outro item do combo ("a consulta primeiro" troca; "e o ultrassom também" junta)
       const c = s.combo;
-      const citadas = etapasCitadas(t, c).filter((i) => i !== c.atual);
+      // "agenda todos", "o resto", "eletro, raio x e os exames": junta tudo num agendamento só, também no meio da escolha de horário
+      const pend = pendentesDoCombo(c);
+      const tudo = !s.slot && !faq && querTudoDoCombo(t);
+      const ditas = tudo ? pend.map((x) => x.i) : etapasCitadas(t, c);
+      const citadas = ditas.filter((i) => i !== c.atual);
+      if (!s.slot && c.feitos.length > 0 && pend.every((x) => ditas.includes(x.i)) && (tudo || ditas.length > 1)) comboDireto = true;
       if (citadas.length && !SIM.test(t)) {
-        const juntos = /\b(tambem|junto|juntos|alem|mais)\b/.test(t);
+        const juntos = tudo || ditas.includes(c.atual) || /\b(tambem|junto|juntos|alem|mais|mesmo dia)\b/.test(t);
         const nomeEscolhido = nomeEtapa(c.etapas[citadas[0]]);
         if (!(await escolherEtapas(juntos ? [c.atual, ...citadas] : citadas, true))) return seguirCombo(`Pra ${nomeEscolhido} não tenho vaga aberta agora, a equipe te ajuda com isso depois.`);
         if (!juntos && citadas.length === 1) partes.push(`Beleza, vamos de ${nomeEtapa(c.etapas[c.atual])} agora.`);
@@ -1566,14 +1596,17 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     if (escolhaLista >= 0 || intencao || d || (tn && tn !== 'noite')) entendeuHorario = true;
   }
 
+  // agenda direto: na mesma unidade, no dia que ele disse; senão no dia do primeiro agendamento ou no mais próximo depois dele
+  if (comboDireto) { s.apartir = s.data ?? s.combo?.diaPref; s.data = undefined; s.lista = undefined; s.rapido = true; s.unidadesInformadas = Boolean(s.unidade); }
+
   // 6) informa as unidades com agenda (e o médico de cada uma) antes de perguntar qualquer coisa
-  await prepararGeneros([...sv.unidades.flatMap((u) => u.profissionais ?? []), sv.profissional?.nome]); // Dr./Dra. dos nomes que vão aparecer
+  await prepararGeneros([...sv.unidades.flatMap((u) => [...(u.profissionais ?? []), ...(u.porServico ?? []).flatMap((x) => x.profissionais)]), sv.profissional?.nome]); // Dr./Dra. dos nomes que vão aparecer
   if (aviso) partes.push(aviso);
   if (!s.unidadesInformadas) {
     s.unidadesInformadas = true;
     // "Tenho sim! No Guamá com a Dra. Giovanna e a Dra. Ebenezaide, e no Telégrafo com a Dra. Ebenezaide. A consulta é R$ 150,00."
     // se ele já escolheu a unidade, fala só dela
-    partes.push(`${textoUnidades(s.unidade ? { ...sv, unidades: [s.unidade] } : sv, aviso ? 'duvida' : 'resposta')}${sv.precoTexto ? ` ${sv.precoTexto}` : ''}`);
+    partes.push(`${textoUnidades(s.unidade ? { ...sv, unidades: [s.unidade] } : sv, aviso ? 'duvida' : 'resposta', s.combo ? 'Beleza!' : MARCA_UNIDADES)}${sv.precoTexto ? ` ${sv.precoTexto}` : ''}`);
     // combo: o que está incluso (e que o retorno não custa), em mensagem separada, logo depois do preço
     if (sv.detalhe) partes.push(`\n${sv.detalhe}`);
     // orientação cadastrada para o atendimento (ex.: restrição de idade, preparo): avisa já aqui, em mensagem separada, antes de ele escolher o horário
@@ -1618,6 +1651,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
   }
   const un = s.unidade;
   const comMedico = (un.profissionais?.length ?? 0) > 1;
+  const deQuem = servicoDoMedico(sv);
   // a lista que estava na tela só vale se o serviço/médico não mudou nesta mensagem (senão ela já foi refeita)
   const listaAnterior = mudouServico ? undefined : base.lista;
 
@@ -1630,7 +1664,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
   };
   /** Sugestão proativa: se a OUTRA unidade tem vaga mais cedo que a lista mostrada, avisa (o paciente pode trocar de unidade só dizendo o nome). */
   const dicaOutraUnidade = async (lista: Slot[]): Promise<string> => {
-    if (sv.unidades.length < 2 || lista.length === 0) return '';
+    if (sv.unidades.length < 2 || lista.length === 0 || s.combo?.feitos.length) return '';
     let melhor: { u: Unidade; x: Slot } | undefined;
     for (const o of sv.unidades.filter((u) => u.nome !== un.nome)) {
       const x = (await fonte.proximas(sv, o, h.ymd, 3).catch(() => [] as Slot[])).filter(naoBloqueado)[0];
@@ -1660,15 +1694,15 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
       const alt = await alternativas(it.apartir ?? s.apartir ?? h.ymd);
       if (alt.length === 0) return out([...partes, 'No momento não vejo vagas abertas. Vou chamar alguém da equipe pra conferir e te retornar.'].join('\n'), { motivo: `Sem vagas para ${sv.nome} no ${un.nome}.` });
       s.lista = alt;
-      return dizer(`${pediu ? `Não tenho horário ${pediu}. ` : ''}Mas consegui estes aqui:\n${numerada(alt, comMedico, h.ymd)}\n${fechoLista(alt.length)}`);
+      return dizer(`${pediu ? `Não tenho horário ${pediu}. ` : ''}Mas consegui estes aqui:\n${numerada(alt, comMedico, h.ymd, deQuem)}\n${fechoLista(alt.length)}`);
     }
-    if (it.primeiro || (s.rapido && !naTela)) { escolher(pool[0], `O mais rápido que tenho é ${slotFalado(pool[0], !sv.profissional, h.ymd)}. Já separo esse pra você.`); return undefined; }
-    if (it.ultimo && naTela) { const u = pool[pool.length - 1]; escolher(u, `O último que tenho é ${slotFalado(u, !sv.profissional, h.ymd)}. Já separo esse pra você.`); return undefined; }
+    if (it.primeiro || (s.rapido && !naTela)) { escolher(pool[0], `O mais rápido que tenho é ${slotFalado(pool[0], !sv.profissional, h.ymd, deQuem)}. Já separo esse pra você.`); return undefined; }
+    if (it.ultimo && naTela) { const u = pool[pool.length - 1]; escolher(u, `O último que tenho é ${slotFalado(u, !sv.profissional, h.ymd, deQuem)}. Já separo esse pra você.`); return undefined; }
     if (it.sim && naTela?.length === 1) { escolher(naTela[0]); return undefined; }
     if (pool.length === 1) { escolher(pool[0]); return undefined; }
     s.lista = pool.slice(0, 4);
     const intro = it.mais ? 'Sem problema. Tenho também:' : it.apartir ? `A partir de ${dataFalada(it.apartir, h.ymd)} tenho:` : it.ate ? `Até ${dataFalada(it.ate, h.ymd)} tenho:` : 'Consegui estes aqui:';
-    return dizer(`${intro}\n${numerada(s.lista, comMedico, h.ymd)}\n${fechoLista(s.lista.length)}`);
+    return dizer(`${intro}\n${numerada(s.lista, comMedico, h.ymd, deQuem)}\n${fechoLista(s.lista.length)}`);
   };
   if (!s.slot) {
     // resposta por número a uma lista anterior
@@ -1690,7 +1724,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     // "quando tem agenda?", "tem horário?" com a lista na tela: é o pedido dos horários, então mostra a lista de novo (não vira "outras opções")
     if (!s.slot && listaAnterior?.length && !entendeuHorario && !faq && QUER_AGENDA.test(t)) {
       s.lista = listaAnterior;
-      return dizer(`Esses são os horários que tenho no ${un.nome}:\n${numerada(listaAnterior, comMedico, h.ymd)}\n${fechoLista(listaAnterior.length)} Se quiser ver outro dia, é só me falar.`);
+      return dizer(`Esses são os horários que tenho no ${un.nome}:\n${numerada(listaAnterior, comMedico, h.ymd, deQuem)}\n${fechoLista(listaAnterior.length)} Se quiser ver outro dia, é só me falar.`);
     }
     // as regras não entenderam a resposta à lista: o intérprete de apoio (IA) tenta, e tudo que ele devolve é validado
     if (!s.slot && listaAnterior?.length && !entendeuHorario && ctx.interpretar) {
@@ -1717,7 +1751,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
       if (certos.length === 1) { s.slot = certos[0]; s.turno = certos[0].turno; s.lista = undefined; }
       else if (certos.length > 1) {
         s.lista = certos;
-        return dizer(`Pra ${dataFalada(s.data, h.ymd)} tenho:\n${numerada(certos, comMedico, h.ymd)}\n${fechoLista(certos.length)}`);
+        return dizer(`Pra ${dataFalada(s.data, h.ymd)} tenho:\n${numerada(certos, comMedico, h.ymd, deQuem)}\n${fechoLista(certos.length)}`);
       } else {
         const pedido = `${dataFalada(s.data, h.ymd)}${s.turno ? ` ${periodoTxt(s.turno)}` : ''}`;
         // sem vaga nessa data: mostra o que existe depois dela (no período pedido, depois em qualquer período) e, se não houver nada depois, o que existe a partir de amanhã
@@ -1729,19 +1763,19 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
         s.data = undefined; s.turno = undefined;
         if (alt.length === 0) return out([...partes, 'Pra essa data não achei vaga e no momento não vejo outras datas abertas. Vou chamar alguém da equipe pra conferir e te retornar.'].join('\n'), { motivo: `Sem vagas para ${sv.nome} no ${un.nome}.` });
         s.lista = alt;
-        return dizer(`Pra ${pedido} não tenho vaga. Mas consegui estes aqui:\n${numerada(alt, comMedico, h.ymd)}\n${fechoLista(alt.length)}`);
+        return dizer(`Pra ${pedido} não tenho vaga. Mas consegui estes aqui:\n${numerada(alt, comMedico, h.ymd, deQuem)}\n${fechoLista(alt.length)}`);
       }
     } else {
       // a lista já estava na tela e eu não entendi a resposta: pergunta de outro jeito, em vez de repetir a lista em silêncio
       if (listaAnterior?.length && !entendeuHorario) {
         s.lista = listaAnterior;
-        return dizer(`Não peguei qual horário você quer. Pode ser o número, o dia ou "o mais rápido"?\n${numerada(listaAnterior, comMedico, h.ymd)}`);
+        return dizer(`Não peguei qual horário você quer. Pode ser o número, o dia ou "o mais rápido"?\n${numerada(listaAnterior, comMedico, h.ymd, deQuem)}`);
       }
       const alt = await alternativas(s.desde && s.desde > h.ymd ? s.desde : h.ymd, s.turno);
       if (alt.length === 0) return out([...partes, 'No momento não vejo vagas abertas. Vou chamar alguém da equipe pra conferir e te retornar.'].join('\n'), { motivo: `Sem vagas para ${sv.nome} no ${un.nome}.` });
       s.lista = alt;
       const dica = await dicaOutraUnidade(alt); // sugestão: a outra unidade tem vaga mais cedo (mensagem separada, antes da pergunta)
-      return dizer(`Consegui estes aqui:\n${numerada(alt, comMedico, h.ymd)}${dica ? `\n\n${dica}\n\n` : '\n'}${fechoLista(alt.length)} Se quiser outro dia me fala que eu vejo.`);
+      return dizer(`Consegui estes aqui:\n${numerada(alt, comMedico, h.ymd, deQuem)}${dica ? `\n\n${dica}\n\n` : '\n'}${fechoLista(alt.length)} Se quiser outro dia me fala que eu vejo.`);
     }
   }
   const slot = s.slot!;
@@ -1760,11 +1794,10 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     : `Show! A chave pix é essa${valorPix ? `, ${valorDe} é ${reais(valorPix)}` : ''}:`}\n\n${MARCA_PIX} ${env.pixKey}\n\nQuando pagar, me manda o comprovante aqui que eu já sigo com o seu agendamento, tá?${induziuPix ? ' Se preferir pagar na recepção ou por link de crédito, é só me falar.' : ''}`;
   // link de pagamento: a equipe assume (envia o link e conclui). A Amanda não retoma sozinha depois.
   const deLink = () => out('Combinado! Vou passar pra equipe te enviar o link de pagamento e concluir o agendamento. Já deixei tudo anotado. Só um instante.', { duro: true, motivo: `Paciente quer pagar por link de crédito: enviar o link e concluir o agendamento. Vaga: ${resumoVaga}. ${dadosParaEquipe()} Agendamento AINDA NÃO feito.` });
-  // 7b) dados do paciente ANTES do pagamento: nome completo, nascimento, telefone e CPF, em qualquer ordem, numa mensagem só ou em várias.
+  // 7b) dados do paciente ANTES do pagamento: nome completo, nascimento e telefone (e o CPF, se ele tiver), em qualquer ordem, numa mensagem só ou em várias.
   // Depois: paciente que já existe é puxado do Clinilink (confirma só o nome); paciente novo é cadastrado no fim, junto com o agendamento.
-  const pedirCpf = (pre: string) => dizer(!pre ? PERG_CPF : `${pre} ${pre.startsWith('Recebi') ? PERG_CPF_APOS : PERG_CPF}`);
   /** Quem é o paciente, para o time (link de crédito, falha): já cadastrado, ou os dados para cadastrar. */
-  const dadosParaEquipe = () => (s.paciente ? `Paciente já cadastrado (${titulo(s.paciente.nome)}, id ${s.paciente.id ?? '?'}).` : s.cpf ? `CADASTRAR paciente novo: ${s.cad.nome ?? '(nome pendente)'}, nascimento ${s.cad.nascimento ? fmtNasc(s.cad.nascimento) : '?'}, sexo ${s.cad.sexo ?? '?'}, telefone ${s.cad.telefone ?? '?'}, CPF ${s.cpf}.` : '');
+  const dadosParaEquipe = () => (s.paciente ? `Paciente já cadastrado (${titulo(s.paciente.nome)}, id ${s.paciente.id ?? '?'}).` : s.cpf || s.cad.nome ? `CADASTRAR paciente novo: ${s.cad.nome ?? '(nome pendente)'}, nascimento ${s.cad.nascimento ? fmtNasc(s.cad.nascimento) : '?'}, sexo ${s.cad.sexo ?? '?'}, telefone ${s.cad.telefone ?? '?'}, CPF ${s.cpf ?? 'não informado'}.` : '');
   const resumoDoHorario = escolhaDireta || `${pick(['Beleza', 'Show'], n)}, então fica ${resumoFalado}.`;
   const primeiraVezNoSlot = !base.slot; // este é o turno em que o horário foi escolhido
   let resumoDito = false;
@@ -1778,31 +1811,52 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     const pf = lerPagamentoFirme(t);
     if (pf) { s.pagPref = pf; ackPagto = pf === 'recepcao' ? 'Sem problema nenhum o pagamento fica pra recepção no dia do atendimento.' : pf === 'pix' ? 'Beleza, o pagamento vai ser por pix.' : 'Combinado, o pagamento vai ser por link de crédito.'; }
   }
-  if (!s.cpf) {
+  // o CPF não é obrigatório: se vier (mesmo depois dos outros dados) é o jeito mais certeiro de achar o cadastro
+  if (!s.cpf && !s.pacienteConfirmado && !s.pagPerguntado) {
     const cpf = emDados && !anotado.telefone ? cpfDoTexto(t) : undefined;
-    if (cpf && !cpfValido(cpf)) return dizer('Acho que algum número do CPF escapou, dá uma olhadinha e me manda de novo os 11 números?');
-    if (cpf) s.cpf = cpf;
-    else if (primeiraVezNoSlot) { dizResumo(); return dizer(`\n${PEDIDO_DADOS}`); } // confirma o que ficou combinado e já pede os dados
-    else if (anotado.algo) return dizer('Anotei! Me passa também o CPF do paciente?');
-    else if (emDados && /\d{2,}/.test(t)) return dizer('Não consegui ler o CPF. Pode me mandar os 11 números?');
-    else return pedirCpf(ackPagto);
+    if (cpf && !cpfValido(cpf)) return dizer('Acho que algum número do CPF escapou, dá uma olhadinha e me manda de novo os 11 números? Se não tiver o CPF à mão, sem problema.');
+    if (cpf) { s.cpf = cpf; if (s.paciente === null) s.paciente = undefined; } // já tinha procurado sem achar: procura de novo pelo CPF
+  }
+  // "pode ser esse número": usa o WhatsApp do paciente
+  if (emDados && !s.cpf && s.cad.pediuTelefone && !s.cad.telefone && ctx.telefone && !anotado.telefone && (SIM.test(t) || /\b(esse|este|mesmo|whats\w*)\b/.test(t))) s.cad.telefone = ctx.telefone.replace(/\D/g, '');
+  const faltaDados = (): string[] => [!s.cad.nome ? 'o nome completo do paciente' : '', !s.cad.nascimento ? 'a data de nascimento' : '', !s.cad.telefone ? 'o telefone com DDD' : ''].filter(Boolean);
+  if (!s.cpf && s.paciente === undefined && faltaDados().length) {
+    if (primeiraVezNoSlot) { s.cad.pediuTelefone = true; dizResumo(); return dizer(`\n${PEDIDO_DADOS}`); } // confirma o que ficou combinado e já pede os dados
+    const falta = faltaDados();
+    if (!s.cad.telefone) s.cad.pediuTelefone = true;
+    const pedido = falta.length === 3 ? `Me manda ${juntar(falta)} e, se tiver à mão, o CPF.` : `${falta.length > 1 ? 'Faltam' : 'Falta'} só ${juntar(falta)}${s.cad.telefone ? '' : ' (se for esse mesmo número do WhatsApp, é só me avisar)'}.`;
+    if (anotado.algo) return dizer(`Anotei! ${pedido}`);
+    if (emDados && /\d{2,}/.test(t)) return dizer(`Não consegui entender esse número. ${pedido}`);
+    return dizer(ackPagto ? `${ackPagto} ${pedido}` : pedido);
   }
 
+  // ainda tem mensagem nesta rajada e o CPF pode estar nela: lê tudo antes de procurar o cadastro (e antes de agendar)
+  if (!s.cpf && s.paciente === undefined && ctx.maisNaRajada) return dizer('Anotei!');
+
   if (primeiraVezNoSlot) dizResumo(); // CPF dito antes do horário: o resumo vem junto da confirmação do paciente (ou do que falta)
-  // 9) consulta o paciente por CPF
+  /** Procura o cadastro pelo telefone informado e pelo do WhatsApp, conferindo nome parecido e nascimento (uma vez só). */
+  const buscarPorDados = async (): Promise<PacienteInfo | null> => {
+    s.buscouPorDados = true;
+    const achado = await fonte.pacientePorDados?.({ nome: s.cad.nome!, nascimento: s.cad.nascimento!, telefones: [s.cad.telefone!, ctx.telefone].filter((x): x is string => Boolean(x)) }) ?? null;
+    s.achadoPorDados = Boolean(achado);
+    return achado;
+  };
+  // 9) consulta o paciente: pelo CPF, se ele mandou; senão (ou se o CPF não está no cadastro) pelo telefone, nome e nascimento
   const acabouDeConsultar = s.paciente === undefined;
   if (s.paciente === undefined) {
-    s.paciente = await fonte.paciente(s.cpf);
+    s.paciente = s.cpf ? await fonte.paciente(s.cpf) : null;
+    if (!s.paciente && !s.buscouPorDados && !faltaDados().length) s.paciente = await buscarPorDados();
     if (s.paciente) return dizer(`Achei aqui o cadastro de ${titulo(s.paciente.nome)}. É esse mesmo o paciente?`);
-    // CPF novo: segue para o passo 10, que pede de uma vez tudo o que ainda falta (ele pode já ter mandado nome, nascimento e telefone)
+    // não achou: segue para o passo 10, que pede de uma vez tudo o que ainda falta (ele pode já ter mandado nome, nascimento e telefone)
   }
   if (s.paciente && !s.pacienteConfirmado) {
     if (SIM.test(t)) s.pacienteConfirmado = true;
+    else if (NAO.test(t) && s.achadoPorDados) { s.achadoPorDados = false; s.paciente = null; partes.push('Sem problema, vou fazer um cadastro novo.'); } // outra pessoa com o mesmo telefone
     else if (NAO.test(t)) { s.cpf = undefined; s.paciente = undefined; return dizer('Sem problema. Dá uma conferida no CPF e me manda de novo?'); }
     else return dizer(`Esse cadastro é de ${titulo(s.paciente.nome)}. É esse mesmo o paciente?`);
   }
 
-  // 10) CPF novo: o cadastro (nome, nascimento, telefone) é pedido de uma vez e vale em qualquer ordem; o sexo sai do primeiro nome quando ele é conhecido
+  // 10) paciente novo: o cadastro (nome, nascimento, telefone) é pedido de uma vez e vale em qualquer ordem; o sexo sai do primeiro nome quando ele é conhecido
   if (s.paciente === null) {
     const c = s.cad;
     // "pode ser esse número": usa o WhatsApp do paciente
@@ -1811,6 +1865,11 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
       await prepararGeneros([c.nome]);
       const g = generoConfirmado(c.nome);
       if (g) c.sexo = g === 'F' ? 'feminino' : 'masculino';
+    }
+    // CPF que não está no cadastro: com os dados completos, confere se o paciente já existe sem CPF antes de cadastrar de novo
+    if (!s.buscouPorDados && !faltaDados().length) {
+      const achado = await buscarPorDados();
+      if (achado) { s.paciente = achado; return dizer(`Achei aqui o cadastro de ${titulo(achado.nome)}. É esse mesmo o paciente?`); }
     }
     const faltam: string[] = [];
     if (!c.nome) faltam.push('o nome completo do paciente');
@@ -1821,7 +1880,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
       const pedeTelefone = !c.telefone;
       if (pedeTelefone) c.pediuTelefone = true;
       const dica = pedeTelefone ? ' (se for esse mesmo número do WhatsApp, é só me avisar)' : '';
-      if (acabouDeConsultar) return dizer(`Esse CPF ainda não tá no cadastro, vou fazer agora. Me manda ${juntar(faltam)}${dica}.`);
+      if (acabouDeConsultar) return dizer(`${s.cpf ? 'Esse CPF ainda não tá no cadastro' : 'Não achei esse cadastro aqui'}, vou fazer agora. Me manda ${juntar(faltam)}${dica}.`);
       return dizer(`${faltam.length > 1 ? 'Faltam' : 'Falta'} só ${juntar(faltam)}${dica}.`);
     }
   }
@@ -1925,7 +1984,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
   s.fim = true;
   const quem = s.paciente ? titulo(s.paciente.nome) : s.cad.nome ?? '';
   if (fonte.tipo === 'clinilink') {
-    const novo = (s.paciente ? `Paciente já cadastrado (${titulo(s.paciente.nome)}, id ${s.paciente.id ?? '?'}).` : `CADASTRAR paciente novo: ${s.cad.nome}, nascimento ${s.cad.nascimento ? fmtNasc(s.cad.nascimento) : '?'}, sexo ${s.cad.sexo}, telefone ${s.cad.telefone}, CPF ${s.cpf}.`);
+    const novo = (s.paciente ? `Paciente já cadastrado (${titulo(s.paciente.nome)}, id ${s.paciente.id ?? '?'}).` : `CADASTRAR paciente novo: ${s.cad.nome}, nascimento ${s.cad.nascimento ? fmtNasc(s.cad.nascimento) : '?'}, sexo ${s.cad.sexo}, telefone ${s.cad.telefone}, CPF ${s.cpf ?? 'não informado'}.`);
     const aEquipe = (aviso: string, motivo: string) => out(`${aviso} Vou chamar alguém da equipe pra concluir. Já deixei tudo anotado. Só um instante.`, { motivo, duro: true });
     /** Uma etapa do combo agendada: guarda o que ficou marcado, avisa o paciente e abre a próxima (ou fecha o combo). */
     const etapaFeita = async (r: Extract<ResultadoReserva, { ok: true }> | undefined): Promise<Result> => {
@@ -1951,7 +2010,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     }
 
     const r = await fonte.reservar!({
-      servico: sv, unidade: un, slot, cpf: s.cpf!,
+      servico: sv, unidade: un, slot, cpf: s.cpf,
       pacienteId: s.paciente?.id,
       observacao: [s.combo ? `Combo ${s.combo.rotulo} (etapa ${s.combo.atual + 1} de ${s.combo.etapas.length}: ${nomeEtapa(s.combo.etapas[s.combo.atual])})` : '', 'Agendado pela Amanda (IA) via WhatsApp', s.comprovante?.nota ?? (s.pagamento === 'recepcao' ? 'Pagamento na recepção' : '')].filter(Boolean).join('. '),
       cadastro: s.paciente ? undefined : { nome: s.cad.nome!, nascimento: s.cad.nascimento!, sexo: s.cad.sexo!, telefone: s.cad.telefone! },
@@ -2019,7 +2078,7 @@ export async function responder(entrada: (string | string[])[], ctx: Ctx, fonte:
     const msgs = turnos[t];
     for (let j = 0; j < msgs.length; j++) {
       const antes = { saudou: state.saudou, unidadesInformadas: state.unidadesInformadas, ofertaCombo: state.ofertaCombo, comboOferecido: state.comboOferecido };
-      last = await step(state, msgs[j], { ...ctx, efetivar: t === turnos.length - 1, anteriores: vistas.slice(-3), duplicadoAqui: (ctx.duplicadoNosTurnos ?? []).includes(t) && j === msgs.length - 1, ultima: t === turnos.length - 1 && j === msgs.length - 1 }, fonte, i++);
+      last = await step(state, msgs[j], { ...ctx, efetivar: t === turnos.length - 1, maisNaRajada: j < msgs.length - 1, anteriores: vistas.slice(-3), duplicadoAqui: (ctx.duplicadoNosTurnos ?? []).includes(t) && j === msgs.length - 1, ultima: t === turnos.length - 1 && j === msgs.length - 1 }, fonte, i++);
       vistas.push(msgs[j].replace(TOKEN_MIDIA, ' ').trim());
       state = last.state;
       // no último turno, quem encerra a jornada ou transfere já é a resposta que o paciente vai receber
@@ -2035,7 +2094,7 @@ export async function responder(entrada: (string | string[])[], ctx: Ctx, fonte:
         state.saudou = antes.saudou;
         state.unidadesInformadas = antes.unidadesInformadas;
         if (state.ofertaCombo && !antes.ofertaCombo) { state.ofertaCombo = undefined; state.comboOferecido = antes.comboOferecido; } // a sugestão de combos nunca foi vista: ela volta a ser feita na próxima resposta
-        if (state.paciente && !state.pacienteConfirmado) state.paciente = undefined; // o nome nunca foi mostrado
+        if (state.paciente && !state.pacienteConfirmado) { state.paciente = undefined; state.buscouPorDados = false; state.achadoPorDados = false; } // o nome nunca foi mostrado
       }
     }
   }

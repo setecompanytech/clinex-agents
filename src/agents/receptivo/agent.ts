@@ -56,7 +56,7 @@ function nomesProtegidos(r: { state?: any; reply: string }): string[] {
   if (!st) return [];
   // médicos: a forma que aparece na conversa ("Dra. Fernanda", "Dr. Armando"); pacientes: o nome como está no cadastro
   const medicos: string[] = [
-    ...(st.servico?.unidades ?? []).flatMap((u: any) => u.profissionais ?? []),
+    ...(st.servico?.unidades ?? []).flatMap((u: any) => [...(u.profissionais ?? []), ...(u.porServico ?? []).flatMap((x: any) => x.profissionais ?? [])]),
     st.slot?.profissional, st.servico?.profissional?.nome,
   ].filter(Boolean).map((n: string) => exibir(n));
   // o nome do serviço ("consulta Cardiologista com a Dra. Fernanda", "Teste Ergometrico") também não pode ser trocado nem encurtado

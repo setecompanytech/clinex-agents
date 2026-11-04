@@ -1,4 +1,4 @@
-import { criarAgendamento, criarPaciente, demandaPorProcedimento, getPacientePorCpf, listAgendamentosDoDia, listAgenda, listAgendaFresca, listClinicas, listCombos, listProcedimentos, listProfissionais, type Clinica, type Combo, type Horario, type Procedimento } from '../../../integrations/clinilink.js';
+import { criarAgendamento, criarPaciente, demandaPorProcedimento, getPacientePorCpf, getPacientesPorTelefone, listAgendamentosDoDia, listAgenda, listAgendaFresca, listClinicas, listCombos, listProcedimentos, listProfissionais, type Clinica, type Combo, type Horario, type Paciente, type Procedimento } from '../../../integrations/clinilink.js';
 import { env } from '../../../lib/env.js';
 import { exibir, prepararGeneros } from '../../../lib/genero.js';
 import { evt } from '../../../lib/log.js';
@@ -18,6 +18,9 @@ const STOP = new Set(['quero', 'preciso', 'gostaria', 'marcar', 'agendar', 'cons
 const hojeYmd = (d = new Date()) => new Intl.DateTimeFormat('en-CA', { timeZone: env.timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
 const somaDias = (ymd: string, n: number) => { const [y, m, d] = ymd.split('-').map(Number); const dt = new Date(Date.UTC(y, m - 1, d)); dt.setUTCDate(dt.getUTCDate() + n); return dt.toISOString().slice(0, 10); };
 const periodoDe = (inicio?: string): Periodo => (inicio && inicio < '12:00' ? 'manhã' : 'tarde');
+/** REGRA DA CLÍNICA: exames, laboratório e demais procedimentos (tudo que não é consulta) só nas agendas da manhã. */
+const ehConsultaProc = (p: { nome: string; categoria?: string | null }) => /consulta/i.test(p.nome) || /consulta/i.test(p.categoria ?? '');
+const soManha = (hs: Horario[]) => hs.filter((h) => periodoDe(h.agendaHoraInicio ?? h.hora) === 'manhã');
 
 type Cand = { proc: Procedimento; clinicas: Clinica[] };
 const conhecidos = new Map<string, Cand>(); // procedimentoId -> candidato (preenchido por descobrir, lido por resolver)
@@ -58,7 +61,8 @@ async function montar(c: Cand, prof?: { id: string; nome: string }): Promise<Des
   // unidade só conta como disponível com agenda confirmada nesta consulta
   const comAgenda: { u: Clinica; proc: Procedimento; medicos: string[] }[] = [];
   await Promise.all(c.clinicas.map(async (u) => {
-    const h = await listAgenda({ unidadeId: u.id, dataInicial: ini, dataFinal: fim, procedimentoId: c.proc.id, profissionalId: prof?.id });
+    const todos = await listAgenda({ unidadeId: u.id, dataInicial: ini, dataFinal: fim, procedimentoId: c.proc.id, profissionalId: prof?.id });
+    const h = ehConsultaProc(c.proc) ? todos : soManha(todos);
     if (h.length > 0) comAgenda.push({ u, proc: c.proc, medicos: prof ? [titulo(prof.nome)] : [...new Set(h.map((x) => x.profissional?.nome).filter((x): x is string => Boolean(x) && !ehSala(x)).map(titulo))].slice(0, 3) });
   }));
   const nome = titulo(c.proc.nome);
@@ -368,6 +372,36 @@ async function sugerirPorTipo(tipo: 'exame' | 'consulta'): Promise<Descoberta> {
   };
 }
 
+// ---------------- paciente sem CPF: telefone + nome parecido + nascimento ----------------
+const PARTICULAS = new Set(['de', 'da', 'do', 'dos', 'das', 'e']);
+const palavrasDoPaciente = (n: string) => norm(n).split(/[^a-z]+/).filter((w) => w.length >= 2 && !PARTICULAS.has(w));
+/** Mesma palavra, aceitando erro de digitação ("giovani" e "giovanny"). */
+const palavraParecida = (a: string, b: string) => { const m = Math.min(a.length, b.length); return a === b || (m >= 4 && distancia(a, b) <= (m >= 6 ? 2 : 1)); };
+/** Quantas palavras do nome informado existem no cadastro: "Giovanny Valente" está inteiro em "Renato Giovanny Valente Gonçalves". */
+const palavrasEmComum = (informado: string, cadastro: string) => { const c = palavrasDoPaciente(cadastro); return palavrasDoPaciente(informado).filter((w) => c.some((x) => palavraParecida(w, x))).length; };
+/**
+ * O paciente certo entre os cadastros do telefone. Nascimento diferente nunca é a mesma pessoa (mãe e filha dividem o telefone e o sobrenome).
+ * Nascimento igual: basta uma palavra do nome. Cadastro sem nascimento: precisa de duas. Empate = não dá para saber quem é.
+ */
+export function melhorPaciente<T extends Pick<Paciente, 'id' | 'nome' | 'dataNascimento'>>(lista: T[], nome: string, nascimento: string): T | null {
+  const pontuados = lista.flatMap((p) => {
+    const nasc = p.dataNascimento?.slice(0, 10);
+    if (nasc && nasc !== nascimento) return [];
+    const comum = palavrasEmComum(nome, p.nome);
+    return comum >= (nasc ? 1 : 2) ? [{ p, pontos: comum + (nasc ? 10 : 0) }] : [];
+  }).sort((a, b) => b.pontos - a.pontos);
+  if (pontuados.length === 0 || pontuados[1]?.pontos === pontuados[0].pontos) return null;
+  return pontuados[0].p;
+}
+/** O mesmo telefone como pode estar no cadastro: com ou sem 55, com ou sem o 9 do celular. */
+export function formasDoTelefone(telefone: string): string[] {
+  let d = telefone.replace(/\D/g, '');
+  if (d.length >= 12 && d.startsWith('55')) d = d.slice(2);
+  if (d.length !== 10 && d.length !== 11) return d ? [d] : [];
+  const outra = d.length === 11 && d[2] === '9' ? d.slice(0, 2) + d.slice(3) : d.length === 10 ? `${d.slice(0, 2)}9${d.slice(2)}` : undefined;
+  return [...new Set([d, `55${d}`, ...(outra ? [outra, `55${outra}`] : [])])];
+}
+
 /** Paciente já cadastrado, ou cria agora (CPF_DUPLICADO devolve o existente). */
 async function garantirPaciente(p: PedidoReserva): Promise<{ pacienteId: string; cadastrou: boolean } | { erro: ResultadoReserva }> {
   let pacienteId = p.pacienteId; let cadastrou = false;
@@ -503,15 +537,22 @@ async function descobrirCombo(t: string): Promise<Descoberta> {
  * compartilham a agenda da coleta, então só o primeiro deles é consultado (pouquíssimas consultas por vez: o Clinilink responde 500 a dezenas de
  * uma vez). Erro do Clinilink numa consulta = não restringe o dia. Na hora de gravar cada serviço é conferido de novo (`reservarCombo`).
  */
-async function horariosDoGrupo(itens: { id: string; lab?: boolean }[], ancoraId: string, unidadeId: string, de: string, ate: string): Promise<Horario[]> {
+async function agendaDoGrupo(itens: { id: string; nome: string; lab?: boolean }[], ancoraId: string, unidadeId: string, de: string, ate: string): Promise<{ horarios: Horario[]; medicos: Map<string, string[]> }> {
   const labs = itens.filter((i) => i.lab);
   const ids = [...new Set([ancoraId, ...itens.filter((i) => !i.lab).map((i) => i.id), ...(labs.length ? [labs[0].id] : [])])];
-  const listas = await emLotes(ids, 3, (id) => listAgenda({ unidadeId, dataInicial: de, dataFinal: ate, procedimentoId: id }).then((h) => h as Horario[] | null).catch(() => null));
+  const exame = (id: string) => { const i = itens.find((x) => x.id === id); return Boolean(i) && !ehConsultaProc(i!); };
+  const listas = await emLotes(ids, 3, (id) => listAgenda({ unidadeId, dataInicial: de, dataFinal: ate, procedimentoId: id }).then((h) => (exame(id) ? soManha(h) : h) as Horario[] | null).catch(() => null));
   const doAncora = listas[ids.indexOf(ancoraId)];
-  if (!doAncora) return [];
+  if (!doAncora) return { horarios: [], medicos: new Map() };
   let dias = new Set(doAncora.map((h) => h.data));
   ids.forEach((id, k) => { const l = listas[k]; if (id === ancoraId || !l) return; const d = new Set(l.map((h) => h.data)); dias = new Set([...dias].filter((x) => d.has(x))); });
-  return doAncora.filter((h) => dias.has(h.data));
+  // quem atende cada serviço, só nos dias em que o grupo todo tem horário (sala, coleta e setor não são médico)
+  const medicos = new Map<string, string[]>();
+  ids.forEach((id, k) => { const l = listas[k]; if (l) medicos.set(id, [...new Set(l.filter((h) => dias.has(h.data)).map((h) => h.profissional?.nome).filter((x): x is string => Boolean(x) && !ehSala(x)).map(titulo))].slice(0, 3)); });
+  return { horarios: doAncora.filter((h) => dias.has(h.data)), medicos };
+}
+async function horariosDoGrupo(itens: { id: string; nome: string; lab?: boolean }[], ancoraId: string, unidadeId: string, de: string, ate: string): Promise<Horario[]> {
+  return (await agendaDoGrupo(itens, ancoraId, unidadeId, de, ate)).horarios;
 }
 async function horariosDoCombo(sv: Servico, un: Unidade, de: string, ate: string): Promise<Slot[]> {
   if (!un.id || !sv.combo) return [];
@@ -557,21 +598,23 @@ async function etapaDoComboFonte(cb: { id: string; rotulo: string; total?: numbe
   const ids = itens.map((i) => i.id);
   const ancora = itens.find((i) => !ehLab(i.categoria)) ?? itens[0]; // o horário é o do primeiro serviço que não é coleta (a coleta tem agenda larga)
   const ini = hojeYmd(); const fim = somaDias(ini, 30);
-  const comAgenda: { u: Clinica; medicos: string[] }[] = [];
+  const comAgenda: { u: Clinica; medicos: string[]; porServico: { nome: string; profissionais: string[] }[] }[] = [];
   await Promise.all((await listClinicas()).map(async (u) => {
-    const h = await horariosDoGrupo(itens.map((i) => ({ id: i.id, lab: ehLab(i.categoria) })), ancora.id, u.id, ini, fim);
+    const { horarios: h, medicos: porId } = await agendaDoGrupo(itens.map((i) => ({ id: i.id, nome: i.nome, lab: ehLab(i.categoria) })), ancora.id, u.id, ini, fim);
     if (h.length === 0) return;
-    comAgenda.push({ u, medicos: [...new Set(h.map((x) => x.profissional?.nome).filter((x): x is string => Boolean(x) && !ehSala(x)).map(titulo))].slice(0, 3) });
+    // cada serviço com os médicos que o fazem (o exame de laboratório fica de fora: é a coleta)
+    const porServico = itens.filter((i) => !ehLab(i.categoria)).map((i) => ({ nome: i.curto, profissionais: porId.get(i.id) ?? [] })).filter((x) => x.profissionais.length);
+    comAgenda.push({ u, medicos: [...new Set(h.map((x) => x.profissional?.nome).filter((x): x is string => Boolean(x) && !ehSala(x)).map(titulo))].slice(0, 3), porServico });
   }));
   if (comAgenda.length === 0) return { semAgenda: rotulo };
-  await prepararGeneros(comAgenda.flatMap((x) => x.medicos));
+  await prepararGeneros(comAgenda.flatMap((x) => [...x.medicos, ...x.porServico.flatMap((p) => p.profissionais)]));
   comAgenda.sort((a, b) => a.u.nome.localeCompare(b.u.nome));
   comAgenda.forEach(({ u }) => unidadesPorId.set(u.id, u));
   const cands = await Promise.all(itens.map(candidatoDoItem));
   const preparos = [...new Set(cands.map((c) => preparoUtil(c.proc.preparo)).filter((x): x is string => Boolean(x)))];
   return {
     id: `combo:${cb.id}:${ids.join('+')}`, nome: rotulo, frase: rotulo, tipo: 'exame', precoTexto: '',
-    unidades: comAgenda.map(({ u, medicos }): Unidade => ({ id: u.id, nome: nomeUnidade(u), profissionais: medicos, precoPix: totais.get(u.id) ?? cb.total, nomeBruto: u.nome, endereco: u.endereco, telefone: u.telefone })),
+    unidades: comAgenda.map(({ u, medicos, porServico }): Unidade => ({ id: u.id, nome: nomeUnidade(u), profissionais: medicos, porServico, precoPix: totais.get(u.id) ?? cb.total, nomeBruto: u.nome, endereco: u.endereco, telefone: u.telefone })),
     nomeBruto: itens.map((i) => i.nome).join(', '), preparo: preparos.length ? preparos.join('\n\n') : undefined,
     combo: { id: cb.id, nome: cb.rotulo, itens: itens.map((i) => ({ id: i.id, nome: i.nome, lab: ehLab(i.categoria) })), ancoraId: ancora.id },
   };
@@ -610,7 +653,7 @@ async function reservarCombo(p: PedidoReserva): Promise<ResultadoReserva> {
   if (livresA.length === 0) return { ok: false, codigo: 'SEM_VAGA_AGORA', motivo: 'a vaga escolhida acabou de ser preenchida' };
   // 2) os outros serviços no mesmo dia: se algum não tem horário, nada é gravado
   const disp = new Map<string, Horario[]>();
-  await emLotes(outros, 4, async (i) => { disp.set(i.id, await listAgendaFresca({ unidadeId: unidade.id!, dataInicial: slot.ymd, dataFinal: slot.ymd, procedimentoId: i.id })); });
+  await emLotes(outros, 4, async (i) => { const l = await listAgendaFresca({ unidadeId: unidade.id!, dataInicial: slot.ymd, dataFinal: slot.ymd, procedimentoId: i.id }); disp.set(i.id, ehConsultaProc(i) ? l : soManha(l)); });
   const semVaga = outros.filter((i) => (disp.get(i.id) ?? []).length === 0);
   if (semVaga.length) return { ok: false, codigo: 'COMBO_SEM_VAGA_NO_DIA', motivo: `sem horário no dia para: ${semVaga.map((i) => itemCurto(i.nome)).join(', ')}` };
   // 3) paciente
@@ -691,7 +734,7 @@ async function sugerirLaboratorio(): Promise<Descoberta> {
 }
 
 /** Nome de sala ou setor cadastrado como "profissional" ("Coleta", "Exames", ".SALA DE EXAMES"): não é médico, não aparece como "com Fulano". */
-export const ehSala = (nome?: string | null) => Boolean(nome) && /^\.?\s*(sala|coleta|exames?|laborat\w*|recepc\w*|triagem|ultrassom|usg)\b/.test(norm(nome!));
+export const ehSala = (nome?: string | null) => Boolean(nome) && /^\.?\s*(sala|coleta|exames?|laborat\w*|recepc\w*|triagem|ultrassom|usg|metodos? graficos?|raio ?-?x|rx|imagem)\b/.test(norm(nome!));
 const nomeDePessoa = (nome?: string | null) => (nome && !ehSala(nome) ? titulo(nome) : undefined);
 
 // ---------------- ORÇAMENTO DE EXAMES ----------------
@@ -926,13 +969,15 @@ export const fonteClinilink: Fonte = {
   async periodos(sv, un, ymd) {
     if (!un.id) return [];
     if (sv.combo) return horariosDoCombo(sv, un, ymd, ymd);
-    return agrupar(await listAgenda({ unidadeId: un.id, dataInicial: ymd, dataFinal: ymd, procedimentoId: sv.id, profissionalId: sv.profissional?.id }));
+    const h = await listAgenda({ unidadeId: un.id, dataInicial: ymd, dataFinal: ymd, procedimentoId: sv.id, profissionalId: sv.profissional?.id });
+    return agrupar(sv.tipo === 'exame' ? soManha(h) : h);
   },
 
   async proximas(sv, un, de, max) {
     if (!un.id) return [];
     if (sv.combo) return (await horariosDoCombo(sv, un, de, somaDias(de, 21))).slice(0, max);
-    return agrupar(await listAgenda({ unidadeId: un.id, dataInicial: de, dataFinal: somaDias(de, 21), procedimentoId: sv.id, profissionalId: sv.profissional?.id })).slice(0, max);
+    const h = await listAgenda({ unidadeId: un.id, dataInicial: de, dataFinal: somaDias(de, 21), procedimentoId: sv.id, profissionalId: sv.profissional?.id });
+    return agrupar(sv.tipo === 'exame' ? soManha(h) : h).slice(0, max);
   },
 
   async reservar(p: PedidoReserva): Promise<ResultadoReserva> {
@@ -971,6 +1016,14 @@ export const fonteClinilink: Fonte = {
   async paciente(cpf) {
     const lista = await getPacientePorCpf(cpf);
     const p = lista[0];
+    return p ? { id: p.id, nome: titulo(p.nome) } : null;
+  },
+
+  async pacientePorDados({ nome, nascimento, telefones }) {
+    const formas = [...new Set(telefones.flatMap(formasDoTelefone))];
+    const achados = new Map<string, Paciente>();
+    for (const l of await emLotes(formas, 2, getPacientesPorTelefone)) for (const p of l) achados.set(p.id, p);
+    const p = melhorPaciente([...achados.values()], nome, nascimento);
     return p ? { id: p.id, nome: titulo(p.nome) } : null;
   },
 };

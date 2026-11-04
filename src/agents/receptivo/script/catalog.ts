@@ -4,7 +4,8 @@
  * Clinilink. A fonte real fica em clinilinkFonte.ts e é escolhida quando CLINILINK_API_KEY existe.
  */
 export type Periodo = 'manhã' | 'tarde';
-export type Unidade = { id?: string; nome: string; profissionais?: string[]; precoPix?: number; nomeBruto?: string; endereco?: string; telefone?: string };
+/** `profissionais` = quem atende o serviço principal. `porServico` (só em agendamento de VÁRIOS serviços no mesmo dia) = quem atende cada serviço: um médico não faz todos. */
+export type Unidade = { id?: string; nome: string; profissionais?: string[]; porServico?: { nome: string; profissionais: string[] }[]; precoPix?: number; nomeBruto?: string; endereco?: string; telefone?: string };
 
 /** Um serviço de dentro de um combo (o `preco` já é o preço NO combo; `avulso` é o preço do mesmo serviço fora do combo). */
 export type ItemDeCombo = { id: string; nome: string; curto: string; preco?: number; avulso?: number; categoria?: string };
@@ -57,7 +58,7 @@ export type PacienteInfo = { id?: string; nome: string };
 export type AgendamentoExistente = { unidade: string; hora?: string; periodo?: Periodo; profissional?: string };
 
 export type PedidoReserva = {
-  servico: Servico; unidade: Unidade; slot: Slot; cpf: string;
+  servico: Servico; unidade: Unidade; slot: Slot; cpf?: string;
   pacienteId?: string; // paciente já cadastrado
   cadastro?: { nome: string; nascimento: string; sexo: 'feminino' | 'masculino'; telefone: string }; // paciente novo
   observacao?: string; // gravada no agendamento (forma de pagamento, comprovante)
@@ -86,6 +87,8 @@ export interface Fonte {
   agendamentoExistente?(sv: Servico, ymd: string, pacienteId?: string): Promise<AgendamentoExistente | null>;
   /** Paciente por CPF (11 dígitos); null se não existir. */
   paciente(cpf: string): Promise<PacienteInfo | null>;
+  /** Paciente sem CPF: procura pelos telefones e confere nome parecido e nascimento; null se não achar com segurança. */
+  pacientePorDados?(d: { nome: string; nascimento: string; telefones: string[] }): Promise<PacienteInfo | null>;
   /** Só a fonte real: combos que incluem o serviço e saem mais em conta (para sugerir a quem pediu só o serviço). */
   combosComServico?(sv: Servico): Promise<OfertaCombo[]>;
   /** Só a fonte real: acha no Clinilink (serviços de categoria laboratorial/laboratório ou exames) os exames escritos no pedido. */
@@ -200,6 +203,7 @@ export const fonteSimulada: Fonte = {
     return out.slice(0, max);
   },
   async paciente(cpf) { const n = PACIENTES_SIM[cpf]; return n ? { nome: n } : null; },
+  async pacientePorDados(d) { const n = Object.values(PACIENTES_SIM).find((x) => x.toLowerCase() === d.nome.toLowerCase()); return n ? { nome: n } : null; },
 };
 
 /**

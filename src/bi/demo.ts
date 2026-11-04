@@ -58,7 +58,7 @@ function jornada(r: Rng, t0: number, id: string, tendencia: number): Evento[] {
   // probabilidade de seguir em cada etapa (melhora de leve com o tempo: "tendencia" vai de 0 a 1)
   const sobe = 0.04 * tendencia;
   const cont = [0.95 + sobe / 2, 0.96, 0.92 + sobe, 0.88 + sobe, 0.9 + sobe / 2, 0.86 + sobe, 0.98];
-  const etapas = ['recepção / entendendo o serviço', 'confirmando o serviço', 'escolhendo a unidade', 'escolhendo data e turno', 'pedindo o CPF', 'confirmando o paciente', 'escolhendo a forma de pagamento'];
+  const etapas = ['recepção / entendendo o serviço', 'confirmando o serviço', 'escolhendo a unidade', 'escolhendo data e turno', 'pedindo os dados do paciente', 'confirmando o paciente', 'escolhendo a forma de pagamento'];
   const falas = [
     () => disse[0], () => 'isso mesmo', () => unidade.replace('Unidade ', ''), () => ['o mais rápido', 'quinta de manhã', 'a segunda opção', 'sexta à tarde'][Math.floor(r() * 4)],
     () => '123.456.789-00', () => 'sim, sou eu', () => (r() < 0.6 ? 'pix' : 'no balcão mesmo'),

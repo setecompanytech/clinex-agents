@@ -139,12 +139,19 @@ Com a lista de horários na tela:
 
 ## Fluxo 7. CPF, paciente e cadastro
 
+**O CPF é opcional.** Sem ele, a Amanda procura o cadastro pelo telefone informado e pelo do WhatsApp e confere nome parecido e data de nascimento. Nascimento diferente nunca é a mesma pessoa. Não achou: faz cadastro novo sem CPF. Se o CPF vier, ele tem prioridade.
+
+- 7.0a Mandar nome, nascimento (pode ser só números: 08071999) e telefone, sem CPF, com paciente que já existe → "Achei aqui o cadastro de [Nome]. É esse mesmo o paciente?"
+- 7.0b Sem CPF e paciente que não existe → segue para o pagamento e cadastra sem CPF no fim.
+- 7.0c Disse "não é esse" num cadastro achado sem CPF → faz cadastro novo, sem pedir CPF.
+- 7.0d Mandar só uma parte dos dados → "Anotei! Falta só ..." (nunca exige CPF).
+
 Esses dados vêm **antes** do pagamento: assim que o dia está escolhido ela pede nome completo, data de nascimento, telefone e CPF de uma vez. Pode mandar numa mensagem só, em várias ou fora de ordem; ela anota o que veio e pede só o que falta ("Falta só a data de nascimento."). O sexo sai do primeiro nome quando ela conhece o nome (Joana = feminino); nome desconhecido, ela pergunta. Até o pagamento ser resolvido dá para mudar de unidade ou dia sem perder os dados.
 
 - 7.1 CPF com pontos e traço, só números, com espaços ("123 456 789 09") e falado em áudio.
 - 7.2 CPF com um dígito errado → "Acho que algum número do CPF escapou, dá uma olhadinha e me manda de novo os 11 números?" Não consulta o cadastro.
 - 7.3 CPF com todos os dígitos iguais (111.111.111-11) → recusa do mesmo jeito.
-- 7.4 Texto com número que não parece CPF ("12") → "Não consegui ler o CPF. Pode me mandar os 11 números?"
+- 7.4 Texto com número que não dá para entender ("12") → "Não consegui entender esse número." e diz o que falta.
 - 7.5 Paciente existe e você diz "não é esse" → "Sem problema. Dá uma conferida no CPF e me manda de novo?" e volta ao CPF.
 - 7.6 Responder outra coisa quando ela mostra o nome → repete a pergunta com o nome.
 - 7.7 **CPF novo (cadastro), um dado por mensagem:** "Esse CPF ainda não tá no cadastro, vou fazer agora. Qual o nome completo do paciente?" → nome → "Prazer, [nome]! E a data de nascimento?" → nascimento → "O cadastro pede o sexo: feminino ou masculino?" → "E esse número do WhatsApp, posso usar de contato?"
@@ -348,3 +355,12 @@ Quando o paciente quer fazer exames ("exame de sangue", "coleta", "preciso fazer
 ## Como me passar o resultado
 
 Para cada cenário que falhar ou ficar estranho, me mande o número (ex.: **4.10**), o que você escreveu e o que ela respondeu (print ou texto). Se puder, cole também a linha do `/painel/receptivo/logs`. Assim eu corrijo e acrescento o caso nos testes automáticos.
+
+## Fluxo 18. Combo: quem faz o quê, agendar o resto e agendas da manhã
+
+- 18.1 "Quero agendar tudo pro mesmo dia" na lista de itens → junta todos e mostra, por unidade, o médico de **cada** serviço (a coleta não ganha médico). Nada de "Tenho sim!" no meio do combo.
+- 18.2 Depois do primeiro item, "pode agendar o resto", "os que faltam" ou "agenda todos" → agenda direto na mesma unidade, no dia do primeiro item ou no mais próximo depois dele, sem pedir dados nem pagamento de novo.
+- 18.3 Escolhendo o horário de um item, "sexta, agenda todos na sexta" ou "eletro, raio x e os exames" → junta tudo e agenda.
+- 18.4 "Sim" para "Falta só X, quer agendar agora?" → mostra os horários (ele escolhe).
+- 18.5 "Vc tá agendando qual serviço do combo?" → "Agora tô agendando X. Depois ainda falta Y."
+- 18.6 Exame, laboratório ou qualquer procedimento que não seja consulta → só aparecem horários da manhã. Consulta continua com manhã e tarde.

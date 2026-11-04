@@ -144,7 +144,10 @@ const server = http.createServer((req, res) => {
         const off = Number(url.searchParams.get('offset') ?? 0); const lim = Number(url.searchParams.get('limite') ?? 100);
         return j(200, { ok: true, total: ags.length, limite: lim, offset: off, agendamentos: ags.slice(off, off + lim) });
       }
-      if (p.endsWith('/pacientes')) return j(200, { ok: true, pacientes: url.searchParams.get('cpf') === '52998224725' ? [{ id: '55555555-5555-4555-8555-555555555555', nome: 'MARIA EXEMPLO' }] : [] });
+      if (p.endsWith('/pacientes')) {
+        if (url.searchParams.get('telefone') === '91988887777') return j(200, { ok: true, pacientes: [{ id: '56565656-5656-4565-8565-565656565656', nome: 'RENATO GIOVANNY VALENTE GONCALVES', dataNascimento: '1999-07-08', telefone: '91988887777' }, { id: '57575757-5757-4575-8575-575757575757', nome: 'ANA VALENTE GONCALVES', dataNascimento: '1970-01-20', telefone: '91988887777' }] });
+        return j(200, { ok: true, pacientes: url.searchParams.get('cpf') === '52998224725' ? [{ id: '55555555-5555-4555-8555-555555555555', nome: 'MARIA EXEMPLO' }] : [] });
+      }
     }
     if (req.method === 'POST') {
       posts.push({ rota: p, corpo });
@@ -171,7 +174,7 @@ process.env.CLINILINK_API_KEY = 'chave-de-teste';
 process.env.LOG_QUIET = '1';
 
 const { responder, MARCA_AGENDADO, MARCAS_FIM, SEM_GPT, estadoDepoisDaResposta, etapa, handoffDuro } = await import('../src/agents/receptivo/script/engine.js');
-const { fonteClinilink } = await import('../src/agents/receptivo/script/clinilinkFonte.js');
+const { fonteClinilink, formasDoTelefone, melhorPaciente } = await import('../src/agents/receptivo/script/clinilinkFonte.js');
 const ctx = { now: new Date(), nome: 'Teste', tz: 'America/Sao_Paulo', telefone: '5591999990000' };
 
 let falhas = 0;
@@ -318,7 +321,7 @@ const resp = async (turnos: (string | string[])[], c: any = ctxPix) => (await re
 // P1) depois de escolher o horário: confirma o que ficou combinado e já pede os dados do paciente; só depois dos dados vem a forma de pagamento
 reset({ ocupados: 0 });
 r = await resp(base0.map((x) => [x]));
-confere('P1 assim que o horário é escolhido: resumo (dia, médica...) e, em outra mensagem, o pedido dos dados (nome, nascimento, telefone, CPF); nada de pix ainda', /Show, então fica consulta Ginecologia no Guamá/.test(r.reply) && /Pra gerar o agendamento, me manda por favor os dados do paciente:\n• Nome completo\n• Data de nascimento\n• Telefone para contato \(pode ser esse número do WhatsApp\)\n• CPF$/.test(r.reply) && !/Chave pix/.test(r.reply) && !r.state.pagPerguntado && !r.state.pixEnviado, r.reply.replace(/\n/g, ' | ').slice(0, 330));
+confere('P1 assim que o horário é escolhido: resumo (dia, médica...) e, em outra mensagem, o pedido dos dados (nome, nascimento, telefone, CPF); nada de pix ainda', /Show, então fica consulta Ginecologia no Guamá/.test(r.reply) && /Pra gerar o agendamento, me manda por favor os dados do paciente:\n• Nome completo\n• Data de nascimento\n• Telefone para contato \(pode ser esse número do WhatsApp\)\n• CPF \(se tiver à mão\)$/.test(r.reply) && !/Chave pix/.test(r.reply) && !r.state.pagPerguntado && !r.state.pixEnviado, r.reply.replace(/\n/g, ' | ').slice(0, 330));
 r = await resp(baseP.map((x) => [x]));
 confere('P1 com os dados completos (paciente já cadastrado, nome confirmado): pergunta como ele prefere pagar, oferecendo o pix com o valor', /^Como você prefere pagar\? Dá pra antecipar o pagamento por pix \(o valor é R\$ 100,00\), que agiliza o seu atendimento na recepção, pagar na recepção, no dia do atendimento, ou por link de crédito\.$/.test(r.reply) && !/Chave pix/.test(r.reply) && r.state.pagPerguntado === true && !r.state.pixEnviado, r.reply.replace(/\n/g, ' | '));
 
@@ -413,6 +416,10 @@ q = await pos('perguntou_mais', [['sim'], ['quero agendar ginecologista']]);
 confere('Q3 depois do "sim", o pedido segue o fluxo normal', /consulta Ginecologia/.test(q.reply) && !/Aqui é a Amanda/.test(q.reply), q.reply);
 q = await pos('confirmado', [['quero marcar outra consulta de ginecologia']]);
 confere('Q3 "quero marcar outra consulta" já começa o novo agendamento', /consulta Ginecologia/.test(q.reply), q.reply);
+for (const frase of ['apenas isso', 'somente isso', 'é isso', 'era isso mesmo', 'já tá bom']) {
+  q = await pos('perguntou_mais', [[frase]]);
+  confere(`Q2 "${frase}" depois de agendar: encerra (não pergunta qual é o serviço)`, /Tenha um ótimo dia/.test(q.reply) && !q.handoff, q.reply);
+}
 q = await pos('confirmado', [['obrigado', 'era só isso']]);
 confere('Q4 "obrigado" + "era só isso" juntos: só a despedida', /Tenha um ótimo dia/.test(q.reply), q.reply);
 q = await pos('encerrou', [['obrigado']]);
@@ -498,7 +505,7 @@ confere('F5 valor esperando o comprovante: reenvia a chave com o valor (sem dupl
 r = await resp([...ate3.map(um), um('??')]);
 confere('F6 "??" no meio do fluxo: "Estou aqui" e repete a pergunta pendente', /^Tô aqui!/.test(r.reply) && /Qual dos dois você prefere/.test(r.reply), r.reply.replace(/\n/g, ' | '));
 r = await resp([...base.map(um), um('qual o endereço?')]);
-confere('F7 dúvida no pedido do CPF: responde o endereço e volta a pedir o CPF', /Av. José Bonifácio/.test(r.reply) && /CPF do paciente/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 200));
+confere('F7 dúvida no pedido dos dados: responde o endereço e volta a pedir os dados', /Av. José Bonifácio/.test(r.reply) && /nome completo do paciente/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 200));
 r = await resp([...base.map(um), um('12345678909'), um('qual o endereço de vocês')]);
 confere('F8 dúvida (sem "?") na hora do nome: NÃO vira o nome do paciente', r.state.cad?.nome === undefined && /nome completo/.test(r.reply) && /Av. José Bonifácio/.test(r.reply), `${r.state.cad?.nome} | ${r.reply.replace(/\n/g, ' | ').slice(0, 150)}`);
 r = await resp([...ate3.map(um), um('qual o endereço?'), um('pode chamar alguém da equipe')]);
@@ -1191,15 +1198,48 @@ confere('EN6 o texto do endereço nunca passa pelo GPT (aprovado palavra por pal
   confere('DD2 mandou o nascimento: agenda de verdade e cadastra com os dados da rajada (telefone certo, sexo do nome)', d.reply.startsWith(MARCA_AGENDADO) && /Cadastro de Joana Teste Souza feito\./.test(d.reply) && cadDd?.nome === 'Joana Teste Souza' && cadDd?.dataNascimento === '1990-05-10' && cadDd?.sexo === 'feminino' && String(cadDd?.telefone).endsWith('91981990849') && nPost('/agendamentos') === 1, `${d.reply.slice(0, 80)} | ${JSON.stringify({ ...cadDd, cpf: '***' })}`);
   // em qualquer ordem: nascimento primeiro, depois o nome, depois o telefone formatado, o CPF por último
   reset({ ocupados: 0 });
-  d = await responder([...turnosBase, ['02/09/1977'], ['Maria Aparecida Teste'], ['(91) 98199-0849'], ['12345678909']], ctx, fonteClinilink);
-  confere('DD3 ordem trocada (nascimento, nome, telefone com máscara, CPF): agenda sem pedir de novo', d.reply.startsWith(MARCA_AGENDADO) && nPost('/agendamentos') === 1, d.reply.replace(/\n/g, ' | ').slice(0, 120));
+  d = await responder([...turnosBase, ['02/09/1977'], ['Maria Aparecida Teste'], ['(91) 98199-0849']], ctx, fonteClinilink);
+  confere('DD3 ordem trocada (nascimento, nome, telefone com máscara), sem CPF: agenda sem pedir de novo', d.reply.startsWith(MARCA_AGENDADO) && nPost('/agendamentos') === 1, d.reply.replace(/\n/g, ' | ').slice(0, 120));
   reset({ ocupados: 0 });
   d = await responder([...turnosBase, ['Joana Teste Souza']], ctx, fonteClinilink);
-  confere('DD4 mandou só o nome antes do CPF: "Anotei!" e pede o CPF (não repete a pergunta como se não tivesse entendido)', /^Anotei! Me passa também o CPF do paciente\?/.test(d.reply) && d.state.cad?.nome === 'Joana Teste Souza', d.reply.slice(0, 90));
+  confere('DD4 mandou só o nome: "Anotei!" e pede o que falta, sem exigir CPF (não repete a pergunta como se não tivesse entendido)', /^Anotei! Faltam só a data de nascimento e o telefone com DDD/.test(d.reply) && d.state.cad?.nome === 'Joana Teste Souza', d.reply.slice(0, 90));
+  // CPF NÃO é obrigatório: o paciente é achado pelo telefone, nome parecido e nascimento
+  reset({ ocupados: 0 });
+  d = await responder([...turnosBase, ['giovanny valente'], ['08071999'], ['91988887777']], ctx, fonteClinilink);
+  confere('NC1 sem CPF: acha o cadastro pelo telefone, nome parecido e nascimento (data só com números) e confirma o nome', /Achei aqui o cadastro de Renato Giovanny Valente Goncalves\. É esse mesmo o paciente\?/.test(d.reply) && d.state.paciente?.id === '56565656-5656-4565-8565-565656565656', d.reply.replace(/\n/g, ' | ').slice(0, 160));
+  reset({ ocupados: 0 });
+  d = await responder([...turnosBase, ['giovanny valente', '08071999', '91988887777'], ['sim']], ctx, fonteClinilink);
+  const agNc = posts.filter((x) => x.rota.endsWith('/agendamentos'));
+  confere('NC2 confirmado o nome: agenda no cadastro achado, sem criar paciente novo', d.reply.startsWith(MARCA_AGENDADO) && agNc.length === 1 && agNc[0].corpo.pacienteId === '56565656-5656-4565-8565-565656565656' && nPost('/pacientes') === 0, `${d.reply.slice(0, 70)} | ${agNc.length} POSTs`);
+  reset({ ocupados: 0 });
+  d = await responder([...turnosBase, ['Joana Teste Souza', '10/05/1990', '91981990849']], ctx, fonteClinilink);
+  const cadNc = posts.find((x) => x.rota.endsWith('/pacientes'))?.corpo;
+  confere('NC3 paciente novo sem CPF: cadastra sem CPF e agenda', d.reply.startsWith(MARCA_AGENDADO) && cadNc?.nome === 'Joana Teste Souza' && !cadNc?.cpf && cadNc?.dataNascimento === '1990-05-10' && nPost('/agendamentos') === 1, `${d.reply.slice(0, 70)} | ${JSON.stringify({ ...cadNc })}`);
+  reset({ ocupados: 0 });
+  d = await responder([...turnosBase, ['Giovanny Valente', '09/07/1999', '91988887777']], ctx, fonteClinilink);
+  confere('NC4 mesmo telefone e nome parecido com nascimento diferente: não é o mesmo paciente (vai para cadastro novo)', d.state.paciente === null && !/Achei aqui o cadastro/.test(d.reply), d.reply.replace(/\n/g, ' | ').slice(0, 160));
+  reset({ ocupados: 0 });
+  d = await responder([...turnosBase, ['Joana Teste Souza', '10/05/1990', '91981990849', '52998224725']], ctx, fonteClinilink);
+  confere('NC5 CPF chegando por último, depois de não achar pelos dados: procura pelo CPF e acha', /Achei aqui o cadastro de Maria Exemplo/.test(d.reply) && d.state.cpf === '52998224725', d.reply.replace(/\n/g, ' | ').slice(0, 160));
+  reset({ ocupados: 0 });
+  d = await responder([...turnosBase, ['giovanny valente', '08071999', '91988887777'], ['não']], ctx, fonteClinilink);
+  confere('NC6 achou pelos dados mas "não é esse": segue para cadastro novo, sem pedir CPF', d.reply.startsWith(MARCA_AGENDADO) && nPost('/pacientes') === 1 && !posts.find((x) => x.rota.endsWith('/pacientes'))?.corpo.cpf, d.reply.replace(/\n/g, ' | ').slice(0, 200));
+  confere('NC7 o pedido de dados diz que o CPF é opcional', /• CPF \(se tiver à mão\)/.test((await responder(base0.map((x: string) => [x]), ctx, fonteClinilink)).reply), '');
+  confere('NC8 telefone procurado com e sem 55 e com e sem o 9', JSON.stringify(formasDoTelefone('5591981628017')) === JSON.stringify(['91981628017', '5591981628017', '9181628017', '559181628017']), JSON.stringify(formasDoTelefone('5591981628017')));
+  confere('NC9 erro de digitação no nome ainda casa; empate entre dois cadastros não escolhe ninguém', melhorPaciente([{ id: '1', nome: 'GIOVANNY VALENTE', dataNascimento: '1999-07-08' }], 'giovani valente', '1999-07-08')?.id === '1' && melhorPaciente([{ id: '1', nome: 'ANA SILVA', dataNascimento: '1999-07-08' }, { id: '2', nome: 'ANA SOUZA', dataNascimento: '1999-07-08' }], 'ana lima', '1999-07-08') === null, '');
+  // REGRA: exame, laboratório e demais procedimentos só nas agendas da manhã; consulta continua com manhã e tarde
+  reset({ ocupados: 0 });
+  d = await responder([['oi'], ['quero marcar teste ergometrico'], ['sim']], ctx, fonteClinilink);
+  const turnosMn = (await fonteClinilink.proximas(d.state.servico, d.state.servico.unidades[0], dia(0), 12)).map((x: any) => x.turno);
+  confere('MN1 exame: a agenda só traz horários da manhã', d.state.servico?.tipo === 'exame' && turnosMn.length > 0 && turnosMn.every((x: string) => x === 'manhã'), JSON.stringify(turnosMn));
+  reset({ ocupados: 0 });
+  d = await responder([['oi'], ['quero agendar ginecologista'], ['sim']], ctx, fonteClinilink);
+  const turnosCo = (await fonteClinilink.proximas(d.state.servico, d.state.servico.unidades[0], dia(0), 12)).map((x: any) => x.turno);
+  confere('MN2 consulta: continua com manhã e tarde', turnosCo.includes('tarde') && turnosCo.includes('manhã'), JSON.stringify(turnosCo));
   // frases de conversa NÃO viram nome
   reset({ ocupados: 0 });
   d = await responder([...turnosBase, ['um minuto, já vou mandar'], ['pode ser esse número mesmo']], ctx, fonteClinilink);
-  confere('DD5 "um minuto, já vou mandar" e "pode ser esse número mesmo" não viram o nome do paciente', !d.state.cad?.nome && !d.state.cad?.telefone, JSON.stringify(d.state.cad));
+  confere('DD5 "um minuto, já vou mandar" não vira nome e "pode ser esse número mesmo" usa o WhatsApp como telefone', !d.state.cad?.nome && d.state.cad?.telefone === String(ctx.telefone).replace(/\D/g, ''), JSON.stringify(d.state.cad));
   // nome fora das listas: o sexo não é chutado, ela pergunta
   reset({ ocupados: 0 });
   d = await responder([...turnosBase, ['Xuxu Teste Souza', '91981990849', '12345678909'], ['10/05/1990']], ctx, fonteClinilink);
@@ -1344,7 +1384,7 @@ confere('EN6 o texto do endereço nunca passa pelo GPT (aprovado palavra por pal
 
   // "sim": segue a sugestão (o próximo da ordem), na mesma unidade e a partir do dia do anterior; escolher o horário grava na hora
   s1 = await seq(['sim'], { ocupados: 0 }, s1.est);
-  confere('CB4 "sim": mostra os horários do próximo item na mesma unidade, começando no dia do anterior', /^Tenho sim! No Guamá /.test(s1.r.reply) && /Consegui estes aqui:/.test(s1.r.reply) && s1.r.state.servico?.nome === 'Usg Transvaginal' && s1.r.state.lista?.[0]?.ymd === dia(1), s1.r.reply.replace(/\n/g, ' | ').slice(0, 300));
+  confere('CB4 "sim": mostra os horários do próximo item na mesma unidade, começando no dia do anterior', /^Beleza! No Guamá /.test(s1.r.reply) && /Consegui estes aqui:/.test(s1.r.reply) && s1.r.state.servico?.nome === 'Usg Transvaginal' && s1.r.state.lista?.[0]?.ymd === dia(1), s1.r.reply.replace(/\n/g, ' | ').slice(0, 300));
   s1 = await seq(['1'], { ocupados: 0 }, s1.est);
   ags = corposAg();
   confere('CB4 escolheu o horário: grava a USG (outra agenda, mesmo dia), ligada ao combo, e pergunta pelo último item', ags.length === 1 && ags[0].comboId === ID_F1 && JSON.stringify(ags[0].procedimentos) === JSON.stringify([PROC_USGC]) && ags[0].agendaId === AGENDA_USGC && String(ags[0].dataHora).startsWith(dia(1)) && /^Pronto! Reservei Usg Transvaginal /.test(s1.r.reply) && /Falta só Hemograma Completo no combo\. Quer agendar agora\?/.test(s1.r.reply) && !s1.r.state.fim, `${ags.length} POSTs | ${s1.r.reply.replace(/\n/g, ' | ').slice(0, 240)}`);
@@ -1357,11 +1397,11 @@ confere('EN6 o texto do endereço nunca passa pelo GPT (aprovado palavra por pal
 
   // o paciente escolhe o que quer agendar, na ordem que quiser
   s1 = await seq(['oi', 'quero o combo feminino 1', '2']);
-  confere('CB6 escolheu só o item 2 (USG) já na lista inicial: começa por ele, sem seguir a ordem', s1.r.state.servico?.id === PROC_USGC && !s1.r.state.combo?.perguntando && /Tenho sim!/.test(s1.r.reply) && corposAg().length === 0, `${s1.r.state.servico?.nome} | ${s1.r.reply.replace(/\n/g, ' | ').slice(0, 160)}`);
+  confere('CB6 escolheu só o item 2 (USG) já na lista inicial: começa por ele, sem seguir a ordem', s1.r.state.servico?.id === PROC_USGC && !s1.r.state.combo?.perguntando && /Beleza! No Guamá/.test(s1.r.reply) && corposAg().length === 0, `${s1.r.state.servico?.nome} | ${s1.r.reply.replace(/\n/g, ' | ').slice(0, 160)}`);
   s1 = await seq(['oi', 'quero o combo feminino 1', 'só o hemograma']);
   confere('CB6 escolher pelo nome ("só o hemograma")', s1.r.state.servico?.id === PROC_HEMO && !s1.r.state.combo?.perguntando, `${s1.r.state.servico?.nome}`);
   s1 = await seq([...abertura, 'o hemograma']);
-  confere('CB6 depois do 1º item, pode pular a ordem ("o hemograma" antes da USG): abre o hemograma', s1.r.state.servico?.id === PROC_HEMO && !s1.r.state.combo?.perguntando && /Tenho sim!/.test(s1.r.reply), `${s1.r.state.servico?.nome} | ${s1.r.reply.replace(/\n/g, ' | ').slice(0, 160)}`);
+  confere('CB6 depois do 1º item, pode pular a ordem ("o hemograma" antes da USG): abre o hemograma', s1.r.state.servico?.id === PROC_HEMO && !s1.r.state.combo?.perguntando && /Beleza! No Guamá/.test(s1.r.reply), `${s1.r.state.servico?.nome} | ${s1.r.reply.replace(/\n/g, ' | ').slice(0, 160)}`);
 
   // o paciente para no meio: fecha com o que já foi agendado e avisa o que ficou pendente
   s1 = await seq([...abertura, 'depois eu marco']);
@@ -1392,7 +1432,27 @@ confere('EN6 o texto do endereço nunca passa pelo GPT (aprovado palavra por pal
   confere('CB11 e o modelo mostra os dois serviços e o valor do combo (R$ 110,00)', /Procedimento: CONSULTA GINECOLOGIA - [^,\n]+, ELETROCARDIOGRAMA - [^\n]+ \(COMBO FEMININO 2\)/.test(s1.r.reply) && /Valor no combo: R\$ 110,00/.test(s1.r.reply), s1.r.reply.split(/\n\n/)[1]?.slice(0, 260));
   // juntar enquanto escolhe o horário ("e o hemograma também")
   s1 = await seq([...abertura, 'o hemograma e a usg também']);
-  confere('CB12 depois do 1º item, citar dois itens pelo nome junta os dois num agendamento só', /vamos agendar Usg Transvaginal e Hemograma Completo juntos, no mesmo dia\./.test(s1.r.reply) && s1.r.state.servico?.combo?.itens.length === 2, `${s1.r.state.servico?.nome} | ${s1.r.reply.replace(/\n/g, ' | ').slice(0, 220)}`);
+  confere('CB12 depois do 1º item, citar pelo nome tudo o que falta junta num agendamento só e agenda direto (os dados e o pagamento já foram resolvidos)', s1.r.reply.startsWith(MARCA_AGENDADO) && corposAg().length === 3, `${s1.r.state.servico?.nome} | ${s1.r.reply.replace(/\n/g, ' | ').slice(0, 220)}`);
+  // QUEM FAZ O QUÊ: com vários serviços no mesmo dia, o médico aparece só no serviço que ele faz (a lista da unidade sozinha dava a entender que ele fazia tudo)
+  s1 = await seq(['oi', 'quero o combo feminino 1', 'quero agendar tudo pro mesmo dia']);
+  const u19 = s1.r.reply;
+  confere('CB19 vários serviços no mesmo dia: a mensagem diz o médico de CADA serviço, não os médicos da consulta como se fizessem tudo', /Cada serviço tem o seu médico:/.test(u19) && !/Tenho sim/.test(u19) && s1.r.state.servico?.combo?.itens.length === 3 && /- Consulta Ginecologia com a Dra\. Medica\n/.test(u19) && /- Usg Transvaginal com o Dr\. Luis/.test(u19), u19.replace(/\n/g, ' | ').slice(0, 420));
+  confere('CB19 o exame de laboratório (coleta) não ganha médico, e nenhum serviço fica sem o seu nome na lista', !/Hemograma[^\n]* com /.test(u19) && !/Coleta/i.test(u19.split('Qual')[0]), u19.replace(/\n/g, ' | ').slice(0, 420));
+  // "pode agendar o resto": os dados e o pagamento já foram resolvidos, então ela agenda o que falta direto, na mesma unidade
+  s1 = await seq([...abertura, 'pode agendar o resto']);
+  ags = corposAg();
+  confere('CB20 "pode agendar o resto": agenda tudo o que falta sem perguntar horário, e fecha o combo', s1.r.reply.startsWith(MARCA_AGENDADO) && ags.length === 3 && ags.every((c: any) => c.comboId === ID_F1) && !s1.r.state.combo?.perguntando, `${ags.length} POSTs | ${s1.r.reply.replace(/\n/g, ' | ').slice(0, 260)}`);
+  // no meio da escolha de horário de um item, o paciente pede o resto
+  s1 = await seq([...abertura, 'a usg', 'agenda todos no mesmo dia']);
+  ags = corposAg();
+  confere('CB21 escolhendo o horário de um item, "agenda todos": junta o que falta e agenda direto', s1.r.reply.startsWith(MARCA_AGENDADO) && ags.length === 3, `${ags.length} POSTs | ${s1.r.reply.replace(/\n/g, ' | ').slice(0, 220)}`);
+  s1 = await seq([...abertura, 'a usg', 'usg e os exames']);
+  ags = corposAg();
+  confere('CB21 citar os itens que faltam pelo nome ("usg e os exames"): agenda direto', s1.r.reply.startsWith(MARCA_AGENDADO) && ags.length === 3, `${ags.length} POSTs | ${s1.r.reply.replace(/\n/g, ' | ').slice(0, 220)}`);
+  s1 = await seq([...abertura, 'a usg', 'vc ta agendando qual serviço do combo?']);
+  confere('CB30 "qual serviço você tá agendando?": responde o item e o que falta (sem "prefiro confirmar")', /^Agora tô agendando Usg Transvaginal\. Depois ainda falta Hemograma Completo\./.test(s1.r.reply) && !/prefiro confirmar/.test(s1.r.reply), s1.r.reply.replace(/\n/g, ' | ').slice(0, 220));
+  s1 = await seq([...abertura, 'o hemograma']);
+  confere('CB20 etapa seguinte do combo não abre com "Tenho sim!" (o paciente não perguntou se tem) nem sugere trocar de unidade', !/Tenho sim/.test(s1.r.reply) && !/Se for mais fácil/.test(s1.r.reply), s1.r.reply.replace(/\n/g, ' | ').slice(0, 260));
   // sem dia em comum: volta a um item de cada vez
   s1 = await seq(['oi', 'quero o combo infantil 1', 'todos']);
   confere('CB13 itens sem dia em comum na agenda (um deles não tem agenda): não trava, agenda o que dá e avisa', !s1.r.handoff || /sem vaga|COMBO/.test(s1.r.handoff.motivo), `${s1.r.reply.replace(/\n/g, ' | ').slice(0, 260)}`);
