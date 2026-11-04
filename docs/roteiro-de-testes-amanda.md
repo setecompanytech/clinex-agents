@@ -339,6 +339,10 @@ Frases de pacientes reais, com erro de digitação, gíria e várias mensagens s
 
 ## Fluxo 17. Orçamento de exames (pedido médico em foto ou os nomes dos exames)
 
+- 17.0a "Estou precisando fazer uma bateria de exames laboratoriais", "exames de rotina" ou "me sugira os exames ou combos de exames de sangue" → mostra os exames de laboratório mais procurados, com preço, e os combos de exames. Nunca anota um exame que ele não pediu.
+- 17.0b Na lista de sugestões, "1 e 3" ou o nome → monta o orçamento. O nome de um combo segue o fluxo de combos.
+- 17.0c "Não tenho o pedido" → mostra as mesmas sugestões.
+
 Quando o paciente quer fazer exames ("exame de sangue", "coleta", "preciso fazer uns exames", "tenho um pedido médico"), a Amanda **pede o pedido médico** em vez de listar exames. Ela **lê a foto**, acha cada exame no Clinilink (o pedido pode ter qualquer procedimento: laboratório, ultrassom, raio-x...), mostra **o valor de cada um e a soma**, pede para o paciente **confirmar a lista** e só então manda o total e oferece agendar a coleta. O preço é sempre o campo `preco` do Clinilink. Nada é gravado até o paciente aceitar agendar.
 
 - 17.1 "quero fazer um exame de sangue" / "bom dia, preciso agendar um exame" / "tenho um pedido médico" → "Claro! Pra eu te passar o valor certinho, me manda uma foto do pedido médico. Se não tiver o pedido, pode me escrever o nome dos exames, em uma mensagem ou em várias." (não lista exames, não transfere). Exame de ultrassom, raio-x etc. pedido **pelo nome** continua no agendamento normal.

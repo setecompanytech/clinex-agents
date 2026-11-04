@@ -1619,7 +1619,20 @@ confere('EN6 o texto do endereço nunca passa pelo GPT (aprovado palavra por pal
 
   // sem o pedido: escreve os nomes (uma mensagem ou várias)
   o = await seqO(['oi', 'quero fazer um exame de sangue', 'não tenho o pedido']);
-  confere('OR6 "não tenho o pedido": pede para escrever o nome dos exames (em uma mensagem ou em várias)', /Se puder, me escreve o nome dos exames que você precisa fazer\. Pode mandar tudo numa mensagem ou em várias\./.test(o.r.reply) && o.r.state.orcamento?.pediuNomes === true && !o.r.handoff, o.r.reply.replace(/\n/g, ' | ').slice(0, 200));
+  confere('OR6 "não tenho o pedido": mostra os exames mais procurados e os combos, e deixa escolher (em uma mensagem ou em várias)', /^Sem problema! Os exames de laboratório mais procurados aqui são:/.test(o.r.reply) && /Pode ser em uma mensagem ou em várias\./.test(o.r.reply) && o.r.state.orcamento?.pediuNomes === true && !o.r.handoff, o.r.reply.replace(/\n/g, ' | ').slice(0, 200));
+  // sugestão: pedido amplo nunca vira nome de exame
+  o = await seqO(['oi', 'Estou precisando fazer uma bateria de exames laboratoriais']);
+  confere('SG1 "bateria de exames laboratoriais": sugere os mais procurados e os combos, sem anotar exame nenhum', /exames de laboratório mais procurados/.test(o.r.reply) && /Hemograma/.test(o.r.reply) && /R\$/.test(o.r.reply) && /combos de exames:\n• Check Up 10/i.test(o.r.reply) && !/Anotei estes/.test(o.r.reply) && (o.r.state.orcamento?.itens.length ?? 0) === 0, o.r.reply.replace(/\n/g, ' | ').slice(0, 320));
+  o = await seqO(['oi', 'Me sugira os exames ou combos de exames de sangue']);
+  confere('SG2 "me sugira os exames ou combos": sugere', /exames de laboratório mais procurados/.test(o.r.reply) && !/Não achei/.test(o.r.reply), o.r.reply.replace(/\n/g, ' | ').slice(0, 200));
+  o = await seqO(['oi', 'quero fazer um exame de sangue', 'hemograma', 'Me sugira os exames ou combos de exames de sangue']);
+  confere('SG3 pediu sugestão com o orçamento aberto: sugere, sem "Não achei no sistema", e mantém a lista', /exames de laboratório mais procurados/.test(o.r.reply) && !/Não achei/.test(o.r.reply) && o.r.state.orcamento?.itens.length === 1, o.r.reply.replace(/\n/g, ' | ').slice(0, 200));
+  o = await seqO(['oi', 'uma bateria de exames', '1 e 2']);
+  confere('SG4 escolheu pelo número: monta o orçamento com os dois exames da lista', /Anotei estes exames:/.test(o.r.reply) && o.r.state.orcamento?.itens.length === 2 && o.r.state.orcamento?.fase === 'confirmando', o.r.reply.replace(/\n/g, ' | ').slice(0, 200));
+  o = await seqO(['oi', 'uma bateria de exames', 'quero o check up 10']);
+  confere('SG5 escolheu um combo da lista: segue o fluxo de combos', !o.r.state.orcamento && Boolean(o.r.state.combo), o.r.reply.replace(/\n/g, ' | ').slice(0, 200));
+  o = await seqO(['oi', 'preciso fazer hemograma e uma bateria de exames']);
+  confere('SG6 citou um exame pelo nome: não vira sugestão', !/mais procurados/.test(o.r.reply), o.r.reply.replace(/\n/g, ' | ').slice(0, 200));
   o = await seqO(['oi', 'quero fazer um exame de sangue', 'não tenho o pedido', 'hemograma, glicose e colesterol total']);
   confere('OR6 os nomes digitados são achados no Clinilink, com o valor e a soma ("Anotei estes exames")', /^Anotei estes exames:/.test(o.r.reply) && /• Hemograma Completo: R\$ 15,00/.test(o.r.reply) && /• Glicose: R\$ 10,00/.test(o.r.reply) && /Total: R\$ 55,00/.test(o.r.reply), o.r.reply.replace(/\n/g, ' | ').slice(0, 360));
   o = await seqO(['oi', 'quero fazer um exame de sangue', 'não tenho o pedido', ['hemograma', 'glicose'], 'e também o tsh']);

@@ -17,6 +17,7 @@ export type ItemExame = { id: string; nome: string; nomeBruto: string; categoria
 export type Orcamento = {
   fase: 'coletando' | 'confirmando' | 'fechado'; // coletando: espera o pedido | confirmando: mostrou os exames e os valores e espera o "é isso" | fechado: confirmou, ela ofereceu agendar a coleta
   itens: ItemExame[]; naoAchados: string[]; origem: 'foto' | 'texto'; tent: number; pediuNomes: boolean; ilegivel?: boolean;
+  sugeridos?: string[]; // nomes dos exames que ela sugeriu, na ordem da lista (o paciente pode responder pelo número)
 };
 /** Escolhe, para cada nome do pedido, o(s) exame(s) do catálogo que ele é (IA; sempre validado). Cada resposta é uma lista de ids do catálogo. */
 export type EscolherExames = (p: { nomes: string[]; catalogo: { id: string; nome: string }[] }) => Promise<string[][] | null>;
@@ -97,6 +98,8 @@ export interface Fonte {
   servicoDeExames?(itens: ItemExame[]): Promise<Servico | { semAgenda: string }>;
   /** Só a fonte real: um combo que inclui TODOS esses exames e sai por menos que a soma (dica para o orçamento). */
   dicaDeCombo?(itens: ItemExame[], soma: number): Promise<string | undefined>;
+  /** Os exames de laboratório mais agendados na clínica e os combos de exames, para quem não sabe quais fazer. */
+  sugestoesDeExames?(): Promise<{ exames: ItemExame[]; combos: string[] }>;
   /** Só a fonte real: o serviço de UMA etapa do combo (um item, ou os exames de laboratório juntos), com as unidades que têm agenda. */
   etapaDoCombo?(combo: { id: string; rotulo: string; total?: number }, itens: ItemDeCombo[]): Promise<Servico | { semAgenda: string }>;
 }

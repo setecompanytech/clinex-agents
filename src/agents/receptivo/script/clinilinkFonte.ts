@@ -859,6 +859,26 @@ async function dicaDeComboFonte(itens: ItemExame[], soma: number): Promise<strin
   return `Dica: o combo ${tituloCombo(cb.nome)} inclui todos esses exames${extras > 0 ? ` e mais ${extras}` : ''} e sai por ${reais(total!)}, ${reais(soma - total!)} a menos que a soma. Se preferir o combo, é só me falar.`;
 }
 
+/** Sem dado de demanda, estes vêm primeiro. */
+const EXAMES_COMUNS = /\b(hemograma|glicose|glicemia|colesterol|triglicerides|triglicerideos|tsh|ureia|creatinina|urina)\b/;
+/** Os exames de laboratório mais agendados nos últimos 30 dias (com preço) e os combos só de exames, do mais barato para o mais caro. */
+async function sugestoesDeExamesFonte(): Promise<{ exames: ItemExame[]; combos: string[] }> {
+  const [cat, dem, todos, avulsos] = await Promise.all([examesDoCatalogo(), demandaPorProcedimento(), listCombos().catch(() => [] as Combo[]), precosAvulsos()]);
+  const comum = (c: ExameCat) => (EXAMES_COMUNS.test(norm(c.nome)) ? 1 : 0);
+  const exames = cat.filter((c) => ehLab(c.categoria) && Object.keys(c.precos).length > 0)
+    .sort((a, b) => (dem.get(b.id) ?? 0) - (dem.get(a.id) ?? 0) || comum(b) - comum(a) || a.nome.localeCompare(b.nome)).slice(0, 6)
+    .map((c): ItemExame => ({ id: c.id, nome: nomeCurtoDeExame(c.nome), nomeBruto: c.nome, categoria: c.categoria, precos: c.precos, pedido: c.nome }));
+  const infos = todos.map((cb) => infoDoCombo(cb, avulsos)).filter((i) => i.total !== undefined && i.itens.length > 0 && i.itens.every((x) => ehLab(x.categoria)) && !/\bist\b/i.test(i.rotulo)).sort((a, b) => a.total! - b.total!); // combo de IST é assunto sensível: só quando o paciente pede pelo nome
+  const combos: string[] = [];
+  for (const i of infos.slice(0, 6)) {
+    if (!(await etapasComAgenda(i)).some(Boolean)) continue;
+    const nomes = i.itens.map((x) => x.curto);
+    combos.push(`${i.rotulo} (${reais(i.total!)}${i.economia ? `, economiza ${reais(i.economia)}` : ''}): ${nomes.slice(0, 5).join(', ')}${nomes.length > 5 ? ` e mais ${nomes.length - 5}` : ''}`);
+    if (combos.length === 3) break;
+  }
+  return { exames, combos };
+}
+
 export const fonteClinilink: Fonte = {
   tipo: 'clinilink',
   /** O paciente já tem este serviço neste dia? Procura nas unidades e devolve só o que vai para a conversa (unidade, hora, médico). */
@@ -1011,6 +1031,7 @@ export const fonteClinilink: Fonte = {
   casarExames: casarExamesFonte,
   servicoDeExames: servicoDeExamesFonte,
   dicaDeCombo: dicaDeComboFonte,
+  sugestoesDeExames: sugestoesDeExamesFonte,
   etapaDoCombo: etapaDoComboFonte,
 
   async paciente(cpf) {

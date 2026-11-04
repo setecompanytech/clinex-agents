@@ -158,7 +158,7 @@ export const MARCAS_FIM = [MARCA_FIM, MARCA_AGENDADO, MARCA_MAIS, MARCA_ADEUS];
 /** Mensagens com texto exato (valores, chave, marcas): não passam pelo GPT. */
 export const SEM_GPT = [MARCA_AGENDADO, MARCA_MAIS, MARCA_ADEUS, MARCA_PIX, MARCA_PAGAMENTO];
 /** Textos que o Giovanny aprovou palavra por palavra (unidades, horários, "o mais rápido", comprovante, aviso de segurança do sintoma): também não passam pelo GPT. */
-SEM_GPT.push('encontrei estes exames', 'Anotei estes exames', 'Total: R$', 'Total no ', 'total dos exames', 'foto do pedido médico', 'não entraram na soma', 'não entrou na soma', 'combo', 'Combo', MARCA_DUP, 'Está sim, confirmado!', 'Tenho sim!', 'Cada serviço tem o seu médico', 'Consegui estes aqui', 'Esses são os horários que tenho', 'Guamá: Endereço:', 'Travessa Coronel Luís Bentes com a Rua do Úna', 'Claro! Tenho estes combos', 'Claro! Tenho combos de', ' inclui: ', 'me manda por favor os dados do paciente', 'Como você prefere pagar', 'O mais rápido que tenho é', 'O último que tenho é', 'Não to conseguindo ler esse comprovante', 'Recebi o seu comprovante', 'Pelo que você contou');
+SEM_GPT.push('encontrei estes exames', 'Anotei estes exames', 'Total: R$', 'Total no ', 'total dos exames', 'foto do pedido médico', 'não entraram na soma', 'não entrou na soma', 'combo', 'Combo', MARCA_DUP, 'Está sim, confirmado!', 'Tenho sim!', 'exames de laboratório mais procurados', 'Cada serviço tem o seu médico', 'Consegui estes aqui', 'Esses são os horários que tenho', 'Guamá: Endereço:', 'Travessa Coronel Luís Bentes com a Rua do Úna', 'Claro! Tenho estes combos', 'Claro! Tenho combos de', ' inclui: ', 'me manda por favor os dados do paciente', 'Como você prefere pagar', 'O mais rápido que tenho é', 'O último que tenho é', 'Não to conseguindo ler esse comprovante', 'Recebi o seu comprovante', 'Pelo que você contou');
 
 export const novoEstado = (): State => ({
   saudou: false, confirmPerguntado: false, servicoConfirmado: false, unidadesInformadas: false,
@@ -550,8 +550,14 @@ const ORC_DESISTIR = /\b(cancela\w*|deixa (pra la|assim|quieto)|esquece|nao quer
 /** Falar de combo no meio do orçamento: a conversa segue pelo fluxo de combos. */
 const ORC_COMBO = /\bcombo\b|\bcheck ?-?up\b/;
 /** Palavras que sozinhas NÃO são nome de exame ("são vários", "segue o pedido", "esses mesmos"). */
-const SO_CONVERSA_EXAMES = new Set(('sao varios varias alguns algumas uns umas todos todas esses esse essas essa mesmo mesma isso estes estas aqui segue seguem anexo foto pedido medico medica exames exame quero queria preciso fazer mais tambem dois duas tres alguma coisa tudo '
+const SO_CONVERSA_EXAMES = new Set(('sao varios varias alguns algumas uns umas todos todas esses esse essas essa mesmo mesma isso estes estas aqui segue seguem anexo foto pedido medico medica exames exame quero queria preciso fazer mais tambem dois duas tres alguma coisa tudo uma bateria rotina estou precisando geral gerais completo completos completa completas sugira sugere sugerir sugestao sugestoes indique indica indicar recomenda recomende recomendar quais principais procurados vendidos combo combos voces fazem '
   + 'ola bom dia tarde noite obrigado obrigada favor pode ser claro sim nao ok certo ta tudo bem sei lembro nome nomes escrever mandar manda mando enviar envio enviei lista tenho vou ver depois agora hoje amanha laboratorio laboratoriais sangue coleta orcamento valor valores quanto custa total soma').split(' '));
+/** "Me sugira uns exames", "quais os principais exames", "uma bateria de exames", "exames de rotina": quer sugestão (sem citar nenhum exame pelo nome). */
+export const querSugestaoDeExames = (t: string, texto: string) => {
+  const pede = /\b(sugir\w*|suger\w*|sugest\w*|indi(ca|que)\w*|recomend\w*|principais|mais (procurad|vendid)\w*|quais)\b/.test(t) && /\b(exames?|laborat\w*|sangue)\b/.test(t);
+  const amplo = /\b(bateria|rotina|exames? (gera(l|is)|completos?)|varios exames)\b/.test(t) && /\bexames?\b/.test(t);
+  return (pede || amplo) && extrairNomesExames(texto).length === 0;
+};
 /** Os nomes de exames escritos numa mensagem: um por linha, por vírgula, ponto e vírgula, marcador ou "+". ("hemograma e glicemia" fica junto: quem acha o exame separa.) */
 export function extrairNomesExames(texto: string): string[] {
   const t = texto.replace(TOKEN_MIDIA, ' ').replace(/^\s*(oi|ola|bom dia|boa tarde|boa noite)[,!.\s]+/i, '')
@@ -1032,6 +1038,17 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
   };
   const tokensDoNome = (n: string) => [...new Set(norm(n).split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !['dos', 'das', 'com', 'para', 'exame'].includes(w)))];
   /** O orçamento em andamento: devolve a resposta, ou undefined quando a conversa deve seguir pelo fluxo normal (agendar a coleta, combo). */
+  /** Os mais agendados do laboratório e os combos de exames, com preço do Clinilink. É sugestão de procura, não indicação médica. */
+  const sugerirExames = async (pre = 'Claro!'): Promise<Result> => {
+    const o = s.orcamento!;
+    const sug = await fonte.sugestoesDeExames?.().catch(() => null);
+    if (!sug || (sug.exames.length === 0 && sug.combos.length === 0)) return dir(out(comAbertura(PEDIR_PEDIDO)));
+    o.sugeridos = sug.exames.map((e) => e.nomeBruto ?? e.nome); o.pediuNomes = true; o.tent = 0;
+    const exames = sug.exames.length ? `Os exames de laboratório mais procurados aqui são:\n${sug.exames.map((e, i) => `${i + 1}. ${e.nome}: ${precoDoItem(e)}`).join('\n')}` : '';
+    const combos = sug.combos.length ? `${exames ? 'Também tenho' : 'Tenho'} estes combos de exames:\n${sug.combos.map((c) => `• ${c}`).join('\n')}` : '';
+    const fecho = 'Me diz quais você quer, pelo número ou pelo nome, ou o nome do combo. Pode ser em uma mensagem ou em várias. Quem define os exames certos é o seu médico, então se tiver o pedido, pode mandar a foto.';
+    return dir(out(comAbertura(`${pre} ${[exames, combos, fecho].filter(Boolean).join('\n\n')}`)));
+  };
   const rodaOrcamento = async (): Promise<Result | undefined> => {
     const o = s.orcamento!;
     // foto do pedido médico
@@ -1046,12 +1063,18 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
       return adicionarExames(lido.exames, 'foto', lido.incerto);
     }
     if (ORC_DESISTIR.test(t)) { s.orcamento = undefined; s.fim = true; return out(`Combinado, deixamos o orçamento de lado. ${MARCA_MAIS}?`); }
+    if (fonte.sugestoesDeExames && querSugestaoDeExames(t, texto)) return sugerirExames();
+    // resposta à lista de sugestões: "1 e 3", "todos"
+    if (o.sugeridos?.length) {
+      const nums = /^[\d\s,e]+$/.test(t) ? (t.match(/\d+/g) ?? []).map((n) => o.sugeridos![Number(n) - 1]).filter(Boolean) : /^(todos|todas|todos eles)[\s!.]*$/.test(t) ? o.sugeridos : [];
+      if (nums.length) { o.sugeridos = undefined; return adicionarExames([...new Set(nums)], 'texto'); }
+    }
     if (ORC_COMBO.test(t)) { s.orcamento = undefined; return undefined; } // "quero o check up 10": segue o fluxo de combos
     if (faq && !SIM.test(t)) return dizer(perguntaOrcamento(o)); // dúvida: a resposta dela vem antes (prefixo) e a pergunta continua valendo
     const semSim = texto.replace(TOKEN_MIDIA, ' ').replace(/^\s*(sim|isso|pode|ok|certo|esses?( mesmo)?|e)[,.!\s]+(e |mas |tamb[eé]m )?/i, '');
     const nomes = extrairNomesExames(texto);
     if (o.fase === 'coletando') {
-      if (ORC_SEM_PEDIDO.test(t) && !o.pediuNomes) { o.pediuNomes = true; return dir(dizer('Sem problema! Se puder, me escreve o nome dos exames que você precisa fazer. Pode mandar tudo numa mensagem ou em várias.')); }
+      if (ORC_SEM_PEDIDO.test(t) && !o.pediuNomes) { o.pediuNomes = true; if (fonte.sugestoesDeExames) return sugerirExames('Sem problema!'); return dir(dizer('Sem problema! Se puder, me escreve o nome dos exames que você precisa fazer. Pode mandar tudo numa mensagem ou em várias.')); }
       if (nomes.length === 0) {
         o.tent += 1;
         if (/\b(nao sei|nao lembro|nao tenho (nada|como))\b/.test(t) || o.tent >= 3) return out('Sem problema, vou chamar alguém da equipe pra te ajudar com o orçamento. Já deixei tudo anotado. Só um instante.', { motivo: 'Orçamento de exames: o paciente não tem o pedido médico nem os nomes dos exames. Ajudar a montar o orçamento.' });
@@ -1228,6 +1251,8 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     const ro = await rodaOrcamento();
     if (ro) return ro;
   }
+  // "uma bateria de exames", "me sugere uns exames": mostra os mais procurados e os combos (não procura um exame com esse nome)
+  if (!s.orcamento && !s.servico && !s.combo && !s.ofertaCombo && !midia && fonte.sugestoesDeExames && querSugestaoDeExames(t, texto)) { s.opcoes = undefined; s.orcamento = novoOrcamento(); return sugerirExames(); }
 
   // 2) serviço: escolha entre opções pendentes, ou descoberta na fonte
   // o paciente voltou para retomar um atendimento que ficou pela metade (e não citou o serviço)
