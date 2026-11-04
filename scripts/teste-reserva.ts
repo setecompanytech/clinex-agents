@@ -321,14 +321,14 @@ const resp = async (turnos: (string | string[])[], c: any = ctxPix) => (await re
 // P1) depois de escolher o horário: confirma o que ficou combinado e já pede os dados do paciente; só depois dos dados vem a forma de pagamento
 reset({ ocupados: 0 });
 r = await resp(base0.map((x) => [x]));
-confere('P1 assim que o horário é escolhido: resumo (dia, médica...) e, em outra mensagem, o pedido dos dados (nome, nascimento, telefone, CPF); nada de pix ainda', /Show, então fica consulta Ginecologia no Guamá/.test(r.reply) && /Pra gerar o agendamento, me manda por favor os dados do paciente:\n• Nome completo\n• Data de nascimento\n• Telefone para contato \(pode ser esse número do WhatsApp\)\n• CPF \(se tiver à mão\)$/.test(r.reply) && !/Chave pix/.test(r.reply) && !r.state.pagPerguntado && !r.state.pixEnviado, r.reply.replace(/\n/g, ' | ').slice(0, 330));
+confere('P1 assim que o horário é escolhido: resumo (dia, médica...) e, em outra mensagem, o pedido dos dados (nome, nascimento, telefone, CPF); nada de pix ainda', /Show, então fica consulta Ginecologia no Guamá/.test(r.reply) && /Pra gerar o agendamento, me manda por favor os dados do paciente:\n• Nome completo\n• Data de nascimento\n• Telefone para contato \(pode ser esse número do WhatsApp\)$/.test(r.reply) && !/CPF/.test(r.reply) && !/Chave pix/.test(r.reply) && !r.state.pagPerguntado && !r.state.pixEnviado, r.reply.replace(/\n/g, ' | ').slice(0, 330));
 r = await resp(baseP.map((x) => [x]));
 confere('P1 com os dados completos (paciente já cadastrado, nome confirmado): pergunta como ele prefere pagar, oferecendo o pix com o valor', /^Como você prefere pagar\? Dá pra antecipar o pagamento por pix \(o valor é R\$ 100,00\), que agiliza o seu atendimento na recepção, pagar na recepção, no dia do atendimento, ou por link de crédito\.$/.test(r.reply) && !/Chave pix/.test(r.reply) && r.state.pagPerguntado === true && !r.state.pixEnviado, r.reply.replace(/\n/g, ' | '));
 
 // P2) "na recepção" não é pedido de atendente; segue para o CPF e registra na observação
 reset({ ocupados: 0 });
 r = await resp([...base0, 'vou pagar na recepção'].map((x) => [x]));
-confere('P2 "na recepção" dito antes dos dados fica anotado e segue para o CPF (não transfere)', !r.handoff && /CPF/.test(r.reply) && /recepção/.test(r.reply) && r.state.pagPref === 'recepcao', r.reply.replace(/\n/g, ' | ').slice(0, 110));
+confere('P2 "na recepção" dito antes dos dados fica anotado e segue para os dados (não transfere)', !r.handoff && /nome completo/.test(r.reply) && /recepção/.test(r.reply) && r.state.pagPref === 'recepcao', r.reply.replace(/\n/g, ' | ').slice(0, 110));
 r = await resp([...base0, 'na recepção', '52998224725', 'sim'].map((x) => [x]));
 confere('P2 agendou e a observação diz "Pagamento na recepção"', r.reply.startsWith(MARCA_AGENDADO) && /Pagamento na recepção/.test(posts.find((x) => x.rota.endsWith('/agendamentos'))!.corpo.observacao), posts.find((x) => x.rota.endsWith('/agendamentos'))?.corpo.observacao);
 reset({ ocupados: 0 });
@@ -537,9 +537,9 @@ confere('C5 depois do CPF (o pagamento ainda não foi fechado), "prefiro outro d
 const { cpfValido } = await import('../src/agents/receptivo/script/engine.js');
 confere('V0 cpfValido: aceita os válidos e recusa os errados', cpfValido('03185344286') && cpfValido('529.982.247-25') && !cpfValido('11122233344') && !cpfValido('11111111111') && !cpfValido('123'), '');
 r = await resp([...base.map(um), um('11122233344')]);
-confere('V1 CPF com dígito errado: pede para conferir e não consulta o paciente', /número do CPF escapou/.test(r.reply) && !r.state.cpf, r.reply);
+confere('V1 CPF com dígito errado: é ignorado (não consulta, não trava) e ela segue pedindo os dados', !/escapou/.test(r.reply) && /nome completo/.test(r.reply) && !r.state.cpf, r.reply);
 r = await resp([...base.map(um), um('111.111.111-11')]);
-confere('V2 CPF com todos os dígitos iguais: recusa', /número do CPF escapou/.test(r.reply), r.reply.slice(0, 60));
+confere('V2 CPF com todos os dígitos iguais: é ignorado', !r.state.cpf, r.reply.slice(0, 60));
 r = await resp([...base.map(um), um('11122233344'), um('52998224725')]);
 confere('V3 depois de corrigir, segue normalmente', /Achei aqui o cadastro/.test(r.reply), r.reply);
 
@@ -1224,7 +1224,27 @@ confere('EN6 o texto do endereço nunca passa pelo GPT (aprovado palavra por pal
   reset({ ocupados: 0 });
   d = await responder([...turnosBase, ['giovanny valente', '08071999', '91988887777'], ['não']], ctx, fonteClinilink);
   confere('NC6 achou pelos dados mas "não é esse": segue para cadastro novo, sem pedir CPF', d.reply.startsWith(MARCA_AGENDADO) && nPost('/pacientes') === 1 && !posts.find((x) => x.rota.endsWith('/pacientes'))?.corpo.cpf, d.reply.replace(/\n/g, ' | ').slice(0, 200));
-  confere('NC7 o pedido de dados diz que o CPF é opcional', /• CPF \(se tiver à mão\)/.test((await responder(base0.map((x: string) => [x]), ctx, fonteClinilink)).reply), '');
+  confere('NC7 o pedido de dados não pede CPF', !/CPF/.test((await responder(base0.map((x: string) => [x]), ctx, fonteClinilink)).reply), '');
+  // os 4 dados numa mensagem só, um por linha (como o Armando mandou): o telefone vem antes do CPF e não pode ser lido como CPF
+  reset({ ocupados: 0 });
+  d = await responder([...turnosBase, ['Armando Salbé Nassar\n20/10/1993\n91987182910\n01533383260']], ctx, fonteClinilink);
+  const cadAr = posts.find((x) => x.rota.endsWith('/pacientes'))?.corpo;
+  confere('NC10 um dado por linha: lê nome, nascimento, telefone e CPF e agenda', d.reply.startsWith(MARCA_AGENDADO) && cadAr?.nome === 'Armando Salbé Nassar' && cadAr?.dataNascimento === '1993-10-20' && cadAr?.telefone === '91987182910' && cadAr?.cpf === '01533383260', `${d.reply.slice(0, 70)} | ${JSON.stringify({ ...cadAr, cpf: cadAr?.cpf ? 'ok' : 'sem' })}`);
+  const pixBase = [...base0.map((x: string) => [x]), ['Joana Teste Souza, 10/05/1990, 91981990849']];
+  reset({ ocupados: 0 });
+  d = await responder([...pixBase, ['pix']], ctx, fonteClinilink);
+  confere('NC11 dados separados por vírgula e pix sem CPF: pede o CPF antes da chave', /Pra pagar por pix aqui na conversa eu preciso do CPF do paciente/.test(d.reply) && !/Chave pix/.test(d.reply) && d.state.cad?.telefone === '91981990849', d.reply.replace(/\n/g, ' | ').slice(0, 200));
+  reset({ ocupados: 0 });
+  d = await responder([...pixBase, ['pix'], ['52998224725']], ctx, fonteClinilink);
+  confere('NC12 passou o CPF: manda a chave pix', /Chave pix:/.test(d.reply) && d.state.cpf === '52998224725', d.reply.replace(/\n/g, ' | ').slice(0, 160));
+  reset({ ocupados: 0 });
+  d = await responder([...pixBase, ['pix'], ['11122233344']], ctx, fonteClinilink);
+  confere('NC13 CPF errado no pix: pede para conferir e oferece a recepção', /número do CPF escapou/.test(d.reply) && /recepção/.test(d.reply) && !/Chave pix/.test(d.reply), d.reply.slice(0, 160));
+  for (const frase of ['não tenho', 'na recepção']) {
+    reset({ ocupados: 0 });
+    d = await responder([...pixBase, ['pix'], [frase]], ctx, fonteClinilink);
+    confere(`NC14 pedindo o CPF do pix, "${frase}": agenda com pagamento na recepção, sem CPF`, d.reply.startsWith(MARCA_AGENDADO) && !posts.find((x) => x.rota.endsWith('/pacientes'))?.corpo.cpf, d.reply.slice(0, 90));
+  }
   confere('NC8 telefone procurado com e sem 55 e com e sem o 9', JSON.stringify(formasDoTelefone('5591981628017')) === JSON.stringify(['91981628017', '5591981628017', '9181628017', '559181628017']), JSON.stringify(formasDoTelefone('5591981628017')));
   confere('NC9 erro de digitação no nome ainda casa; empate entre dois cadastros não escolhe ninguém', melhorPaciente([{ id: '1', nome: 'GIOVANNY VALENTE', dataNascimento: '1999-07-08' }], 'giovani valente', '1999-07-08')?.id === '1' && melhorPaciente([{ id: '1', nome: 'ANA SILVA', dataNascimento: '1999-07-08' }, { id: '2', nome: 'ANA SOUZA', dataNascimento: '1999-07-08' }], 'ana lima', '1999-07-08') === null, '');
   // REGRA: exame, laboratório e demais procedimentos só nas agendas da manhã; consulta continua com manhã e tarde

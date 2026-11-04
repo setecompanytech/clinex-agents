@@ -139,7 +139,10 @@ Com a lista de horários na tela:
 
 ## Fluxo 7. CPF, paciente e cadastro
 
-**O CPF é opcional.** Sem ele, a Amanda procura o cadastro pelo telefone informado e pelo do WhatsApp e confere nome parecido e data de nascimento. Nascimento diferente nunca é a mesma pessoa. Não achou: faz cadastro novo sem CPF. Se o CPF vier, ele tem prioridade.
+**O CPF não é pedido nos dados: só para pagar por pix na conversa.** A Amanda procura o cadastro pelo telefone informado e pelo do WhatsApp e confere nome parecido e data de nascimento. Nascimento diferente nunca é a mesma pessoa. Não achou: faz cadastro novo sem CPF. Se o CPF vier mesmo assim, ele tem prioridade; número errado é ignorado e não trava o agendamento.
+
+- 7.0 Mandar nome, nascimento, telefone e CPF numa mensagem só, um por linha ou separados por vírgula → lê tudo certo (o telefone não é confundido com CPF).
+- 7.0e Escolher pix sem ter passado CPF → "Pra pagar por pix aqui na conversa eu preciso do CPF do paciente." Com o CPF, manda a chave. "Não tenho" ou "na recepção" → agenda com pagamento na recepção.
 
 - 7.0a Mandar nome, nascimento (pode ser só números: 08071999) e telefone, sem CPF, com paciente que já existe → "Achei aqui o cadastro de [Nome]. É esse mesmo o paciente?"
 - 7.0b Sem CPF e paciente que não existe → segue para o pagamento e cadastra sem CPF no fim.
@@ -149,8 +152,6 @@ Com a lista de horários na tela:
 Esses dados vêm **antes** do pagamento: assim que o dia está escolhido ela pede nome completo, data de nascimento, telefone e CPF de uma vez. Pode mandar numa mensagem só, em várias ou fora de ordem; ela anota o que veio e pede só o que falta ("Falta só a data de nascimento."). O sexo sai do primeiro nome quando ela conhece o nome (Joana = feminino); nome desconhecido, ela pergunta. Até o pagamento ser resolvido dá para mudar de unidade ou dia sem perder os dados.
 
 - 7.1 CPF com pontos e traço, só números, com espaços ("123 456 789 09") e falado em áudio.
-- 7.2 CPF com um dígito errado → "Acho que algum número do CPF escapou, dá uma olhadinha e me manda de novo os 11 números?" Não consulta o cadastro.
-- 7.3 CPF com todos os dígitos iguais (111.111.111-11) → recusa do mesmo jeito.
 - 7.4 Texto com número que não dá para entender ("12") → "Não consegui entender esse número." e diz o que falta.
 - 7.5 Paciente existe e você diz "não é esse" → "Sem problema. Dá uma conferida no CPF e me manda de novo?" e volta ao CPF.
 - 7.6 Responder outra coisa quando ela mostra o nome → repete a pergunta com o nome.

@@ -52,6 +52,7 @@ export type State = {
   cpf?: string; // opcional: sem ele o paciente é achado pelo telefone, nome parecido e nascimento
   buscouPorDados?: boolean; // já procurou o cadastro pelo telefone, nome e nascimento
   achadoPorDados?: boolean; // o cadastro em `paciente` veio dessa busca (não do CPF)
+  pediuCpfPix?: boolean; // o CPF só é pedido para pagar por pix na conversa
   paciente?: PacienteInfo | null; // undefined = ainda não consultado; null = não existe
   pacienteConfirmado: boolean;
   cad: Cadastro;
@@ -299,6 +300,15 @@ const cpfDoTexto = (t: string): string | undefined => {
   return d.length === 11 ? d : undefined;
 };
 
+/** Um CPF válido na mensagem (o telefone do paciente também tem 11 dígitos e pode vir antes dele). */
+const cpfValidoDoTexto = (t: string, telefone?: string): string | undefined => {
+  const tel = telefone?.replace(/\D/g, '');
+  const achados = [...t.matchAll(/\b(\d{3})\.?(\d{3})\.?(\d{3})-?(\d{2})\b/g)].map((m) => m.slice(1).join(''));
+  const junto = t.replace(/\D/g, ''); // "123 456 789 09", "123,456,789,09" (áudio transcrito)
+  if (junto.length === 11) achados.push(junto);
+  return achados.find((c) => c !== tel && cpfValido(c));
+};
+
 /** Escolha numa lista: "2", "opção 2", "o primeiro", "a terceira", "o último", "dois". -1 = não é uma escolha. */
 export function lerEscolha(t: string, total: number): number {
   const porOpcao = /\b(opcao|alternativa|numero)\b/.test(t);
@@ -373,7 +383,7 @@ const NAO_MAIS = /\b((so|apenas|somente) isso|(era|e) (so |apenas |somente )?iss
 const SO_SIM = /^(sim|s|quero|quero sim|claro|pode|pode sim|gostaria|preciso|isso|uhum|aham|por favor|queria|tenho sim|tenho)[\s!.,]*$/;
 
 /** Os dados do paciente, pedidos de uma vez assim que o serviço e o dia estão definidos (como a atendente faz). */
-const PEDIDO_DADOS = 'Pra gerar o agendamento, me manda por favor os dados do paciente:\n• Nome completo\n• Data de nascimento\n• Telefone para contato (pode ser esse número do WhatsApp)\n• CPF (se tiver à mão)';
+const PEDIDO_DADOS = 'Pra gerar o agendamento, me manda por favor os dados do paciente:\n• Nome completo\n• Data de nascimento\n• Telefone para contato (pode ser esse número do WhatsApp)';
 /** Forma de pagamento dita com todas as letras (sem tratar "não" como resposta). */
 function lerPagamentoFirme(t: string): 'pix' | 'link' | 'recepcao' | undefined {
   if (RECEPCAO.test(t)) return 'recepcao';
@@ -1142,16 +1152,19 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
    */
   const capturaDados = (txt: string, tn: string): { algo: boolean; telefone: boolean } => {
     const c = s.cad; const r = { algo: false, telefone: false };
-    if (!c.nascimento) { const nsc = lerNascimento(txt); if (nsc) { c.nascimento = nsc; r.algo = true; } }
-    const dig = txt.replace(/\D/g, '');
-    const soNumero = /^[\d\s().+-]+$/.test(txt.trim());
+    // tudo numa mensagem só, um dado por linha ou separado por vírgula
+    for (const parte of txt.split(/[\n;,]+/).map((x) => x.trim()).filter(Boolean)) {
+    if (!c.nascimento) { const nsc = lerNascimento(parte); if (nsc) { c.nascimento = nsc; r.algo = true; } }
+    const dig = parte.replace(/\D/g, '');
+    const soNumero = /^[\d\s().+-]+$/.test(parte);
     // telefone: 10 a 13 dígitos; CPF válido não conta; 11 dígitos só como celular (o terceiro dígito é 9) ou se já falta só ele
     if (!c.telefone && soNumero && dig.length >= 10 && dig.length <= 13 && !(dig.length === 11 && cpfValido(dig)) && (dig.length !== 11 || dig[2] === '9' || Boolean(s.cpf))) { c.telefone = dig; r.algo = true; r.telefone = true; }
-    if (!c.nome && !/[?\d]/.test(txt)) {
-      const m = limparNome(txt);
+    if (!c.nome && !/[?\d]/.test(parte)) {
+      const m = limparNome(parte);
       const toks = m.split(/\s+/).filter(Boolean);
       const proibida = toks.some((w) => { const x = norm(w); return NAO_E_NOME.has(x) || (x.length > 3 && PALAVRAS_DE_CONVERSA.has(x)); });
-      if (/^[\p{L}' ]{5,80}$/u.test(m) && toks.length >= 2 && toks.filter((w) => w.length >= 3).length >= 2 && !proibida && !SIM.test(tn) && !NAO.test(tn) && !faq) { c.nome = titulo(m); r.algo = true; }
+      if (/^[\p{L}' ]{5,80}$/u.test(m) && toks.length >= 2 && toks.filter((w) => w.length >= 3).length >= 2 && !proibida && !SIM.test(norm(parte)) && !NAO.test(norm(parte)) && !faq) { c.nome = titulo(m); r.algo = true; }
+    }
     }
     if (!c.sexo) { if (/\b(feminino|mulher)\b/.test(tn)) { c.sexo = 'feminino'; r.algo = true; } else if (/\b(masculino|homem)\b/.test(tn)) { c.sexo = 'masculino'; r.algo = true; } }
     return r;
@@ -1836,10 +1849,9 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     const pf = lerPagamentoFirme(t);
     if (pf) { s.pagPref = pf; ackPagto = pf === 'recepcao' ? 'Sem problema nenhum o pagamento fica pra recepção no dia do atendimento.' : pf === 'pix' ? 'Beleza, o pagamento vai ser por pix.' : 'Combinado, o pagamento vai ser por link de crédito.'; }
   }
-  // o CPF não é obrigatório: se vier (mesmo depois dos outros dados) é o jeito mais certeiro de achar o cadastro
+  // o CPF não é pedido aqui (só para o pix na conversa): se vier (mesmo depois dos outros dados) é o jeito mais certeiro de achar o cadastro; número errado é ignorado
   if (!s.cpf && !s.pacienteConfirmado && !s.pagPerguntado) {
-    const cpf = emDados && !anotado.telefone ? cpfDoTexto(t) : undefined;
-    if (cpf && !cpfValido(cpf)) return dizer('Acho que algum número do CPF escapou, dá uma olhadinha e me manda de novo os 11 números? Se não tiver o CPF à mão, sem problema.');
+    const cpf = emDados ? cpfValidoDoTexto(texto, s.cad.telefone) : undefined;
     if (cpf) { s.cpf = cpf; if (s.paciente === null) s.paciente = undefined; } // já tinha procurado sem achar: procura de novo pelo CPF
   }
   // "pode ser esse número": usa o WhatsApp do paciente
@@ -1849,7 +1861,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     if (primeiraVezNoSlot) { s.cad.pediuTelefone = true; dizResumo(); return dizer(`\n${PEDIDO_DADOS}`); } // confirma o que ficou combinado e já pede os dados
     const falta = faltaDados();
     if (!s.cad.telefone) s.cad.pediuTelefone = true;
-    const pedido = falta.length === 3 ? `Me manda ${juntar(falta)} e, se tiver à mão, o CPF.` : `${falta.length > 1 ? 'Faltam' : 'Falta'} só ${juntar(falta)}${s.cad.telefone ? '' : ' (se for esse mesmo número do WhatsApp, é só me avisar)'}.`;
+    const pedido = falta.length === 3 ? `Me manda ${juntar(falta)}.` : `${falta.length > 1 ? 'Faltam' : 'Falta'} só ${juntar(falta)}${s.cad.telefone ? '' : ' (se for esse mesmo número do WhatsApp, é só me avisar)'}.`;
     if (anotado.algo) return dizer(`Anotei! ${pedido}`);
     if (emDados && /\d{2,}/.test(t)) return dizer(`Não consegui entender esse número. ${pedido}`);
     return dizer(ackPagto ? `${ackPagto} ${pedido}` : pedido);
@@ -1990,6 +2002,12 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
       else return dizer('Tô aguardando o comprovante do pix pra seguir com o seu agendamento, tá? Se preferir pagar na recepção é só me avisar.');
     }
     if (!s.pagFinal) {
+      // esperando o CPF do pix: ele pode desistir do pix (o agendamento nunca fica preso ao CPF)
+      if (s.pagamento === 'pix' && !s.pixEnviado && s.pediuCpfPix && !cpfValidoDoTexto(texto, s.cad.telefone)) {
+        const outra = lerPagamentoFirme(t);
+        if (outra && outra !== 'pix') s.pagamento = outra;
+        else if (/\b(sem cpf|nao (tenho|sei|lembro|quero|vou passar))\b/.test(t) || NAO.test(t)) { s.pagamento = 'recepcao'; partes.push('Sem problema, o pagamento fica pra recepção no dia do atendimento.'); }
+      }
       if (s.pagamento === 'link') return deLink();
       if (s.pagamento === 'recepcao') {
         s.pagFinal = true;
@@ -1999,7 +2017,18 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
         }
       }
       else if (s.pagamento === 'pix') {
-        if (!s.pixEnviado) { s.pixEnviado = true; return dizer(pixMsg()); }
+        if (!s.pixEnviado) {
+          if (!s.cpf) {
+            const cpf = cpfValidoDoTexto(texto, s.cad.telefone);
+            if (cpf) s.cpf = cpf;
+            else {
+              const tentou = s.pediuCpfPix && /\d{5,}/.test(t);
+              s.pediuCpfPix = true;
+              return dizer(tentou ? 'Acho que algum número do CPF escapou, dá uma olhadinha e me manda de novo os 11 números? Se preferir, dá pra pagar na recepção.' : 'Pra pagar por pix aqui na conversa eu preciso do CPF do paciente. Me passa? Se preferir, dá pra pagar na recepção.');
+            }
+          }
+          s.pixEnviado = true; return dizer(pixMsg());
+        }
       }
     }
     if (!s.pagFinal) return dizer('Tô aguardando o comprovante do pix pra seguir com o agendamento.');
