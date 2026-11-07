@@ -11,11 +11,31 @@ export class SupabaseError extends Error {
   constructor(public codigo: string, mensagem: string) { super(mensagem); }
 }
 
-const ESPERA_MS = 45_000;
+const ESPERA_MS = 15_000;
+/** Leituras repetem em falha de rede ou tempo: na Vercel uma conexão reaproveitada pode ficar pendurada, e a nova tentativa abre outra. */
+const TENTATIVAS_LEITURA = 3;
 const PAGINA = 1000; // limite do PostgREST por resposta
+
+/** "fetch failed" sozinho não ajuda: junta o motivo real (ENOTFOUND, ECONNREFUSED...) e o endereço que foi usado. */
+function detalheRede(e: unknown, u: URL): string {
+  const er = e as Error & { cause?: { code?: string; message?: string } };
+  const causa = er.cause?.code ?? er.cause?.message;
+  return `${er.message}${causa ? ` — ${causa}` : ''} (endereço: ${u.host})`;
+}
 
 type Param = string | number;
 async function pedir<T>(metodo: string, tabela: string, query: Record<string, Param> = {}, corpo?: unknown, extra: Record<string, string> = {}): Promise<T> {
+  const max = metodo === 'GET' ? TENTATIVAS_LEITURA : 1;
+  for (let n = 1; ; n++) {
+    try { return await pedirUma<T>(metodo, tabela, query, corpo, extra); }
+    catch (e) {
+      if (n >= max || !(e instanceof SupabaseError) || (e.codigo !== 'rede' && e.codigo !== 'tempo')) throw e;
+      console.warn(`[supabase] ${e.message} — tentativa ${n}/${max}, repetindo`);
+    }
+  }
+}
+
+async function pedirUma<T>(metodo: string, tabela: string, query: Record<string, Param>, corpo: unknown, extra: Record<string, string>): Promise<T> {
   if (!supabaseConfigurado()) throw new SupabaseError('config', 'SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY não estão configuradas no .env.');
   const u = new URL(`${url()}/rest/v1/${tabela}`);
   for (const [k, v] of Object.entries(query)) u.searchParams.set(k, String(v));
@@ -37,7 +57,7 @@ async function pedir<T>(metodo: string, tabela: string, query: Record<string, Pa
     return json as T;
   } catch (e) {
     if (e instanceof SupabaseError) throw e;
-    throw new SupabaseError((e as Error).name === 'AbortError' ? 'tempo' : 'rede', `${tabela}: ${(e as Error).name === 'AbortError' ? 'o Supabase demorou demais para responder' : (e as Error).message}`);
+    throw new SupabaseError((e as Error).name === 'AbortError' ? 'tempo' : 'rede', `${tabela}: ${(e as Error).name === 'AbortError' ? 'o Supabase demorou demais para responder' : detalheRede(e, u)}`);
   } finally { clearTimeout(t); }
 }
 
