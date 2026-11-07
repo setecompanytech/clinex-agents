@@ -5,6 +5,7 @@ import logsRouter from './logs/router.js';
 import hub from './hub/router.js';
 import geral from './geral/router.js';
 import crm from './crm/router.js';
+import { cron } from './crm/cron.js';
 import bi from './bi/router.js';
 
 const app = express();
@@ -13,6 +14,7 @@ app.use(express.json({ limit: '2mb', verify: (req, _res, buf) => ((req as any).r
 
 app.get('/healthz', (_req, res) => res.json({ status: 'ok', ts: new Date().toISOString() }));
 app.use('/webhooks', webhooks);
+app.use('/cron', cron);
 // módulos independentes: o mais específico vem primeiro; a tela inicial (/painel) por último
 app.use('/painel/receptivo/logs', logsRouter); // antes do /painel/receptivo para ter prioridade
 app.use('/painel/receptivo/bi', bi);
