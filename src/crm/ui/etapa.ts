@@ -2,7 +2,7 @@
 export const etapa = String.raw`
 /* ------------------------------------------------------------------ modal da etapa: abas */
 var ETc = {};
-var COR_ST = { aberto: 'var(--c-aberto)', sem_retorno: 'var(--c-sem)', negociacao: 'var(--c-neg)', agendado: 'var(--c-agend)', convertido_ativo: 'var(--c-ativo)', convertido_organico: 'var(--c-org)', descarte: 'var(--c-desc)' };
+var COR_ST = { aberto: 'var(--c-aberto)', sem_retorno: 'var(--c-sem)', negociacao: 'var(--c-neg)', agendado: 'var(--c-agend)', convertido_ativo: 'var(--c-ativo)', convertido_organico: 'var(--c-org)', descarte: 'var(--c-desc)', ns_noshow: 'var(--c-neg)', ns_retomada: 'var(--g4)', ns_agendado: 'var(--c-agend)', ns_perdido: 'var(--c-desc)', ns_semretorno: 'var(--c-sem)', ns_recuperado: 'var(--c-ativo)' };
 
 function pedirEtapa(id) {
   var k = id + '|' + S.dias, c = ETc[k];
@@ -47,7 +47,7 @@ function periodoEtapa(refazer) {
 
 /* ------------------------------------------------------------------ aba Painel */
 function painelEtapa(it, E, refazer) {
-  var A = E.agora, F = E.fluxo, C = E.contatos, nov = E.item.id === 'lead';
+  var A = E.agora, F = E.fluxo, C = E.contatos, nov = E.item.id === 'lead' || !!E.item.entrada;
   var kp = [];
   if (nov) {
     var med = Math.round(F.entradas / E.dias * 10) / 10;
@@ -81,7 +81,7 @@ function painelEtapa(it, E, refazer) {
       cartoes.push(blocoCartao('Valor por unidade', 'Orçamentos que estão nesta etapa agora.', barras(A.porUnidade.map(function (u) { return { rotulo: u.nome, valor: u.valor, texto: brlCompacto(u.valor), extra: u.n + (u.n === 1 ? ' lead' : ' leads'), cor: 'var(--g5)' }; })), 6));
       cartoes.push(blocoCartao('Valor por responsável', 'Quem está com os orçamentos desta etapa.', barras(A.porAtendente.map(function (u) { return { rotulo: u.nome, valor: u.valor, texto: brlCompacto(u.valor), extra: u.n + (u.n === 1 ? ' lead' : ' leads'), cor: 'var(--g4)' }; })), 6));
       cartoes.push(blocoCartao('Maiores orçamentos aqui', 'Onde está o dinheiro desta etapa. Clique para abrir o lead.', h('div', { class: 'leads-mini' }, A.topValor.map(function (l) {
-        return h('button', { class: 'lm', type: 'button', onclick: function () { abrirLead(l.id); } }, [avatar(l.nome), h('span', null, [h('b', { text: l.nome }), h('small', { text: l.dias + (l.dias === 1 ? ' dia' : ' dias') + ' na etapa' })]), pill(brl(l.valor), 'pl-num')]);
+        return h('button', { class: 'lm', type: 'button', onclick: function () { if (l.card) fvAbrirCard(l.id); else abrirLead(l.id); } }, [avatar(l.nome), h('span', null, [h('b', { text: l.nome }), h('small', { text: l.dias + (l.dias === 1 ? ' dia' : ' dias') + ' na etapa' })]), pill(brl(l.valor), 'pl-num')]);
       })), 6));
     }
     if (C.tem && C.total) {

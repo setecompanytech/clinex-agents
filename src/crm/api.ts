@@ -6,6 +6,7 @@ import { analisarHoje } from './analise.js';
 import { analisarTempo, type Periodo } from './tempo.js';
 import { analisarExecutivo, meuReport } from './executivo.js';
 import { analisarEtapa } from './etapa.js';
+import { analisarNoShow, dadosNoShow } from './noshow.js';
 import { pipelines } from './pipeline/api.js';
 import { atrasado as cardAtrasado, valorExibido as valorDoCard, visiveis as cardsVisiveis } from './pipeline/regras.js';
 import { FunilError } from './pipeline/tipos.js';
@@ -132,11 +133,19 @@ router.delete('/automacoes/:id', (req, res) => {
 
 router.use('/pipelines', pipelines);
 
+/** Fluxo do No-show: quantos cards há em cada etapa agora (números do mapa) e quem são */
+router.get('/noshow', (_req, res) => { res.json(dadosNoShow(estado.pipelines, new Date())); });
+
 /** Análise de uma etapa do fluxo (modal do card clicado) */
 router.get('/etapa/:id', (req, res) => {
   const dias = Number(req.query.dias);
   const periodo = (dias === 14 || dias === 90 ? dias : 30) as Periodo;
   const agora = new Date();
+  if (req.params.id.startsWith('ns-')) { // etapas do fluxo do No-show: vêm dos cards do funil
+    const n = analisarNoShow(estado.pipelines, agora, req.params.id, periodo);
+    if (!n) { res.status(404).json({ erro: 'etapa', mensagem: 'Etapa desconhecida ou funil No-show não encontrado.' }); return; }
+    res.json(n); return;
+  }
   automatizarTodos(agora);
   const vistas = new Map(estado.leads.map((l) => [l.id, vistaDoLead(l, agora)]));
   const r = analisarEtapa(estado.leads, agora, req.params.id, periodo, vistas);
@@ -155,7 +164,7 @@ router.get('/agente/alertas', (req, res) => {
   for (const g of estado.logAuto) {
     if (!g.alerta || hojeDe(new Date(g.quando)) !== hoje) continue;
     const x = porRegra.get(g.regraId) ?? { nome: g.regraNome, ids: [], textos: [] };
-    x.ids.push(g.leadId); x.textos.push(g.resumo.replace(/^.*?alerta: /, '')); porRegra.set(g.regraId, x);
+    x.ids.push(g.leadId); x.textos.push(g.resumo.replace(/^.*?(?:alerta|mensagem pronta): /, '')); porRegra.set(g.regraId, x);
   }
   const deAutomacao = [...porRegra].map(([id, x]) => ({ id: `auto:${id}:${hoje}:${x.ids.length}`, nivel: 'atencao' as const, titulo: `Automação: ${x.nome}`, texto: x.textos[0] + (x.ids.length > 1 ? ` (+${x.ids.length - 1} ${x.ids.length === 2 ? 'lead' : 'leads'})` : ''), leadIds: x.ids, aba: 'funil' }));
   // cards dos funis do Clinilink que estouraram a cadência da coluna (o guia por cima do pipeline)

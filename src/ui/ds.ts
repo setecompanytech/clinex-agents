@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { parte_abas, parte_agente, parte_avisos, parte_base, parte_dados, parte_menu, parte_modais, parte_tabelas } from './design.js';
 import { cliente } from './cliente.js';
 import { componentes } from './componentes.js';
@@ -18,6 +19,8 @@ import { dataModerna } from './dataModerna.js';
  */
 export const dsCss = [parte_base, parte_menu, parte_tabelas, parte_modais, parte_avisos, parte_dados, parte_abas, parte_agente, shellCss].join('\n');
 export const dsJs = [cliente, graficos, graficos2, graficos3, graficos4, componentes, shellJs, agenteFlutuante, selectModerno, dataModerna].join('\n');
+/** Muda sozinho quando o CSS ou o JS mudam: as páginas pedem /painel/ds.css?v=... e o navegador nunca fica com o menu antigo em cache. */
+const VERSAO = createHash('sha1').update(dsCss).update(dsJs).digest('hex').slice(0, 10);
 
 /** CSP das páginas que usam o design system (o CSS e o JS vêm do próprio servidor). */
 export const DS_CSP = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
@@ -36,7 +39,7 @@ export function paginaModulo(p: PaginaModulo): string {
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow"><link rel="icon" href="data:,">
 <title>Clinex · ${p.titulo}</title>
-<link rel="stylesheet" href="/painel/ds.css">
+<link rel="stylesheet" href="/painel/ds.css?v=${VERSAO}">
 ${p.css ? `<style>${p.css}</style>` : ''}</head>
 <body data-modulo="${p.modulo}" data-ativo="${p.ativo}"${p.agente === false ? '' : ` data-agente="/painel/${p.modulo}/agente"`}${p.bodyClass ? ` class="${p.bodyClass}"` : ''}>
 <div class="app">
@@ -52,7 +55,7 @@ ${p.css ? `<style>${p.css}</style>` : ''}</head>
   </div>
 </div>
 ${p.depois ?? ''}
-<script src="/painel/ds.js"></script>
+<script src="/painel/ds.js?v=${VERSAO}"></script>
 ${p.scripts.map((s) => `<script src="${s}"></script>`).join('\n')}
 </body></html>`;
 }

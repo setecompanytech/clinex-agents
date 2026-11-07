@@ -70,8 +70,9 @@ function construirChrome() {
   });
   var lado = document.querySelector('.side');
   if (lado) {
-    var atalho = function (rotulo, icone, href) { return h('a', { href: href, title: rotulo }, [ico(icone, 17), h('span', { text: rotulo })]); };
-    lado.insertBefore(h('div', { class: 'side-m' }, [h('div', { class: 'nav-cap', text: 'Módulos' }), atalho('Início', 'home', '/painel'), atalho('Agente receptivo', 'bolt', '/painel/receptivo')]), lado.querySelector('.side-f'));
+    ICO.spark = 'M12 3l1.9 5.4L19 10.3l-5.1 1.9L12 17.6l-1.9-5.4L5 10.3l5.1-1.9zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z';
+    var atalho = function (rotulo, icone, href) { return h('a', { href: href, title: rotulo, class: href === '/painel/assistente' ? 'ia-link' : null }, [ico(icone, 17), h('span', { text: rotulo })]); };
+    lado.insertBefore(h('div', { class: 'side-m' }, [h('div', { class: 'nav-cap', text: 'Módulos' }), atalho('Início', 'home', '/painel'), atalho('Agente receptivo', 'bolt', '/painel/receptivo'), atalho('Agente Clinex', 'spark', '/painel/assistente')]), lado.querySelector('.side-f'));
     lado.appendChild(h('button', { class: 'side-sair', type: 'button', title: 'Sair do painel', 'aria-label': 'Sair do painel', onclick: function () {
       var ir = function () { location.href = '/painel/login'; };
       fetch('/painel/sair', { method: 'POST', credentials: 'same-origin' }).then(ir, ir);
@@ -151,6 +152,7 @@ function identificar() {
   construirChrome();
   var hs = location.hash.replace('#', '').split('/');
   if (ABAS.some(function (a) { return a.id === hs[0]; })) S.aba = hs[0];
+  if (hs[0] === 'fluxo' && /^ns-/.test(hs[1] || '')) S.fluxoTab = 'noshow';
   identificar().then(function () { return carregar(); }).then(function () {
     agConstruir();
     if (hs[1]) { if (hs[1].indexOf('lead-') === 0) abrirLead(hs[1].slice(5)); else if (itemDef(hs[1])) abrirItem(hs[1]); }

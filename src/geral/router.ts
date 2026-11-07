@@ -1,10 +1,11 @@
 import { Router, type NextFunction, type Request, type Response } from 'express';
-import { criarToken, definirCookie, entrar, exigirAdmin, limparCookie, LoginError, painelAuth, sessaoDaRequisicao, sessaoPublica } from '../lib/painel-auth.js';
+import { criarToken, definirCookie, entrar, exigirAdmin, exigirModulo, limparCookie, LoginError, painelAuth, sessaoDaRequisicao, sessaoPublica } from '../lib/painel-auth.js';
 import { alterarMinhaSenha, atualizar, criar, listar, MODULOS, PERFIS, redefinirSenha, remover, UsuarioError } from '../lib/usuarios.js';
 import { estado } from '../crm/banco.js';
 import { tabelasAusentes } from '../crm/persistencia.js';
 import { DS_CSP, paginaModulo } from '../ui/ds.js';
 import { montarGeral } from './dados.js';
+import { assistenteCss, assistenteJs } from './assistente.js';
 import { geralCss, geralJs, loginCss, loginHtml, loginJs, usuariosCss, usuariosJs } from './ui.js';
 
 /**
@@ -108,6 +109,12 @@ const paginaUsuarios = paginaModulo({
   titulo: 'Usuários', modulo: 'geral', ativo: 'usuarios', css: usuariosCss, agente: false, scripts: ['/painel/usuarios.js'],
   main: '<main id="main" class="tela"><p class="mut">Carregando…</p></main>',
 });
+const paginaAssistente = paginaModulo({
+  titulo: 'Agente Clinex', modulo: 'geral', ativo: 'assistente', css: assistenteCss, agente: false, scripts: ['/painel/assistente.js'],
+  main: '<main id="main" class="tela"><p class="mut">Carregando…</p></main>',
+});
+router.get('/assistente', painelAuth, exigirModulo('crm'), (_req, res) => { res.setHeader('Content-Security-Policy', DS_CSP); res.type('text/html; charset=utf-8').send(paginaAssistente); });
+router.get('/assistente.js', painelAuth, exigirModulo('crm'), (_req, res) => js(res, assistenteJs));
 router.get('/', painelAuth, (_req, res) => { res.setHeader('Content-Security-Policy', DS_CSP); res.type('text/html; charset=utf-8').send(paginaGeral); });
 router.get('/usuarios', painelAuth, exigirAdmin, (_req, res) => { res.setHeader('Content-Security-Policy', DS_CSP); res.type('text/html; charset=utf-8').send(paginaUsuarios); });
 router.get('/geral.js', painelAuth, (_req, res) => js(res, geralJs));

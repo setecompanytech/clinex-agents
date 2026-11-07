@@ -364,9 +364,10 @@ export type AcaoAuto =
   | { tipo: 'atribuir'; atendente: string }
   | { tipo: 'etiqueta'; texto: string }
   | { tipo: 'nota'; texto: string }
-  | { tipo: 'alerta'; texto: string };
+  | { tipo: 'alerta'; texto: string }
+  | { tipo: 'mensagem'; texto: string };
 
-const preencherTexto = (t: string, l: Lead) => t.replace(/\[Nome\]/g, l.nome.split(' ')[0]).replace(/\[Valor\]/g, `R$ ${Math.round(l.valor)}`).replace(/\[Exame\]/g, l.exame || 'exame');
+const preencherTexto = (t: string, l: Lead) => t.replace(/\[Nome\]/g, l.nome.split(' ')[0]).replace(/\[Valor\]/g, `R$ ${Math.round(l.valor)}`).replace(/\[Exame\]/g, l.exame || 'exame').replace(/\[Atendente\]/g, l.atendente || '[Atendente]');
 
 /** Executa UMA ação de uma automação num lead. Lança RegraError se a ação não cabe no estado atual do lead. */
 export function executarAcaoAuto(lead: Lead, a: AcaoAuto, agora: Date, nomeRegra: string): string {
@@ -410,6 +411,12 @@ export function executarAcaoAuto(lead: Lead, a: AcaoAuto, agora: Date, nomeRegra
       if (!t) throw erro('dados', 'Informe o texto.');
       evento(lead, agora, { tipo: 'nota', auto: true, texto: `${rot}${a.tipo === 'alerta' ? ' (alerta)' : ''}: ${t}` });
       return a.tipo === 'alerta' ? `alerta: ${t}` : 'nota registrada';
+    }
+    case 'mensagem': {
+      const t = preencherTexto(a.texto.trim().slice(0, 1000), lead);
+      if (!t) throw erro('dados', 'Escreva o texto da mensagem.');
+      evento(lead, agora, { tipo: 'nota', auto: true, texto: `${rot} (mensagem pronta para enviar): ${t}` });
+      return `mensagem pronta: ${t}`;
     }
   }
 }

@@ -156,7 +156,7 @@ function agrupaOrigem(ls: Lead[]) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function narrar(titulo: string, def: Def, d: Record<string, any>): { historia: Narrativa[]; insights: Insight[] } {
+export function narrar(titulo: string, def: { st: string[]; entrada?: boolean }, d: Record<string, any>): { historia: Narrativa[]; insights: Insight[] } {
   const A = d.agora, F = d.fluxo, C = d.contatos, dias: number = d.dias;
   const historia: Narrativa[] = []; const insights: Insight[] = [];
   const delta = F.entradasAnt > 0 ? Math.round(((F.entradas - F.entradasAnt) / F.entradasAnt) * 100) : null;

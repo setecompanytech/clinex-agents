@@ -126,6 +126,15 @@ function dsaAlternar(abrir) {
     if (DSA.aba === 'alertas') dsaMarcarVistos(); else setTimeout(function () { DSA.entrada.focus(); }, 60);
   } else DSA.botao.focus();
 }
+ICO.expand = 'M15 4h5v5M9 20H4v-5M20 4l-6.5 6.5M4 20l6.5-6.5'; ICO.shrink = 'M20 9h-5V4M4 15h5v5M15 9l6-6M9 15l-6 6';
+/* expande o chat para quase a tela inteira (e lembra a escolha) */
+function dsaExpandir(forcar) {
+  var g = forcar === undefined ? !DSA.painel.classList.contains('grande') : forcar;
+  DSA.painel.classList.toggle('grande', g); gravarLS('ag-grande', g ? '1' : '0');
+  var b = DSA.painel.querySelector('.ag-expandir');
+  if (b) { limpar(b); b.appendChild(ico(g ? 'shrink' : 'expand', 16)); b.title = g ? 'Reduzir' : 'Expandir'; b.setAttribute('aria-label', g ? 'Reduzir o agente' : 'Expandir o agente'); }
+  setTimeout(dsaRolar, 60);
+}
 function dsaIniciar() {
   DSA.base = document.body.getAttribute('data-agente');
   if (!DSA.base) return;
@@ -138,6 +147,7 @@ function dsaIniciar() {
   var cab = h('div', { class: 'ag-cab' }, [
     h('span', { class: 'ag-av' }, [ico('robot', 20)]),
     h('div', { class: 'ag-cab-t' }, [h('b', { id: 'ag-titulo', text: DSA.titulo }), DSA.status]),
+    h('button', { type: 'button', class: 'ag-ic ag-expandir', 'aria-label': 'Expandir o agente', title: 'Expandir', onclick: function () { dsaExpandir(); } }, [ico('expand', 16)]),
     h('button', { type: 'button', class: 'ag-ic', 'aria-label': 'Limpar a conversa', title: 'Limpar a conversa', onclick: function () { DSA.msgs = []; limpar(DSA.lista); dsaBoasVindas(); } }, [ico('edit', 16)]),
     h('button', { type: 'button', class: 'ag-ic', 'aria-label': 'Fechar o agente', onclick: function () { dsaAlternar(false); } }, [ico('x', 18)])
   ]);
@@ -149,6 +159,7 @@ function dsaIniciar() {
   DSA.listaAl = h('div', { class: 'ag-alertas', style: 'display:none' });
   DSA.painel = h('section', { class: 'ag-painel', id: 'ag-painel', role: 'dialog', 'aria-label': 'Agente' }, [cab, h('div', { class: 'ag-abas', role: 'tablist' }, [DSA.abaBtns.conversa, DSA.abaBtns.alertas]), h('div', { class: 'ag-conversa' }, [DSA.lista, h('div', { class: 'ag-rod' }, [DSA.entrada, enviar])]), DSA.listaAl]);
   document.body.appendChild(DSA.painel); document.body.appendChild(DSA.botao);
+  if (lerLS('ag-grande') === '1') dsaExpandir(true);
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && DSA.aberto && !(typeof pilha !== 'undefined' && pilha.length)) dsaAlternar(false); }, true);
   dsaBuscar();
   setInterval(function () { if (document.visibilityState === 'visible') dsaBuscar(); }, 60000);
