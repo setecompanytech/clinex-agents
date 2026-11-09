@@ -243,7 +243,7 @@ export const parte_tabelas = `
 .tbl td{padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:middle}
 .tbl tbody tr:last-child td{border-bottom:0}
 .tbl tr.clic{cursor:pointer}.tbl tr.clic:hover,.tbl tr.clic:focus-visible{background:var(--card2)}
-.tbl td.num{font:600 13px ui-monospace,Consolas,monospace;white-space:nowrap}
+.tbl td.num{font:600 13px ui-monospace,Consolas,monospace;white-space:nowrap}.tbl .chip{white-space:nowrap}.tbl .prox-passo{display:flex;flex-direction:column;align-items:flex-start;gap:6px}.tbl .prox-t{display:inline-flex;align-items:center;gap:8px;white-space:nowrap}
 .tbl.peq td,.tbl.peq th{padding:8px 10px;font-size:13px}
 .cel-quem{display:flex;align-items:center;gap:11px;min-width:190px}
 .cel-quem>div{min-width:0}.cel-quem b,.cel-quem small{display:block}.cel-quem small{color:var(--mut);font-size:12px;margin-top:1px}

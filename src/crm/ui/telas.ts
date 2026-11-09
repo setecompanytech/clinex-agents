@@ -140,7 +140,7 @@ function telaLeads() {
     var tr = h('tr', { class: 'clic', tabindex: '0' }, [
       h('td', null, h('div', { class: 'cel-quem' }, [avatar(l.nome), h('div', null, [h('b', { text: l.nome }), h('small', { text: l.telefone })])])),
       h('td', { text: l.exame || '–' }), h('td', { text: l.unidade || '–' }), h('td', { class: 'num', text: brl(l.valor) }), h('td', null, chipStatus(l.status)),
-      h('td', null, px ? [h('span', { class: 'dia-b', text: px.passo.fase === 'especial' ? '!' : 'D' + px.passo.dia }), ' ', px.passo.rotulo, ' ', pill(textoVence(px), 'pl-' + px.situacao)] : h('span', { class: 'mut', text: '–' })),
+      h('td', null, px ? h('div', { class: 'prox-passo' }, [h('span', { class: 'prox-t' }, [h('span', { class: 'dia-b', text: px.passo.fase === 'especial' ? '!' : 'D' + px.passo.dia }), ' ', px.passo.rotulo]), pill(textoVence(px), 'pl-' + px.situacao)]) : h('span', { class: 'mut', text: '–' })),
       h('td', { text: l.atendente || '–' }), h('td', { text: dBR(l.d0) }), h('td', { class: 'mut', text: l.ultimoContato ? qDiaHora(l.ultimoContato) : 'sem contato' })
     ]);
     tr.addEventListener('click', function () { abrirLead(l.id); });
