@@ -274,6 +274,7 @@ td.ruim{color:var(--bad);font-weight:800}
 .pp-passo{display:inline-flex;gap:6px;align-items:center;padding:3px 8px;border-radius:8px;font-size:11.5px;background:var(--card);border:1px solid var(--line);color:var(--ink2)}.pp-passo b{color:var(--ec,var(--cy));font-family:ui-monospace,Consolas,monospace}
 .pp-vazio{font-size:12px;color:var(--mut)}
 .pp-seta{color:var(--mut);padding:0 4px;flex:none}
+.pp-cel:not(:last-child)>.pp-etapa:last-child{margin-right:14px}
 .pp-add{align-self:flex-start;margin-top:auto;display:inline-flex;gap:6px;align-items:center;border:1px dashed var(--line2);background:transparent;color:var(--ink2);border-radius:9px;padding:5px 10px;font-size:12px;font-weight:650;cursor:pointer}.pp-add:hover{border-color:var(--cy);color:var(--cy)}
 .au-chip{display:inline-flex;align-items:center;gap:5px;max-width:100%;padding:4px 9px;border-radius:9px;border:1px solid color-mix(in srgb,var(--cy) 45%,transparent);background:color-mix(in srgb,var(--cy) 10%,transparent);color:var(--ink);font-size:11.5px;font-weight:650;cursor:pointer;text-align:left}
 .au-chip:hover{background:color-mix(in srgb,var(--cy) 20%,transparent)}.au-chip.guia{border-color:color-mix(in srgb,var(--warn) 50%,transparent);background:color-mix(in srgb,var(--warn) 10%,transparent)}.au-chip.off{opacity:.5;border-style:dashed}
