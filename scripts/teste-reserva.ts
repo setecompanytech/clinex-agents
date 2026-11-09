@@ -644,7 +644,7 @@ confere('S1 "teste ergo" (abreviado): acha "Teste Ergometrico" e confirma', /(?:
 r = await dd(['teste']);
 confere('S2 só "teste": sugere os serviços PRINCIPAIS com agenda (ergométrico entre eles), sem os testes rápidos de laboratório', /Achei estas opções/.test(r.reply) && /Teste Ergometrico/.test(r.reply) && /Teste de Esforco/i.test(r.reply) && !/Dengue|Rapido (Dengue|Covid|Hiv)|Coombs|Troponina/i.test(r.reply) && !r.handoff, r.reply.replace(/\n/g, ' | ').slice(0, 260));
 r = await dd(['teste', '2']);
-confere('S2 escolhendo uma das sugestões pelo número, segue o fluxo', /(?:Ah, então é|Entendi, você quer|Só pra confirmar: é|Então é) (Teste Ergometrico|Teste Rapido de Gravidez|Teste de Alergia|Teste de Esforco Com Ecg)/i.test(r.reply) && !/Dengue/i.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 130));
+confere('S2 escolhendo uma das sugestões pelo número, segue o fluxo', /(?:Ah, então é|Entendi, você quer|Só pra confirmar: é|Então é|Beleza,) (Teste Ergometrico|Teste Rapido de Gravidez|Teste de Alergia|Teste de Esforco Com Ecg)/i.test(r.reply) && !/Dengue/i.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 130));
 r = await dd(['quero um teste ergometrio']);
 confere('S3 erro de digitação ("ergometrio"): acha Teste Ergometrico', /(?:Ah, então é|Entendi, você quer|Só pra confirmar: é|Então é) Teste Ergometrico/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 150));
 r = await dd(['preciso fazer um teste alergia']);
@@ -664,9 +664,9 @@ confere('I1 letra a mais ("ergonmetrico"): acha Teste Ergometrico', /(?:Ah, ent�
 r = await dd(['Quero agendar teste']);
 confere('I2 "Quero agendar teste": as 5 sugestões incluem o ergométrico e NENHUM teste rápido de laboratório sem agenda', /Teste Ergometrico/.test(r.reply) && !/Dengue|Hiv|Sifilis|Covid|Troponina|Coombs/i.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 300));
 r = await dd(['Quero agendar teste', 'Teste ergométrico']);
-confere('I3 com opções na tela, um pedido NOVO ("Teste ergométrico") não vira "a primeira opção"', /(?:Ah, então é|Entendi, você quer|Só pra confirmar: é|Então é) Teste Ergometrico/.test(r.reply) && !/Dengue/i.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 140));
+confere('I3 com opções na tela, um pedido NOVO ("Teste ergométrico") não vira "a primeira opção"', /(?:Ah, então é|Entendi, você quer|Só pra confirmar: é|Então é|Beleza,) Teste Ergometrico/.test(r.reply) && !/Dengue/i.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 140));
 r = await dd(['Quero agendar teste', 'o segundo']);
-confere('I3 escolher pela posição ("o segundo") continua funcionando', /(?:Ah, então é|Entendi, você quer|Só pra confirmar: é|Então é)/.test(r.reply) && !/Achei estas opções/.test(r.reply), r.reply.slice(0, 120));
+confere('I3 escolher pela posição ("o segundo") continua funcionando', /(?:Ah, então é|Entendi, você quer|Só pra confirmar: é|Então é|Beleza,)/.test(r.reply) && !/Achei estas opções/.test(r.reply), r.reply.slice(0, 120));
 r = await dd(['Quero agendar teste', 'esforço']);
 confere('I3 escolher pelo nome de uma das opções ("esforço") também', /(?:Ah, então é|Entendi, você quer|Só pra confirmar: é|Então é) Teste de Esforco/i.test(r.reply), r.reply.slice(0, 120));
 r = await dd(['Quero agendar teste', 'nao, quero consulta de dermatologia']);

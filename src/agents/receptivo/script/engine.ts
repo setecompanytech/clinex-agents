@@ -1420,20 +1420,34 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     if (s.opcoes && !s.servico) {
       const idx = lerEscolha(t, s.opcoes.length);
       let escolhida: { id: string; nome: string } | undefined = s.opcoes[idx];
+      // respondeu com o NOME de uma das opções ("Consulta dermatologista"): é essa (sem procurar de novo e repetir a mesma lista)
+      if (!escolhida) {
+        const palavrasT = new Set(t.split(/[^a-z0-9]+/).filter(Boolean));
+        const inteiras = s.opcoes.filter((o) => { const ws = norm(o.nome).split(/[^a-z0-9]+/).filter((w) => w.length > 2); return ws.length > 0 && ws.every((w) => palavrasT.has(w)); });
+        if (inteiras.length === 1) escolhida = inteiras[0];
+      }
       if (!escolhida) {
         // não foi "1", "2"...: pode ser um pedido NOVO ("teste ergométrico") ou o nome de uma das opções. Pedido novo primeiro:
         // senão a palavra genérica "teste" casaria com a primeira opção ("Dengue Igg, Teste Rápido").
         const soConversa = semNomeDeServico(t, await fonte.nomesUnidades()); // "na recepção", "hoje", "meu bem não quer enviar": não tem nome de serviço, não procura
         const novo = soConversa ? undefined : await fonte.descobrir(tBusca, !faq && !(SO_CUMPRIMENTO.test(t) && !/\bteste\b/.test(t)));
-        if (novo && ('servico' in novo || 'opcoes' in novo || 'semAgendaProfissional' in novo)) { const r = aplicar(novo); if (r) return r; }
+        // a busca devolveu as MESMAS opções que já estão na tela: não repete a lista, tenta achar qual delas ele citou
+        const mesmasOpcoes = Boolean(novo && 'opcoes' in novo && novo.opcoes.every((o) => s.opcoes!.some((x) => x.id === o.id)));
+        if (novo && !mesmasOpcoes && ('servico' in novo || 'opcoes' in novo || 'semAgendaProfissional' in novo)) { const r = aplicar(novo); if (r) return r; }
         else {
           const GENERICAS = new Set(['teste', 'exame', 'consulta', 'rapido', 'total']);
           escolhida = s.opcoes.find((o) => norm(o.nome).split(/[^a-z]+/).filter((w) => w.length > 3 && !GENERICAS.has(w)).some((w) => t.includes(w)));
+          if (!escolhida && mesmasOpcoes) return dizer(`Qual delas? Pode me responder com o número: ${s.opcoes.map((o, k) => `${k + 1} para ${o.nome}`).join(', ')}.`);
           if (!escolhida && novo) { const r = aplicar(novo); if (r) return r; }
           if (!escolhida && !novo && !soConversa) { const ia = await entenderPedido(); const r = aplicar(ia === 'nao' ? undefined : ia); if (r) return r; }
         }
       }
-      if (escolhida) { const r = aplicar(await fonte.resolver(escolhida.id)); if (r) return r; }
+      if (escolhida) {
+        const r = aplicar(await fonte.resolver(escolhida.id)); if (r) return r;
+        // escolheu da lista (número ou nome): já é a confirmação, não pergunta "é isso?" de novo
+        const svEscolhido = s.servico as Servico | undefined; // (o TypeScript acha que aqui não tem serviço: aplicar() acabou de definir)
+        if (svEscolhido && !svEscolhido.pacote && !s.servicoConfirmado) { s.servicoConfirmado = true; s.confirmPerguntado = true; partes.push(`Beleza, ${svEscolhido.frase}.`); }
+      }
     } else if (s.combo && !s.ofertaCombo) {
       // dentro do combo não se procura outro serviço: só vale o paciente citar outro item do combo ("a consulta primeiro" troca; "e o ultrassom também" junta)
       const c = s.combo;
