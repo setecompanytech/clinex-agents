@@ -295,6 +295,25 @@ confere('D3 aviso de uma jornada que já terminou (antes do fim) não conta', mo
   const iguais = porModo.redis.map((x, i) => x === porModo.replay[i]);
   confere('S7 conversa completa: cada resposta com estado guardado é IGUAL à do reprocessamento', iguais.every(Boolean) && porModo.redis.every((x) => x.length > 0), iguais.map((x, i) => (x ? '' : `passo ${i + 1} difere: [${porModo.redis[i].slice(0, 90)}] x [${porModo.replay[i].slice(0, 90)}]`)).filter(Boolean).join(' ; ') || `${porModo.redis.length} passos iguais`);
 
+  // TI) a 1ª mensagem chegou SEM setor e o assistente da Inovstar transferiu para o setor da IA logo depois (sem novo aviso): ela responde
+  {
+    loja.clear();
+    const pA = eu('Olá! Vi seu anúncio e gostaria saber mais sobre a consulta com Urologista');
+    const sisA = sistema('Transferido pelo Assistente para o setor Agente IA');
+    historico = [pA, sisA]; chamadas = []; leituras = 0;
+    await handleIncoming(evento(pA, ''));
+    confere('TI1 mensagem antes da transferência para o setor da IA: ela responde', textos(chamadas).length >= 1, JSON.stringify(textos(chamadas)).slice(0, 120));
+    loja.clear();
+    const pB = eu('Olá, bom dia');
+    historico = [pB]; chamadas = []; leituras = 0;
+    await handleIncoming(evento(pB, ''));
+    confere('TI2 sem setor e sem transferência para a IA: não responde', textos(chamadas).length === 0, '');
+    loja.clear();
+    const pC = eu('quero agendar cardiologia');
+    historico = [pC, sistema('Transferido pelo Assistente para o setor Agendamento de consulta')]; chamadas = []; leituras = 0;
+    await handleIncoming(evento(pC, ''));
+    confere('TI3 transferida para outro setor (da equipe): não responde', textos(chamadas).length === 0, '');
+  }
   // L) sem lista de números: quem está no setor da IA é atendido; fora dele, ninguém; sem setor configurado, ninguém
   envAg.redisUrl = redisUrl; envAg.redisToken = 'tok';
   const listaAntes = envAg.allowedNumbers; envAg.allowedNumbers = [];

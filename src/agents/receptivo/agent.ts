@@ -65,6 +65,8 @@ function nomesProtegidos(r: { state?: any; reply: string }): string[] {
 }
 
 /** Sem lista (ALLOWED_NUMBERS vazio): atende qualquer número que esteja no setor da IA. Com lista: só esses números (piloto). */
+/** Aviso do sistema da Inovstar de que a conversa foi para o setor da IA ("Transferido pelo Assistente para o setor Agente IA"). */
+const TRANSF_PARA_IA = /transferid[oa]\b.*\bsetor\b.*\bagente\s*(de\s*)?ia\b/i;
 const isAllowed = (phone: string) => env.allowedNumbers.length === 0 || env.allowedNumbers.some((a) => phoneKey(a) === phoneKey(phone));
 
 const withTitle = (text: string) => (env.agentTitle ? `${env.agentTitle}
@@ -213,8 +215,11 @@ async function processar(ev: MessageReceivedEvent) {
   if (ev.isGroup) return skip('grupo');
   if (ev.isAssigned) return skip(`atendimento já tem atendente humano ${ev.attendanceInfo}`);
   // Conversa parada na fila da equipe, sem atendente: se foi a Amanda que transferiu, ela pode retomar quando o paciente volta a escrever.
-  const naFilaDaEquipe = Boolean(env.humanSectorId) && ev.sectorId === env.humanSectorId;
-  if (env.agentSectorId && ev.sectorId !== env.agentSectorId && !naFilaDaEquipe) return skip(`setor ${ev.sectorId} != setor da IA`);
+  let naFilaDaEquipe = Boolean(env.humanSectorId) && ev.sectorId === env.humanSectorId;
+  // A primeira mensagem de uma conversa nova chega SEM setor (ou na fila da equipe) e o assistente da Inovstar transfere para o setor da IA
+  // logo DEPOIS. A transferência não gera aviso para nós: espera o tempo normal e confere no histórico se a conversa foi para a IA.
+  const podeTerIdoPraIA = Boolean(env.agentSectorId) && (!ev.sectorId || naFilaDaEquipe);
+  if (env.agentSectorId && ev.sectorId !== env.agentSectorId && !naFilaDaEquipe && !podeTerIdoPraIA) return skip(`setor ${ev.sectorId} != setor da IA`);
 
   // Enquanto espera, já acorda o Clinilink (unidades, catálogo, serviços mais agendados): a primeira consulta lenta não soma à espera.
   if (env.clinilinkKey) void fonteClinilink.aquecer?.().catch(() => {});
@@ -228,6 +233,12 @@ async function processar(ev: MessageReceivedEvent) {
   const { messages: history } = await getHistory(ev.attendanceId, 80); // a jornada inteira (o padrão de 30 mensagens cortava o começo das conversas longas)
   const lastIn = [...history].reverse().find((m) => m.direction === 'in' && m.type !== 'system');
   if (lastIn && lastIn._id !== ev.messageId) return skip(`chegou mensagem mais nova (${lastIn._id} != ${ev.messageId}); o webhook dela responde`);
+  if (podeTerIdoPraIA) {
+    const iMsg = history.findIndex((m) => m._id === ev.messageId);
+    const foiPraIA = history.some((m, i) => i > iMsg && m.type === 'system' && TRANSF_PARA_IA.test(m.text ?? ''));
+    if (foiPraIA) { naFilaDaEquipe = false; evt('ignorado', { motivo: 'mensagem chegou antes da transferência para o setor da IA: a Amanda responde' }); }
+    else if (!ev.sectorId) return skip(`setor ${ev.sectorId} != setor da IA`);
+  }
 
   const titulosAmanda = [env.agentTitle, ...env.agentTitlesAntigos].map((t) => t.replace(/\*/g, '').trim()).filter(Boolean);
   const eDaAmanda = (m: InovstarMessage) => m.direction === 'out' && titulosAmanda.some((t) => m.text?.includes(t));
@@ -278,7 +289,7 @@ async function processar(ev: MessageReceivedEvent) {
     // A jornada recomeça (1) depois da confirmação do agendamento e (2) depois de qualquer evento do sistema da
     // Inovstar ("Transferido para o setor...", "início de atendimento"): o que veio antes não conta (falhas antigas
     // faziam a Amanda transferir de novo logo na primeira mensagem).
-    const fimIdx = history.reduce((acc, m, i) => ((m.direction === 'out' && MARCAS_FIM.some((x) => m.text?.includes(x))) || (m.type === 'system' && !/transferido pela api/i.test(m.text ?? '')) ? i : acc), -1);
+    const fimIdx = history.reduce((acc, m, i) => ((m.direction === 'out' && MARCAS_FIM.some((x) => m.text?.includes(x))) || (m.type === 'system' && !/transferido pela api/i.test(m.text ?? '') && !TRANSF_PARA_IA.test(m.text ?? '')) ? i : acc), -1);
     const desde = Date.now() - 12 * 3600 * 1000;
     // logo depois de um agendamento concluído (até 1 h): "obrigado" -> pergunta se ajuda em mais algo; "só isso" -> despede
     const marcaOut = fimIdx >= 0 ? history[fimIdx] : undefined;
