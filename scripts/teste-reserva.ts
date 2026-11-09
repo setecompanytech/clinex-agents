@@ -443,6 +443,17 @@ confere('Q6 "tchau, até sexta": despede', /Tenha um ótimo dia/.test(q.reply), 
   const rR: any = await responder([['oi'], ['quero agendar um raio x']], cx, fonteClinilink);
   confere('EQ pedido de agendamento de raio x continua sendo agendamento', !rR.handoff, rR.reply.slice(0, 80));
 }
+{
+  // "quero uma ultrassom" (só a família): lista os ultrassons com agenda e pergunta qual; nunca escolhe um sozinha
+  (globalThis as any).__avulsosCombos = true; reset({ ocupados: 0 });
+  const cxU = { now: new Date(), nome: 'Paula', tz: 'America/Belem' };
+  const rU: any = await responder([['oi'], ['Quero uma ultrassom']], cxU, fonteClinilink);
+  // (o catálogo simulado tem 1 só ultrassom com agenda: com 1, ela vai direto nele; a lista com vários foi conferida no Clinilink real)
+  confere('FA1 "Quero uma ultrassom": lista os ultrassons com agenda (ou vai direto se só houver um), nunca chama a equipe', !rU.handoff && ((rU.state.opcoes?.length ?? 0) >= 2 || /Usg/.test(rU.state.servico?.nome ?? '')), rU.reply.slice(0, 200));
+  const rU2: any = await responder([['oi'], ['Quero uma ultrassom', 'Pra quando tem?']], cxU, fonteClinilink);
+  confere('FA2 "Quero uma ultrassom" + "Pra quando tem?": não chama a equipe', !rU2.handoff, rU2.reply.slice(0, 200));
+  (globalThis as any).__avulsosCombos = false;
+}
 q = await pos('confirmado', [['obrigado', 'era só isso']]);
 confere('Q4 "obrigado" + "era só isso" juntos: só a despedida', /Tenha um ótimo dia/.test(q.reply), q.reply);
 q = await pos('encerrou', [['obrigado']]);

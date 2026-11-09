@@ -343,6 +343,32 @@ async function buscarSimilares(t: string, palavras: string[], viaSintoma: boolea
  * Pedido genérico ("preciso agendar um exame", "quero marcar uma consulta") sem dizer qual: em vez de perguntar no escuro, mostra os
  * serviços DAQUELE tipo que têm agenda aberta (os principais primeiro). Só entra o que o chatbot pode agendar e que tem horário.
  */
+/**
+ * Pedido de uma FAMÍLIA de exame sem dizer qual ("quero uma ultrassom", "preciso de um raio x"): em vez de escolher um sozinha
+ * (já escolheu "ultrassom do pé"), mostra os mais agendados nos últimos 30 dias que têm vaga e pergunta qual.
+ */
+const FAMILIAS_DE_EXAME: { re: RegExp; palavras: Set<string>; intro: string; pergunta: string }[] = [
+  { re: /\b(usg|ultrass\w*|ultrason\w*|ultra ?som|ecograf\w*)\b/, palavras: new Set(['usg', 'ultrassom', 'ultrassons', 'ultrassonografia', 'ultrasonografia', 'ultrasom', 'ultra', 'ecografia', 'exame', 'exames', 'fazer', 'quando', 'agenda']),
+    intro: 'Claro! Estes são os ultrassons mais procurados que tenho com agenda:', pergunta: 'Qual deles você precisa? Se for outro, me diz qual parte do corpo.' },
+  { re: /\b(raio ?-?x|rx|radiografia)\b/, palavras: new Set(['raio', 'radiografia', 'exame', 'exames', 'fazer', 'quando', 'agenda']),
+    intro: 'Claro! Estes são os raios-x mais procurados que tenho com agenda:', pergunta: 'Qual deles você precisa? Se for outro, me diz qual parte do corpo.' },
+];
+async function sugerirFamilia(f: (typeof FAMILIAS_DE_EXAME)[number]): Promise<Descoberta> {
+  const [itens, dem] = await Promise.all([catalogo(), demandaPorProcedimento()]);
+  const fila = canonizar(itens.map((i) => i.cand).filter((c) => f.re.test(norm(c.proc.nome)) && !/\bretorno\b/i.test(c.proc.nome) && !/extern/i.test(c.proc.categoria ?? ''))
+    .sort((a, b) => (dem.get(b.proc.id) ?? 0) - (dem.get(a.proc.id) ?? 0) || a.proc.nome.localeCompare(b.proc.nome)), (c) => c.proc.nome, '', true);
+  const achados: Cand[] = [];
+  for (let i = 0; i < fila.length && i < 36 && achados.length < 6; i += 12) {
+    const bloco = fila.slice(i, i + 12);
+    const vagas = await Promise.all(bloco.map((c) => vagasAbertas(c)));
+    bloco.forEach((c, k) => { if (vagas[k] > 0 && achados.length < 6) achados.push(c); });
+  }
+  if (achados.length === 0) return undefined;
+  for (const c of achados) conhecidos.set(c.proc.id, c);
+  if (achados.length === 1) return montar(achados[0]);
+  return { opcoes: achados.map((c) => ({ id: c.proc.id, nome: titulo(c.proc.nome) })), intro: f.intro, pergunta: f.pergunta };
+}
+
 async function sugerirPorTipo(tipo: 'exame' | 'consulta'): Promise<Descoberta> {
   const [itens, dem] = await Promise.all([catalogo(), demandaPorProcedimento()]);
   const ehConsulta = (c: Cand) => /consulta/i.test(c.proc.nome) || /consulta/i.test(c.proc.categoria ?? '');
@@ -924,6 +950,12 @@ export const fonteClinilink: Fonte = {
     const palavras = palavrasDoPedido(t);
     // "exame de sangue", "coleta", "preciso fazer uns exames", "tenho o pedido do médico": como a atendente, pede o pedido médico (foto ou os nomes) para montar o orçamento
     if (buscando && /\b(sangue|laboratori\w*|coleta)\b/.test(t) && palavras.filter((w) => !SO_GENERICAS_DE_SANGUE.has(w)).length === 0) return { pedirPedido: true };
+    // só a família do exame ("quero uma ultrassom", "tem raio x?"), sem dizer qual: lista os mais agendados com vaga e pergunta qual
+    const familia = buscando ? FAMILIAS_DE_EXAME.find((f) => f.re.test(t)) : undefined;
+    if (familia && t.split(/[^a-z]+/).filter((w) => w.length >= 4 && !SEM_VALOR.has(w) && !familia.palavras.has(w) && !familia.re.test(w)).length === 0) {
+      const sug = await sugerirFamilia(familia);
+      if (sug) return sug;
+    }
     // pedido genérico: quer AGENDAR um exame (ou uma consulta) e não disse qual -> mostra os que têm agenda
     if (buscando && !forte && termos.length === 0 && palavras.length === 0) {
       const exame = /\b(exames?)\b/.test(t); const consulta = /\b(consultas?)\b/.test(t);
