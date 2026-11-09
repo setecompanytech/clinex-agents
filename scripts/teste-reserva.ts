@@ -420,6 +420,18 @@ for (const frase of ['apenas isso', 'somente isso', 'é isso', 'era isso mesmo',
   q = await pos('perguntou_mais', [[frase]]);
   confere(`Q2 "${frase}" depois de agendar: encerra (não pergunta qual é o serviço)`, /Tenha um ótimo dia/.test(q.reply) && !q.handoff, q.reply);
 }
+q = await pos('perguntou_mais', [['Obrigada. Até o dia da consulta.']]);
+confere('Q5 "Obrigada. Até o dia da consulta." depois do agendamento: despede (não pergunta qual consulta)', /Tenha um ótimo dia/.test(q.reply) && !/Qual consulta/.test(q.reply), q.reply);
+q = await pos('confirmado', [['tchau, até sexta']]);
+confere('Q6 "tchau, até sexta": despede', /Tenha um ótimo dia/.test(q.reply), q.reply);
+{
+  const rN: any = await responder([['oi'], ['Não!']], { now: new Date(), nome: 'Aline', tz: 'America/Belem' }, fonteClinilink);
+  confere('Q7 "Não!" depois de ela perguntar o que a pessoa precisa: encerra (não pergunta o serviço de novo)', /Tenha um ótimo dia/.test(rN.reply) && !/Qual consulta/.test(rN.reply) && rN.state.fim === true, rN.reply);
+  const rD: any = await responder([['oi'], ['Obrigada. Até o dia da consulta.']], { now: new Date(), nome: 'Aline', tz: 'America/Belem' }, fonteClinilink);
+  confere('Q8 despedida citando "consulta" não vira pedido de consulta', /Tenha um ótimo dia/.test(rD.reply) && !/Qual consulta/.test(rD.reply), rD.reply);
+  const rC: any = await responder([['oi'], ['quero marcar uma consulta']], { now: new Date(), nome: 'Aline', tz: 'America/Belem' }, fonteClinilink);
+  confere('Q9 pedido de consulta continua sendo pedido', !/Tenha um ótimo dia/.test(rC.reply) && !rC.state.fim, rC.reply);
+}
 q = await pos('confirmado', [['obrigado', 'era só isso']]);
 confere('Q4 "obrigado" + "era só isso" juntos: só a despedida', /Tenha um ótimo dia/.test(q.reply), q.reply);
 q = await pos('encerrou', [['obrigado']]);

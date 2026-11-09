@@ -381,6 +381,8 @@ const soAgradecimento = (t: string) => {
   const w = t.split(/[^a-z]+/).filter(Boolean);
   return w.length > 0 && w.length <= 10 && w.every((x) => AGRADECE.has(x));
 };
+/** Despedida ("Obrigada. Até o dia da consulta.", "tchau", "nos vemos"): a conversa acabou, não é pedido novo. */
+const DESPEDIDA = /\b(tchau|nos vemos|bom descanso|fico no aguardo|ate (mais|logo|breve|amanha|la|depois|o dia|a consulta|o exame|segunda|terca|quarta|quinta|sexta|sabado|domingo))\b/;
 const NAO_MAIS = /\b((so|apenas|somente) isso|(era|e) (so |apenas |somente )?isso|so era isso|ja (ta|esta) (bom|otimo|certo)|nada mais|mais nada|nao preciso|nao precisa|nao,? obrigad[oa]|por hoje|por enquanto|tudo certo|pode encerrar|tchau|ate (mais|logo|breve))\b|^(nao|n)[\s!.,]*$/;
 const SO_SIM = /^(sim|s|quero|quero sim|claro|pode|pode sim|gostaria|preciso|isso|uhum|aham|por favor|queria|tenho sim|tenho)[\s!.,]*$/;
 
@@ -402,7 +404,7 @@ export type Pos = 'confirmado' | 'perguntou_mais' | 'encerrou';
  * "quero outro" -> segue normal; depois da despedida, novo agradecimento não recebe resposta.
  */
 function posAgendamento(pos: Pos, t: string): { reply: string; pos?: Pos } | 'seguir' | 'silencio' {
-  if (NAO_MAIS.test(t)) return pos === 'encerrou' ? 'silencio' : { reply: TXT_ADEUS, pos: 'encerrou' };
+  if (NAO_MAIS.test(t) || DESPEDIDA.test(t)) return pos === 'encerrou' ? 'silencio' : { reply: TXT_ADEUS, pos: 'encerrou' };
   if (SO_SIM.test(t)) return pos === 'encerrou' ? 'seguir' : { reply: 'Que bom! Me conta qual consulta ou exame você quer agendar.' };
   if (soAgradecimento(t)) {
     if (pos === 'confirmado') return { reply: TXT_MAIS, pos: 'perguntou_mais' };
@@ -1530,6 +1532,11 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     if (!cumprimento && !NAO.test(t)) s.falhas += 1;
     if (!s.saudou && cumprimento) return out(`${abertura} Me conta o que você precisa?`);
     if (cumprimento) return out('Qual consulta ou exame você precisa?');
+    // despedida, ou "não" sem pedido nenhum depois que ela perguntou o que a pessoa precisa: encerra com carinho (não pergunta o serviço de novo)
+    if (!abertura && (DESPEDIDA.test(t) || /^(nao|n|nada|nao quero( nada)?|nao preciso( de nada)?|nao,? obrigad[oa]|so isso|era so isso|e so isso|apenas isso|nada mais)[\s!.,]*$/.test(t))) {
+      s.fim = true;
+      return out(/\b(obrigad\w*|agradec\w*|valeu)\b/.test(t) ? TXT_ADEUS : `Tudo bem! Se precisar de algo, é só me chamar por aqui. ${MARCA_ADEUS}!`);
+    }
     if (NAO.test(t) && prev.confirmPerguntado === false && base.servico === undefined && s.saudou && !abertura) return out('Sem problema. Qual consulta ou exame você precisa?');
     // quer agendar mas não disse o quê: pergunta com simpatia (na terceira vez, lembra que pode chamar a equipe)
     if (s.falhas < 2 && /\b(marcar|agendar|agendamento|marcacao|consulta|exame|atendimento)\b/.test(t)) return out(comAbertura('Claro! Qual consulta ou exame você precisa?'));
