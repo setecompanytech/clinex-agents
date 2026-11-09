@@ -90,6 +90,8 @@ export interface Fonte {
   paciente(cpf: string): Promise<PacienteInfo | null>;
   /** Paciente sem CPF: procura pelos telefones e confere nome parecido e nascimento; null se não achar com segurança. */
   pacientePorDados?(d: { nome: string; nascimento: string; telefones: string[] }): Promise<PacienteInfo | null>;
+  /** O mesmo serviço, só com o profissional citado (agenda dele, nas unidades dele). undefined se ele não atende esse serviço. */
+  comProfissional?(sv: Servico, nome: string): Promise<Servico | undefined>;
   /** Só a fonte real: combos que incluem o serviço e saem mais em conta (para sugerir a quem pediu só o serviço). */
   combosComServico?(sv: Servico): Promise<OfertaCombo[]>;
   /** Só a fonte real: acha no Clinilink (serviços de categoria laboratorial/laboratório ou exames) os exames escritos no pedido. */

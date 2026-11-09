@@ -492,6 +492,12 @@ confere('Q6 "tchau, até sexta": despede', /Tenha um ótimo dia/.test(q.reply), 
   confere('OJ3 frase longa de conversa não é nome de exame', extrairNomesExames('Eu quero primeiro fazer a consulta e ver o que a médica vai solicitar, após a avaliação.').length === 0 && extrairNomesExames('Mas gostaria de saber os valores desses exames').length === 0, JSON.stringify(extrairNomesExames('Eu quero primeiro fazer a consulta e ver o que a médica vai solicitar, após a avaliação.')));
   confere('OJ4 nome de exame continua sendo lido', extrairNomesExames('hemograma, glicose e colesterol total').length >= 2, '');
 }
+{
+  // caso real (Matheus): na escolha da unidade, só o nome da médica ("Ana Clara"): fica com ela, sem lista de outros médicos
+  reset({ ocupados: 0 });
+  const rA: any = await responder([['oi'], ['quero agendar ginecologista'], ['sim'], ['medica']], { now: new Date(), nome: 'Matheus', tz: 'America/Belem' }, fonteClinilink);
+  confere('CM1 nome da médica na escolha da unidade: o serviço passa a ser com ela (sem lista de outros médicos)', /Medica/.test(rA.state.servico?.profissional?.nome ?? '') && !/Liduina/.test(rA.reply), `${rA.state.servico?.frase} | ${rA.reply.replace(/\n/g, ' | ').slice(0, 160)}`);
+}
 q = await pos('confirmado', [['obrigado', 'era só isso']]);
 confere('Q4 "obrigado" + "era só isso" juntos: só a despedida', /Tenha um ótimo dia/.test(q.reply), q.reply);
 q = await pos('encerrou', [['obrigado']]);

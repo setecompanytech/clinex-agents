@@ -1093,6 +1093,16 @@ export const fonteClinilink: Fonte = {
     return p ? { id: p.id, nome: titulo(p.nome) } : null;
   },
 
+  async comProfissional(sv, nome) {
+    const c = conhecidos.get(sv.id) ?? (await catalogo()).find((x) => x.cand.proc.id === sv.id)?.cand;
+    if (!c) return undefined;
+    for (const u of c.clinicas) {
+      const p = (await listProfissionais(u.id, sv.id).catch(() => [])).find((x) => norm(titulo(x.nome)) === norm(nome));
+      if (p) { const d = await montar(c, { id: p.id, nome: p.nome }); return d && 'servico' in d ? d.servico : undefined; }
+    }
+    return undefined;
+  },
+
   async pacientePorDados({ nome, nascimento, telefones }) {
     const formas = [...new Set(telefones.flatMap(formasDoTelefone))];
     const achados = new Map<string, Paciente>();

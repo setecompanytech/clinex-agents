@@ -1658,6 +1658,22 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
   }
 
   // 5) a partir daqui o serviço está confirmado; extrai unidade, dia e período citados
+  // Citou um médico que atende este serviço ("Ana Clara", "com a dra Camila"): o serviço passa a ser COM esse médico (só a agenda dele, nas unidades
+  // dele; se ele atende numa unidade só, ela já fica com essa). Caso real: "Ana Clara" foi ignorado e vieram horários de outros médicos.
+  if (!sv.profissional && !sv.combo && !sv.pacote && !s.slot && fonte.comProfissional) {
+    const nomesDoServico = [...new Set(sv.unidades.flatMap((u) => u.profissionais ?? []))];
+    const med = medicoDaLista(t, nomesDoServico.map((n) => ({ profissional: n }) as Slot));
+    if (med) {
+      const comEle = await fonte.comProfissional(sv, med).catch(() => undefined);
+      if (comEle) {
+        const unAntes = s.unidade?.nome;
+        s.servico = comEle; sv = comEle; mudouServico = true; s.lista = undefined; s.unidadesInformadas = false;
+        s.unidade = comEle.unidades.length === 1 ? comEle.unidades[0] : comEle.unidades.find((u) => unAntes && norm(u.nome) === norm(unAntes));
+        await prepararGeneros([med]);
+        partes.push(`Combinado, com ${exibir(med, { artigo: true })}.`);
+      }
+    }
+  }
   let aviso = '';
   let intencao: IntLista | undefined; // o que o paciente quer fazer com os horários (lido no passo 5, aplicado no passo 7)
   let entendeuHorario = false; // alguma coisa da resposta foi entendida (unidade, posição, data, período, intenção)
