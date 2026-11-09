@@ -550,9 +550,20 @@ export const usuariosJs = String.raw`(function () {
   }
 
   function redefinir(u) {
-    confirmar({
-      titulo: 'Redefinir a senha de ' + u.nome + '?', texto: 'Será gerada uma senha temporária e todas as sessões abertas dessa pessoa serão encerradas.', sim: 'Gerar nova senha',
-      aoSim: function () { api('POST', '/painel/api/usuarios/' + u.id + '/senha', {}).then(function (j) { carregar(); mostrarSenha('Nova senha de ' + u.nome, u.nome, j.senhaTemporaria); }).catch(function (e) { aviso(e.message, 'erro'); }); }
+    var senha = h('input', { class: 'in', type: 'text', autocomplete: 'off', placeholder: 'Deixe em branco para gerar uma senha temporária' });
+    var erro = h('p', { class: 'us-erro', role: 'alert' });
+    var m;
+    function salvar() {
+      erro.textContent = '';
+      api('POST', '/painel/api/usuarios/' + u.id + '/senha', senha.value ? { senha: senha.value } : {}).then(function (j) {
+        m.fechar(); carregar();
+        if (j.senhaTemporaria) mostrarSenha('Nova senha de ' + u.nome, u.nome, j.senhaTemporaria); else aviso('Senha de ' + u.nome + ' alterada.', 'ok');
+      }).catch(function (e) { erro.textContent = e.message; });
+    }
+    m = modal({
+      titulo: 'Redefinir a senha de ' + u.nome, largura: 480,
+      corpo: h('div', { class: 'us-form' }, [campo('Nova senha', senha, 'Pelo menos 8 caracteres. Em branco, o sistema gera uma temporária. As sessões abertas dessa pessoa serão encerradas.'), erro]),
+      rodape: [botao('Cancelar', '', function () { m.fechar(); }), botao('Salvar nova senha', 'pri', salvar)]
     });
   }
   function alternar(u) {
