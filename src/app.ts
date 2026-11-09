@@ -6,7 +6,7 @@ import hub from './hub/router.js';
 import geral from './geral/router.js';
 import crm from './crm/router.js';
 import { cron } from './crm/cron.js';
-import { gravarAntesDeResponder } from './crm/banco.js';
+import { bancoFora, gravarAntesDeResponder, pronto, tentarVoltarAoBanco } from './crm/banco.js';
 import bi from './bi/router.js';
 
 const app = express();
@@ -17,10 +17,16 @@ app.get('/healthz', (_req, res) => res.json({ status: 'ok', ts: new Date().toISO
 // Vercel: a função congela logo depois da resposta, então uma escrita do painel só é respondida depois de gravada no Supabase
 app.use('/painel', (req, res, next) => {
   if (!process.env.VERCEL || ['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+  if (/^\/(login|sair)\/?$/.test(req.path)) return next();
+  pronto().then(tentarVoltarAoBanco).then(() => {
+    if (bancoFora()) return void res.status(503).json({ erro: 'banco', mensagem: 'O banco de dados não está respondendo agora, então nada foi salvo. Tente de novo em alguns segundos.' });
+    gravarNaResposta(res); next();
+  }, next);
+});
+function gravarNaResposta(res: express.Response) {
   const fim = res.end.bind(res) as unknown as (...a: unknown[]) => void;
   res.end = ((...a: unknown[]) => { gravarAntesDeResponder().catch(() => undefined).finally(() => fim(...a)); return res; }) as typeof res.end;
-  next();
-});
+}
 app.use('/webhooks', webhooks);
 app.use('/cron', cron);
 // módulos independentes: o mais específico vem primeiro; a tela inicial (/painel) por último

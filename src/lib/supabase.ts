@@ -11,7 +11,7 @@ export class SupabaseError extends Error {
   constructor(public codigo: string, mensagem: string) { super(mensagem); }
 }
 
-const ESPERA_MS = 8_000;
+const ESPERA_MS = Number(process.env.SUPABASE_ESPERA_MS) || 8_000;
 /** Em falha de rede ou tempo repete (na Vercel uma conexão reaproveitada pode ficar pendurada, e a nova tentativa abre outra). Só o que é seguro repetir: leitura, apagar e gravar com upsert. Inserir sem chave (eventos) não repete, para não duplicar. */
 const TENTATIVAS = 3;
 const repetivel = (metodo: string, extra: Record<string, string>) => metodo === 'GET' || metodo === 'DELETE' || (extra.Prefer ?? '').includes('merge-duplicates');
@@ -60,6 +60,24 @@ async function pedirUma<T>(metodo: string, tabela: string, query: Record<string,
     if (e instanceof SupabaseError) throw e;
     throw new SupabaseError((e as Error).name === 'AbortError' ? 'tempo' : 'rede', `${tabela}: ${(e as Error).name === 'AbortError' ? 'o Supabase demorou demais para responder' : detalheRede(e, u)}`);
   } finally { clearTimeout(t); }
+}
+
+/** Mede, de dentro do servidor, cada tabela (tempo, bytes, erro com causa) e para onde o nome do Supabase resolve. Serve para ver a falha real na Vercel. */
+export async function diagnosticarSupabase(tabelas: string[]) {
+  const host = supabaseConfigurado() ? new URL(url()).host : '';
+  const { lookup } = await import('node:dns/promises');
+  const enderecos = host ? await lookup(host, { all: true }).then((r) => r.map((x) => `IPv${x.family} ${x.address}`), (e) => [`erro de DNS: ${(e as Error).message}`]) : [];
+  const out: Record<string, unknown>[] = [];
+  for (const t of tabelas) {
+    const t0 = Date.now(); const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 20_000);
+    try {
+      const r = await fetch(`${url()}/rest/v1/${t}?select=*&limit=1000`, { headers: { apikey: chave(), Authorization: `Bearer ${chave()}` }, signal: ctl.signal });
+      const txt = await r.text();
+      out.push({ tabela: t, http: r.status, bytes: txt.length, ms: Date.now() - t0 });
+    } catch (e) { out.push({ tabela: t, erro: (e as Error).name === 'AbortError' ? 'sem resposta em 20 s' : detalheRede(e, new URL(url())), ms: Date.now() - t0 }); }
+    finally { clearTimeout(tm); }
+  }
+  return { regiaoVercel: process.env.VERCEL_REGION ?? null, node: process.version, host, enderecos, tabelas: out };
 }
 
 /** Lê a tabela inteira (ou o filtro) em páginas de 1000. `ordem` deve ser estável (ex.: "id"). */

@@ -23,6 +23,8 @@ const USA_ARQUIVO = !process.env.VERCEL && process.env.CRM_PERSISTIR !== 'false'
 export const PERSISTENTE = USA_BANCO || USA_ARQUIVO;
 /** Se o Supabase estiver fora do ar na subida, o servidor segue no arquivo (sem escrever no banco) e a tela avisa. */
 let bancoIndisponivel = false;
+let ultimaTentativa = 0;
+let voltando: Promise<void> | null = null;
 
 export const estado: Estado = { usuarios: [], versao: 1, atendentes: [], leads: [], automacoes: regrasPadrao(new Date()), logAuto: [], pipelines: { funis: funisPadrao(new Date()), atribuicoes: [], extras: {}, followups: [], contatos: [], rotina: {} } };
 let fila: Promise<unknown> = Promise.resolve();
@@ -63,7 +65,7 @@ async function carregar() {
       console.log(`[crm] Supabase vazio: ${estado.leads.length} leads, ${estado.pipelines.atribuicoes.length} cards e ${estado.pipelines.funis.length} funis enviados.`);
     } else console.log(`[crm] Supabase: ${n} linhas carregadas.`);
   } catch (e) {
-    bancoIndisponivel = true;
+    bancoIndisponivel = true; ultimaTentativa = Date.now();
     ultimoErro = `Supabase indisponível (${(e as Error).message}). Usando o arquivo local, sem gravar no banco.`;
     console.error(`[crm] ${ultimoErro}`);
   }
@@ -77,14 +79,39 @@ async function carregarTudo() {
 const carregado = carregarTudo();
 export const pronto = () => carregado;
 
+/**
+ * Banco que falhou na subida: tenta de novo (no máximo a cada 10 s) em vez de ficar só na memória para sempre.
+ * Espera até 8 s pelo resultado; se ainda estiver tentando, segue e a próxima requisição vê o desfecho.
+ */
+export function tentarVoltarAoBanco(): Promise<void> {
+  if (!bancoIndisponivel || !USA_BANCO) return Promise.resolve();
+  if (!voltando && Date.now() - ultimaTentativa >= 10_000) {
+    voltando = (async () => {
+      try {
+        const n = await carregarDoBanco(estado);
+        if (n === 0) await esvaziar(estado);
+        bancoIndisponivel = false; ultimoErro = null;
+        console.log(`[crm] Supabase voltou: ${n} linhas carregadas.`);
+      } catch (e) {
+        ultimoErro = `Supabase indisponível (${(e as Error).message}). Sem gravar no banco por enquanto; tentando de novo.`;
+        console.error(`[crm] ${ultimoErro}`);
+      } finally { ultimaTentativa = Date.now(); voltando = null; }
+    })();
+  }
+  return voltando ? Promise.race([voltando, new Promise<void>((r) => { setTimeout(r, 8_000).unref(); })]) : Promise.resolve();
+}
+/** Com banco configurado mas fora do ar, as escritas só iriam para a memória e se perderiam: o painel recusa em vez de fingir que salvou. */
+export const bancoFora = () => USA_BANCO && bancoIndisponivel;
+
 /** Serverless (Vercel): várias instâncias e a função congela depois da resposta, então a memória não é confiável entre requisições. */
 const SERVERLESS_COM_BANCO = () => Boolean(process.env.VERCEL) && USA_BANCO && !bancoIndisponivel;
 
 /** Antes de olhar as contas (login, sessão, lista): traz do banco as que outras instâncias criaram. */
 export async function atualizarContas(ttlMs?: number) {
-  if (!SERVERLESS_COM_BANCO()) return;
+  if (!process.env.VERCEL || !USA_BANCO) return;
   await carregado;
-  if (!bancoIndisponivel) await atualizarUsuarios(estado, ttlMs);
+  if (bancoIndisponivel) return tentarVoltarAoBanco();
+  await atualizarUsuarios(estado, ttlMs);
 }
 
 /** Na resposta de uma escrita, espera o Supabase confirmar antes de devolver ao navegador (a função pode congelar logo depois). */
