@@ -68,7 +68,7 @@ function statusAgente(): string {
   return [
     `**Modo:** ${env.mode === 'claude' ? 'Claude (modelo de linguagem)' : 'roteiro por etapas, sem IA decidindo'}. **Resposta ao paciente:** ${env.autoReply ? 'automática (envia e transfere de verdade)' : 'modo sombra (só registra, não envia nem transfere)'}.`,
     `**Tempos:** espera de ${nf.format(env.debounceMs / 1000)} s para agrupar mensagens; a resposta sai entre ${nf.format(env.replyDelayMinMs / 1000)} e ${nf.format(env.replyDelayMaxMs / 1000)} s depois.`,
-    `**Quem a Amanda atende:** ${env.allowedNumbers.length ? `${plural(env.allowedNumbers.length, 'telefone autorizado', 'telefones autorizados')} (fase de testes)` : 'ninguém (ALLOWED_NUMBERS vazio)'}. Setor da IA: ${set(!!env.agentSectorId)}; setor humano para transferir: ${set(!!env.humanSectorId)}.`,
+    `**Quem a Amanda atende:** ${env.allowedNumbers.length ? `só ${plural(env.allowedNumbers.length, 'telefone autorizado', 'telefones autorizados')} (fase de testes)` : env.agentSectorId ? 'qualquer número que esteja no setor da IA' : 'ninguém (sem setor da IA configurado)'}. Setor da IA: ${set(!!env.agentSectorId)}; setor humano para transferir: ${set(!!env.humanSectorId)}.`,
     `**Integrações:** Inovstar (WhatsApp) ${set(!!env.inovstarToken)}; Clinilink leitura ${set(!!env.clinilinkKey)}; Clinilink gravação ${set(!!env.clinilinkWriteKey)}; tom do GPT ${set(!!env.openaiKey)}; Claude ${set(!!env.anthropicKey)}.`,
     `**Memória:** estado da conversa no Redis ${estadoAtivo() ? 'ligado (continua de onde parou)' : 'desligado (reprocessa o histórico a cada mensagem)'}. Eventos do BI: ${arm.destino === 'supabase' ? 'Supabase' : arm.destino === 'arquivo' ? 'arquivo local' : 'só memória'}${arm.erro ? ` (com erro: ${cortar(arm.erro, 80)})` : ''}.`,
   ].join('\n');
@@ -223,7 +223,7 @@ export async function alertasDoAgente(): Promise<AlertaA[]> {
   const acoesBI = [{ texto: 'Abrir o BI', href: L.bi }, { texto: 'Ver os logs', href: L.logs }];
   // configuração que impede ou muda o atendimento
   if (!env.inovstarToken) out.push({ id: `cfg:inovstar:${dia}`, nivel: 'risco', titulo: 'Inovstar sem token', texto: 'Sem INOVSTAR_TOKEN a Amanda não lê nem envia mensagens do WhatsApp.', acoes: [{ texto: 'Ver configurações', href: L.fluxo }] });
-  if (!env.allowedNumbers.length) out.push({ id: `cfg:permitidos:${dia}`, nivel: 'atencao', titulo: 'A Amanda não atende ninguém', texto: 'ALLOWED_NUMBERS está vazio: por segurança o agente ignora todos os telefones.', acoes: [{ texto: 'Ver configurações', href: L.fluxo }] });
+  if (!env.allowedNumbers.length && !env.agentSectorId) out.push({ id: `cfg:permitidos:${dia}`, nivel: 'atencao', titulo: 'A Amanda não atende ninguém', texto: 'Sem AGENT_SECTOR_ID e sem lista de números: por segurança o agente ignora todas as conversas.', acoes: [{ texto: 'Ver configurações', href: L.fluxo }] });
   if (!env.clinilinkKey) out.push({ id: `cfg:clinilink:${dia}`, nivel: 'atencao', titulo: 'Clinilink sem chave', texto: 'Sem CLINILINK_API_KEY a Amanda usa um catálogo simulado, sem agenda real.', acoes: [{ texto: 'Ver configurações', href: L.fluxo }] });
   if (!env.autoReply) out.push({ id: `cfg:sombra:${dia}`, nivel: 'info', titulo: 'Modo sombra ligado', texto: 'A Amanda lê e decide, mas não envia mensagens nem transfere (AUTO_REPLY=false).', acoes: [{ texto: 'Ver configurações', href: L.fluxo }] });
   const arm = estadoArmazem();

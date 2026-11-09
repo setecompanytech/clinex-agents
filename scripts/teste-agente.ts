@@ -197,7 +197,8 @@ confere('D3 aviso de uma jornada que já terminou (antes do fim) não conta', mo
       if (redisFora) { res.writeHead(500, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ error: 'fora do ar' })); }
       let result: unknown = null;
       if (cmd[0] === 'GET') result = loja.get(cmd[1]) ?? null;
-      else if (cmd[0] === 'SET') { loja.set(cmd[1], cmd[2]); result = 'OK'; }
+      else if (cmd[0] === 'SET') { if (cmd.includes('NX') && loja.has(cmd[1])) result = null; else { loja.set(cmd[1], cmd[2]); result = 'OK'; } }
+      else if (cmd[0] === 'EVAL') { const k = cmd[3]; result = loja.get(k) === cmd[4] ? (loja.delete(k) ? 1 : 0) : 0; } // solta a trava só se ela for de quem pediu
       else if (cmd[0] === 'DEL') { result = loja.delete(cmd[1]) ? 1 : 0; }
       res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ result }));
     });
@@ -207,13 +208,31 @@ confere('D3 aviso de uma jornada que já terminou (antes do fim) não conta', mo
   envAg.redisUrl = redisUrl; envAg.redisToken = 'tok';
   const chave = 'amanda:estado:att1';
 
+  // T1) trava: o MESMO atendimento espera a resposta anterior; outro atendimento não espera ninguém
+  {
+    const { travarAtendimento } = await import('../src/lib/estado.js');
+    const a1 = await travarAtendimento('trava-A');
+    const t0 = Date.now();
+    const b1 = await travarAtendimento('trava-B');
+    confere('T1 outro atendimento não espera (conversas em paralelo, sem misturar)', Boolean(a1) && Boolean(b1) && Date.now() - t0 < 500, `${Date.now() - t0} ms`);
+    const t1 = Date.now();
+    const segunda = travarAtendimento('trava-A');
+    setTimeout(() => { void a1!.soltar(); }, 1200);
+    const a2 = await segunda;
+    confere('T2 mesmo atendimento: a segunda resposta espera a primeira terminar', Boolean(a2) && Date.now() - t1 >= 1000, `${Date.now() - t1} ms`);
+    const nada = await travarAtendimento('trava-A', 1500);
+    confere('T3 se a anterior não termina a tempo, desiste (a próxima mensagem retoma)', nada === null, '');
+    await a2!.soltar(); await b1!.soltar();
+    confere('T4 soltar libera a trava', !loja.has('amanda:trava:trava-A') && !loja.has('amanda:trava:trava-B'), [...loja.keys()].join(','));
+  }
+
   // S1) a primeira resposta guarda o estado (jornada = 1ª mensagem do paciente; ate = última respondida)
   n = 0; loja.clear();
   const m1 = eu('oi'); const m2 = eu('quero agendar cardiologia');
   c = await roda([m1, m2]);
   const g1 = await lerEstado('att1');
   confere('S1 respondeu e guardou o estado (1ª mensagem da jornada, última respondida, serviço entendido)', textos(c).length > 0 && g1?.jornada === m1.id && g1?.ate === m2.id && /Cardiologia/i.test((g1?.state as any)?.servico?.frase ?? '') && g1?.duro === false, JSON.stringify({ j: g1?.jornada, ate: g1?.ate, sv: (g1?.state as any)?.servico?.frase }));
-  const ttl = comandos.find((x) => x[0] === 'SET');
+  const ttl = comandos.find((x) => x[0] === 'SET' && String(x[1]).startsWith('amanda:estado:'));
   confere('S1 o estado tem prazo (24 h) para não ficar guardado', ttl?.[3] === 'EX' && Number(ttl?.[4]) === 86400, JSON.stringify(ttl?.slice(3)));
 
   // S2) a releitura das mensagens antigas daria OUTRO serviço (o código/dado mudou no meio), mas o estado guardado manda
@@ -271,11 +290,37 @@ confere('D3 aviso de uma jornada que já terminou (antes do fim) não conta', mo
       porModo[modo].push(ditos.join(' || '));
       for (const tx of ditos) hist.push(amanda(tx.replace(/^\*[^*\n]+\*\n/, '')));
     }
-    if (modo === 'redis') confere('S7 o estado foi guardado a cada resposta enviada (e apagado no fim, quando concluiu)', comandos.filter((x) => x[0] === 'SET').length >= 5, `SET=${comandos.filter((x) => x[0] === 'SET').length} DEL=${comandos.filter((x) => x[0] === 'DEL').length}`);
+    if (modo === 'redis') confere('S7 o estado foi guardado a cada resposta enviada (e apagado no fim, quando concluiu)', comandos.filter((x) => x[0] === 'SET' && String(x[1]).startsWith('amanda:estado:')).length >= 5, `SET=${comandos.filter((x) => x[0] === 'SET' && String(x[1]).startsWith('amanda:estado:')).length} DEL=${comandos.filter((x) => x[0] === 'DEL').length}`);
   }
   const iguais = porModo.redis.map((x, i) => x === porModo.replay[i]);
   confere('S7 conversa completa: cada resposta com estado guardado é IGUAL à do reprocessamento', iguais.every(Boolean) && porModo.redis.every((x) => x.length > 0), iguais.map((x, i) => (x ? '' : `passo ${i + 1} difere: [${porModo.redis[i].slice(0, 90)}] x [${porModo.replay[i].slice(0, 90)}]`)).filter(Boolean).join(' ; ') || `${porModo.redis.length} passos iguais`);
 
+  // L) sem lista de números: quem está no setor da IA é atendido; fora dele, ninguém; sem setor configurado, ninguém
+  envAg.redisUrl = redisUrl; envAg.redisToken = 'tok';
+  const listaAntes = envAg.allowedNumbers; envAg.allowedNumbers = [];
+  loja.clear();
+  let cL = await roda([eu('oi')]);
+  confere('L1 sem lista de números: qualquer número no setor da IA é atendido', textos(cL).length >= 1, JSON.stringify(textos(cL)).slice(0, 80));
+  loja.clear(); cL = await roda([eu('oi')], 'OUTRO');
+  confere('L2 sem lista: conversa de outro setor não é atendida', textos(cL).length === 0, '');
+  const setorAntes = envAg.agentSectorId; envAg.agentSectorId = '';
+  loja.clear(); cL = await roda([eu('oi')]);
+  confere('L3 sem lista e sem setor da IA configurado: não atende ninguém (segurança)', textos(cL).length === 0, '');
+  envAg.agentSectorId = setorAntes;
+  // L4) a mensagem chegou enquanto ela respondia a anterior: a resposta da Amanda ficou DEPOIS dela no histórico, mas era para a outra
+  loja.clear();
+  const p1 = eu('oi');
+  const r1 = textos(await roda([p1]))[0] ?? '';
+  const p2 = eu('quero agendar cardiologia');
+  const resp1 = msg('out', 'text', { body: r1 });
+  // o webhook é o da mensagem do paciente (p2), não o da resposta que ficou depois dela
+  const doEvento = async (h: any[], alvo: any) => { historico = h; chamadas = []; leituras = 0; await handleIncoming(evento(alvo)); return chamadas; };
+  cL = await doEvento([p1, p2, resp1], p2);
+  confere('L4 mensagem que chegou durante a resposta anterior também é respondida', textos(cL).length >= 1, JSON.stringify(textos(cL)).slice(0, 120));
+  const resp2 = msg('out', 'text', { body: textos(cL)[0] ?? '' });
+  cL = await doEvento([p1, p2, resp1, resp2], p2);
+  confere('L5 webhook repetido da mesma mensagem já respondida: não responde de novo', textos(cL).length === 0, '');
+  envAg.allowedNumbers = listaAntes;
   envAg.redisUrl = ''; envAg.redisToken = '';
   redis.close();
 }

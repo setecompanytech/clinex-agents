@@ -58,3 +58,30 @@ export async function guardarEstado(attendanceId: string, e: Omit<EstadoGuardado
 export async function apagarEstado(attendanceId: string): Promise<void> {
   await comando(['DEL', chave(attendanceId)]);
 }
+
+// ------------------------------------------------------------------------------------------------ trava por atendimento
+/**
+ * Uma resposta por vez em cada atendimento. A Vercel roda várias instâncias ao mesmo tempo: duas mensagens do MESMO paciente podem cair em
+ * instâncias diferentes, e sem trava as duas responderiam com o mesmo estado. Pacientes diferentes nunca esperam um pelo outro (a chave é o
+ * atendimento). Sem Redis (ou com ele fora do ar) não trava: segue como antes, para nunca deixar ninguém sem resposta.
+ */
+export async function travarAtendimento(attendanceId: string, esperaMs = 55_000): Promise<{ soltar: () => Promise<void> } | null> {
+  const livre = { soltar: async () => {} };
+  if (!estadoAtivo()) return livre;
+  const k = `amanda:trava:${attendanceId}`;
+  const token = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const ate = Date.now() + esperaMs;
+  while (Date.now() < ate) {
+    let r = null as { result?: unknown; error?: unknown } | null;
+    try {
+      const res = await fetch(env.redisUrl!, { method: 'POST', headers: { Authorization: `Bearer ${env.redisToken}`, 'content-type': 'application/json' }, body: JSON.stringify(['SET', k, token, 'NX', 'PX', 100_000]), signal: AbortSignal.timeout(3000) });
+      r = res.ok ? ((await res.json().catch(() => null)) as typeof r) : null;
+    } catch { r = null; }
+    if (!r || r.error) { evt('erro', { mensagem: 'trava do atendimento: Redis indisponível, seguindo sem trava' }); return livre; }
+    if (r.result === 'OK') {
+      return { soltar: async () => { await comando(['EVAL', "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end", 1, k, token]); } };
+    }
+    await new Promise((ok) => setTimeout(ok, 800));
+  }
+  return null;
+}

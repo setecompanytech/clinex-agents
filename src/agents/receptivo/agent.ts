@@ -5,7 +5,7 @@ import { analisarPedidoMedico, type PedidoLido } from '../../lib/pedidoMedico.js
 import { escolherExames } from '../../lib/interpretarExames.js';
 import { buildSystemPrompt } from './prompt.js';
 import { MARCAS_FIM, MARCA_ADEUS, MARCA_AGENDADO, MARCA_DUP, MARCA_MAIS, SEM_GPT, ehUrgencia, estadoDepoisDaResposta, etapa, handoffDuro, responder, type Pos, type Result, type State } from './script/engine.js';
-import { apagarEstado, estadoAtivo, guardarEstado, lerEstado } from '../../lib/estado.js';
+import { apagarEstado, estadoAtivo, guardarEstado, lerEstado, travarAtendimento } from '../../lib/estado.js';
 import { fonteSimulada } from './script/catalog.js';
 import { fonteClinilink } from './script/clinilinkFonte.js';
 import { amigavelDetalhado, temPrecoZero } from '../../lib/humanizer.js';
@@ -64,7 +64,8 @@ function nomesProtegidos(r: { state?: any; reply: string }): string[] {
   return [...new Set(nomes)].filter((n) => r.reply.toLocaleLowerCase('pt-BR').includes(String(n).toLocaleLowerCase('pt-BR')));
 }
 
-const isAllowed = (phone: string) => env.allowedNumbers.some((a) => phoneKey(a) === phoneKey(phone));
+/** Sem lista (ALLOWED_NUMBERS vazio): atende qualquer número que esteja no setor da IA. Com lista: só esses números (piloto). */
+const isAllowed = (phone: string) => env.allowedNumbers.length === 0 || env.allowedNumbers.some((a) => phoneKey(a) === phoneKey(phone));
 
 const withTitle = (text: string) => (env.agentTitle ? `${env.agentTitle}
 ${text}` : text);
@@ -206,6 +207,8 @@ async function processar(ev: MessageReceivedEvent) {
     console.log(`[${ev.attendanceId}] ignorado: ${why}`);
     if (!why.includes('fora da whitelist')) evt('ignorado', { motivo: why }); // número de outros pacientes não vira evento (só do piloto)
   };
+  // segurança: sem lista de números E sem setor da IA configurado, ela responderia qualquer conversa de qualquer setor
+  if (env.allowedNumbers.length === 0 && !env.agentSectorId) return skip('sem AGENT_SECTOR_ID e sem lista de números: não atende ninguém');
   if (!isAllowed(ev.to)) return skip(`número ${ev.to} fora da whitelist`);
   if (ev.isGroup) return skip('grupo');
   if (ev.isAssigned) return skip(`atendimento já tem atendente humano ${ev.attendanceInfo}`);
@@ -218,17 +221,28 @@ async function processar(ev: MessageReceivedEvent) {
   // Debounce: espera o paciente terminar de digitar e só a última mensagem dispara a resposta.
   // (emergência e crise não esperam: respondem em poucos segundos)
   await sleep(ehUrgencia(ev.text ?? '') ? Math.min(env.debounceMs, 3000) : env.debounceMs);
+  // uma resposta por vez NESTE atendimento (as outras conversas seguem em paralelo); a próxima lê o estado que esta deixou
+  const trava = await travarAtendimento(ev.attendanceId);
+  if (!trava) return skip('a resposta anterior deste atendimento demorou demais; a próxima mensagem dele retoma');
+  try {
   const { messages: history } = await getHistory(ev.attendanceId, 80); // a jornada inteira (o padrão de 30 mensagens cortava o começo das conversas longas)
   const lastIn = [...history].reverse().find((m) => m.direction === 'in' && m.type !== 'system');
   if (lastIn && lastIn._id !== ev.messageId) return skip(`chegou mensagem mais nova (${lastIn._id} != ${ev.messageId}); o webhook dela responde`);
 
-  // Se um humano/bot já respondeu depois da última mensagem do paciente, não duplica.
-  const last = history[history.length - 1];
-  if (last && last.direction === 'out' && last.status !== 'whisper') return skip(`última mensagem já é de saída (${last.type}); não duplica`);
-
-  // Na fila da equipe só retoma conversa em que a própria Amanda já falou (nas últimas 12 h); as demais são da equipe.
   const titulosAmanda = [env.agentTitle, ...env.agentTitlesAntigos].map((t) => t.replace(/\*/g, '').trim()).filter(Boolean);
   const eDaAmanda = (m: InovstarMessage) => m.direction === 'out' && titulosAmanda.some((t) => m.text?.includes(t));
+  // Já tem resposta depois da última mensagem do paciente: de um humano/bot (não duplica) ou da própria Amanda a ESTA mensagem (webhook repetido).
+  // Se a resposta da Amanda era para a mensagem anterior (esta chegou enquanto ela respondia), esta ainda precisa de resposta.
+  const last = history[history.length - 1];
+  let respostaDaAnterior = false; // a última saída é a resposta da Amanda à mensagem ANTERIOR: esta ainda precisa de resposta
+  if (last && last.direction === 'out' && last.status !== 'whisper') {
+    const salvoAgora = estadoAtivo() ? await lerEstado(ev.attendanceId) : null;
+    const jaRespondida = !estadoAtivo() || salvoAgora?.ate === ev.messageId || !history.some((m) => m.direction === 'out' && eDaAmanda(m) && history.indexOf(m) > history.findIndex((x) => x._id === ev.messageId));
+    if (!eDaAmanda(last) || jaRespondida) return skip(`última mensagem já é de saída (${last.type}); não duplica`);
+    respostaDaAnterior = true;
+  }
+
+  // Na fila da equipe só retoma conversa em que a própria Amanda já falou (nas últimas 12 h); as demais são da equipe.
   if (naFilaDaEquipe && !history.some((m) => eDaAmanda(m) && Date.now() - +new Date(m.createdAt) < 12 * 3600 * 1000)) {
     return skip('conversa da fila da equipe que não é da Amanda');
   }
@@ -251,6 +265,7 @@ async function processar(ev: MessageReceivedEvent) {
     else turns.push({ role, content });
   }
   while (turns[0]?.role === 'assistant') turns.shift();
+  while (respostaDaAnterior && turns[turns.length - 1]?.role === 'assistant') turns.pop();
   if (turns.length === 0 || turns[turns.length - 1].role !== 'user') return skip('sem turno do paciente para responder');
 
   // A Amanda já respondeu nesta conversa? (mensagem de saída que carrega o título da Amanda)
@@ -432,5 +447,8 @@ async function processar(ev: MessageReceivedEvent) {
       text: withTitle(text),
       clientMessageId: `agente-receptivo-${ev.messageId}`,
     });
+  }
+  } finally {
+    await trava.soltar();
   }
 }
