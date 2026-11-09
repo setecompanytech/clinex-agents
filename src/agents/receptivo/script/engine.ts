@@ -548,6 +548,8 @@ const querTudoDoCombo = (t: string) => /\b(todos|todas)\b|\btudo\b(?!\s+(bem|cer
 const COMBO_QUAL = /\b(qual|quais|que)\b.*\b(agendando|marcando|reservando)\b|\b(agendando|marcando|reservando) (o )?(que|qual|quais)\b/;
 /** Marca do texto que informa as unidades (a dúvida "quais unidades?" não repete o que já foi dito). */
 const MARCA_UNIDADES = 'Tenho sim!';
+/** O paciente perguntou se a clínica TEM/FAZ ("tem ginecologista?", "vocês fazem exame de fezes?"): aí sim cabe "Tenho sim!" / "Fazemos sim!". */
+const PERGUNTOU_SE_TEM = /\b(tem|tens|teria|existe|faz|fazem|feito|feitos|realiza\w*|atende|atendem)\b/;
 /** Onde e com quem: "Tenho sim! No Guamá com a Dra. Giovanna e a Dra. Ebenezaide, e no Telégrafo com a Dra. Ebenezaide." Os nomes saem com Dr./Dra. */
 function textoUnidades(sv: Servico, modo: 'resposta' | 'duvida', abertura = MARCA_UNIDADES): string {
   const exib = nomesExib(sv.unidades.flatMap((u) => [...(u.profissionais ?? []), ...(u.porServico ?? []).flatMap((x) => x.profissionais)]));
@@ -583,7 +585,8 @@ const ORC_DESISTIR = /\b(cancela\w*|deixa (pra la|assim|quieto)|esquece|nao quer
 const ORC_COMBO = /\bcombo\b|\bcheck ?-?up\b/;
 /** Palavras que sozinhas NÃO são nome de exame ("são vários", "segue o pedido", "esses mesmos"). */
 const SO_CONVERSA_EXAMES = new Set(('sao varios varias alguns algumas uns umas todos todas esses esse essas essa mesmo mesma isso estes estas aqui segue seguem anexo foto pedido medico medica exames exame quero queria preciso fazer mais tambem dois duas tres alguma coisa tudo uma bateria rotina estou precisando geral gerais completo completos completa completas sugira sugere sugerir sugestao sugestoes indique indica indicar recomenda recomende recomendar quais principais procurados vendidos combo combos voces fazem '
-  + 'ola bom dia tarde noite obrigado obrigada favor pode ser claro sim nao ok certo ta tudo bem sei lembro nome nomes escrever mandar manda mando enviar envio enviei lista tenho vou ver depois agora hoje amanha laboratorio laboratoriais sangue coleta orcamento valor valores quanto custa total soma').split(' '));
+  + 'ola bom dia tarde noite obrigado obrigada favor pode ser claro sim nao ok certo ta tudo bem sei lembro nome nomes escrever mandar manda mando enviar envio enviei lista tenho vou ver depois agora hoje amanha laboratorio laboratoriais sangue coleta orcamento valor valores quanto custa total soma ' +
+  'mas porem gostaria gostava saber desses dessas destes destas daquele daquela deles delas eles elas primeiro primeira depois antes avaliacao solicitar solicitou pedir pediu vai vou ver olhar consulta consultas medico medica doutor doutora tambem ainda so apenas preco precos qual quais como onde quando').split(' '));
 /** "Me sugira uns exames", "quais os principais exames", "uma bateria de exames", "exames de rotina": quer sugestão (sem citar nenhum exame pelo nome). */
 export const querSugestaoDeExames = (t: string, texto: string) => {
   const pede = /\b(sugir\w*|suger\w*|sugest\w*|indi(ca|que)\w*|recomend\w*|principais|mais (procurad|vendid)\w*|quais)\b/.test(t) && /\b(exames?|laborat\w*|sangue)\b/.test(t);
@@ -851,7 +854,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
       case 'medicos':
       case 'unidades': {
         if (!sv) return faq === 'unidades' && nomesUnFaq.length ? `Temos as unidades ${nomesUnFaq.join(' e ')}.` : '';
-        if (reply.includes(MARCA_UNIDADES)) return '';
+        if (reply.includes(MARCA_UNIDADES) || sv.unidades.every((u) => reply.includes(`o ${u.nome}`))) return '';
         return textoUnidades(sv, 'duvida');
       }
       // o que eu não sei com segurança, não invento: a equipe confirma
@@ -1448,6 +1451,13 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     }
   }
   if (!s.slot) {
+    if (s.opcoes && !s.servico && fonte.casarExames && /\b(valor|valores|preco|precos|quanto (custa|custam|fica|ficam|sai|saem|e)|custa|custam)\b/.test(t) && lerEscolha(t, s.opcoes.length) < 0) {
+      const precos = await fonte.casarExames(s.opcoes.map((o) => o.nome)).catch(() => undefined);
+      if (precos?.itens.length) {
+        const linhas = precos.itens.map((i) => `• ${i.nome}: ${precoDoItem(i)}`).join('\n');
+        return dir(dizer(`Os valores são:\n${linhas}\nSe quiser agendar algum deles, é só me dizer qual.`));
+      }
+    }
     if (s.opcoes && !s.servico) {
       const idx = lerEscolha(t, s.opcoes.length);
       let escolhida: { id: string; nome: string } | undefined = s.opcoes[idx];
@@ -1535,6 +1545,10 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
   if (!s.servico) {
     if (s.opcoes) {
       const lista = s.opcoes.map((o, i) => `${i + 1}. ${o.nome}`).join('\n');
+      // perguntou se a clínica faz ("na clínica também é feito exame de fezes?"): responde como gente e pergunta qual; a lista só vem se ele não souber
+      if (!s.opcoesTexto && !base.opcoes && s.opcoes.length > 1 && PERGUNTOU_SE_TEM.test(t) && (/\?/.test(texto) || /^(faz|fazem|tem|voces)\b/.test(t))) {
+        return out(comAbertura(`${/\b(tem|tens|teria|existe)\b/.test(t) ? 'Tem sim' : 'Fazemos sim'}! Qual você precisa? Se tiver o pedido médico, pode me mandar a foto que eu vejo pra você.`));
+      }
       if (s.opcoesTexto) return out(comAbertura(`${s.opcoesTexto.intro}\n${lista}\n${s.opcoesTexto.pergunta}`));
       return out(comAbertura(`Achei estas opções:\n${lista}\nQual delas você precisa?${s.opcoes.length >= 5 ? ' Se não for nenhuma dessas me diz o nome completo.' : ''}`));
     }
@@ -1695,7 +1709,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     s.unidadesInformadas = true;
     // "Tenho sim! No Guamá com a Dra. Giovanna e a Dra. Ebenezaide, e no Telégrafo com a Dra. Ebenezaide. A consulta é R$ 150,00."
     // se ele já escolheu a unidade, fala só dela
-    partes.push(`${textoUnidades(s.unidade ? { ...sv, unidades: [s.unidade] } : sv, aviso ? 'duvida' : 'resposta', s.combo ? 'Beleza!' : MARCA_UNIDADES)}${sv.precoTexto ? ` ${sv.precoTexto}` : ''}`);
+    partes.push(`${textoUnidades(s.unidade ? { ...sv, unidades: [s.unidade] } : sv, aviso ? 'duvida' : 'resposta', s.combo ? 'Beleza!' : PERGUNTOU_SE_TEM.test(t) ? MARCA_UNIDADES : /\?|\b(quais|qual|quando|onde)\b/.test(t) ? 'Claro!' : pick(['Beleza!', 'Certo!', 'Perfeito!'], n))}${sv.precoTexto ? ` ${sv.precoTexto}` : ''}`);
     // combo: o que está incluso (e que o retorno não custa), em mensagem separada, logo depois do preço
     if (sv.detalhe) partes.push(`\n${sv.detalhe}`);
     // orientação cadastrada para o atendimento (ex.: restrição de idade, preparo): avisa já aqui, em mensagem separada, antes de ele escolher o horário

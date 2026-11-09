@@ -267,7 +267,7 @@ confere('11 mensagem depois do fim não regrava', nPost('/agendamentos') === 1, 
 // 12) o paciente manda "isso" e "pra amanhã" quase juntos: o resumo de unidades e médicos NÃO pode sumir
 reset({ ocupados: 0 });
 r = await responder([['quero agendar ginecologista'], ['isso', 'pra amanhã']], ctx, fonteClinilink) as any;
-confere('12 mensagens juntas: mostra o resumo e, como ele já disse o dia, os horários desse dia nas duas unidades (sem perguntar a unidade antes)', /Tenho sim!/.test(r.reply) && /Guamá com a Dra\./.test(r.reply) && /Telégrafo com a Dra\./.test(r.reply) && /^1\. Guamá, /m.test(r.reply) && /^2\. Telégrafo, /m.test(r.reply) && !/Qual dos dois/.test(r.reply), r.reply.replace(/\n/g, ' | '));
+confere('12 mensagens juntas: mostra o resumo e, como ele já disse o dia, os horários desse dia nas duas unidades (sem perguntar a unidade antes)', /(?:Tenho sim|Claro|Beleza|Certo|Perfeito)!/.test(r.reply) && /Guamá com a Dra\./.test(r.reply) && /Telégrafo com a Dra\./.test(r.reply) && /^1\. Guamá, /m.test(r.reply) && /^2\. Telégrafo, /m.test(r.reply) && !/Qual dos dois/.test(r.reply), r.reply.replace(/\n/g, ' | '));
 confere('12 guardou o "amanhã" que ele já tinha dito', r.state.data === dia(1), String(r.state.data));
 
 // 13) "oi" + pedido juntos: a saudação não pode se perder
@@ -463,6 +463,19 @@ confere('Q6 "tchau, até sexta": despede', /Tenha um ótimo dia/.test(q.reply), 
   confere('RL1 Clinilink respondeu 429 duas vezes: ela tenta de novo e segue o atendimento (não chama a equipe)', !r429.handoff && !/dificuldade pra consultar/.test(r429.reply), r429.reply.replace(/\n/g, ' | ').slice(0, 160));
   (globalThis as any).__recusa429 = 0; _limparCache();
 }
+{
+  const cxH = { now: new Date(), nome: 'Jonaia', tz: 'America/Belem' };
+  const rD: any = await responder([['oi'], ['quero agendar ginecologista'], ['sim'], ['quais são os dias da consulta?']], cxH, fonteClinilink);
+  confere('HU1 "quais são os dias?" não abre com "Tenho sim!"', !/Tenho sim/.test(rD.reply), rD.reply.replace(/\n/g, ' | ').slice(0, 140));
+  const rT: any = await responder([['oi'], ['vocês tem ginecologista?']], cxH, fonteClinilink);
+  confere('HU2 "vocês tem ginecologista?" segue com a confirmação normal', !rT.handoff, rT.reply.slice(0, 100));
+  const rF: any = await responder([['oi'], ['na clínica também é feito teste?']], cxH, fonteClinilink);
+  confere('HU3 "também é feito teste rápido?": responde e pergunta qual, sem despejar a lista', /^(?:Oi[^\n]*\n)?Fazemos sim! Qual você precisa\?/.test(rF.reply) && !/\n1\./.test(rF.reply) && (rF.state.opcoes?.length ?? 0) > 1, rF.reply.replace(/\n/g, ' | ').slice(0, 160));
+  const rF2: any = await responder([['oi'], ['na clínica também é feito teste?'], ['não sei, quais vocês fazem?']], cxH, fonteClinilink);
+  const rV: any = await responder([['oi'], ['quero fazer teste'], ['gostaria de saber os valores desses exames']], cxH, fonteClinilink);
+  confere('HU5 lista na tela + "valores desses exames": responde o valor de cada um (sem colocar nenhum no orçamento)', /^Os valores são:/.test(rV.reply) && /R\$/.test(rV.reply) && !rV.state.orcamento && (rV.state.opcoes?.length ?? 0) > 1, rV.reply.replace(/\n/g, ' | ').slice(0, 160));
+  confere('HU4 "não sei, quais vocês fazem?": aí mostra a lista', /\n1\./.test(rF2.reply), rF2.reply.replace(/\n/g, ' | ').slice(0, 160));
+}
 q = await pos('confirmado', [['obrigado', 'era só isso']]);
 confere('Q4 "obrigado" + "era só isso" juntos: só a despedida', /Tenha um ótimo dia/.test(q.reply), q.reply);
 q = await pos('encerrou', [['obrigado']]);
@@ -601,7 +614,7 @@ confere('D1 doutor que não existe: diz que não achou e pede mais um dado (NÃO
 // D2) o atendimento inteiro com a profissional escolhida: só a agenda dela, e a reserva vai com o id dela
 posts.length = 0;
 r = await dd(['Quero agendar uma consulta com a dra Rebecca', 'sim']);
-confere('D2 depois do "sim": mostra só as unidades e os horários dela, sem repetir o nome', /Tenho sim! No Guamá\./.test(r.reply) && !/No Guamá com a Dra\. Rebecca/.test(r.reply) && /Consegui estes aqui/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 260));
+confere('D2 depois do "sim": mostra só as unidades e os horários dela, sem repetir o nome', /(?:Tenho sim|Claro|Beleza|Certo|Perfeito)! No Guamá\./.test(r.reply) && !/No Guamá com a Dra\. Rebecca/.test(r.reply) && /Consegui estes aqui/.test(r.reply), r.reply.replace(/\n/g, ' | ').slice(0, 260));
 confere('D2 os horários oferecidos são os dela (Rebecca) e o preço aparece', /A consulta é R\$ 100,00/.test(r.reply), '');
 r = await dd(['Quero agendar uma consulta com a dra Rebecca', 'sim', '1', 'na recepção', '52998224725', 'sim']);
 const agD = posts.find((x) => x.rota.endsWith('/agendamentos'))?.corpo;
@@ -907,7 +920,7 @@ o = await turnosDe(['oi, quero marcar uma consulta']);
 confere('O7 quer marcar uma consulta e não disse qual: mostra as consultas com agenda (não pergunta no escuro)', /Estas são as consultas mais procuradas que tenho com agenda:/.test(o.reply) && /1\. Consulta/.test(o.reply) && /Qual delas você precisa\? Se for outra, me diz o nome\./.test(o.reply) && !/Hmm|Não peguei/.test(o.reply) && !o.handoff && Boolean(o.state.opcoes?.length), o.reply.replace(/\n/g, ' | '));
 
 o = await turnosDe(['oi', 'quero agendar ginecologista', 'sim']);
-confere('O8 médicos com Dr./Dra. e "Tenho sim!" ao informar as unidades', /Tenho sim! No Guamá com a Dra\. Medica e a Dra\. Liduina, e no Telégrafo com a Dra\. Medica e a Dra\. Liduina\./.test(o.reply) && /A consulta é R\$ 100,00\./.test(o.reply) && /Qual dos dois fica melhor pra você\?/.test(o.reply), o.reply.replace(/\n/g, ' | ').slice(0, 260));
+confere('O8 médicos com Dr./Dra. e "Tenho sim!" ao informar as unidades', /(?:Tenho sim|Claro|Beleza|Certo|Perfeito)! No Guamá com a Dra\. Medica e a Dra\. Liduina, e no Telégrafo com a Dra\. Medica e a Dra\. Liduina\./.test(o.reply) && /A consulta é R\$ 100,00\./.test(o.reply) && /Qual dos dois fica melhor pra você\?/.test(o.reply), o.reply.replace(/\n/g, ' | ').slice(0, 260));
 o = await turnosDe(['oi', 'quero agendar ginecologista', 'sim', 'guama', '1']);
 confere('O8 o resumo não traz "Fechado" nem "Combinado" e já vem o pedido dos dados do paciente', /me manda por favor os dados do paciente/.test(o.reply) && !/Fechado|Combinado/.test(o.reply), o.reply.replace(/\n/g, ' | ').slice(-260));
 
@@ -1102,7 +1115,7 @@ confere('CF4 pagou só uma parte: mostra quanto foi pago no pix e que o restante
 // orientação cadastrada (preparo) vem antes de escolher o horário E na confirmação
 reset({ ocupados: 0 });
 cf = await turnosDe(['oi', 'quero fazer um teste ergometrico', 'sim']);
-confere('CF5 serviço com orientação cadastrada: avisa já na informação das unidades, em mensagem separada (antes de escolher o horário)', /Tenho sim!/.test(cf.reply) && /\n\nUma orientação importante pra esse atendimento: NO MÁXIMO ATÉ 70 ANOS(\n|$)/.test(cf.reply), cf.reply.replace(/\n/g, ' | ').slice(0, 260));
+confere('CF5 serviço com orientação cadastrada: avisa já na informação das unidades, em mensagem separada (antes de escolher o horário)', /(?:Tenho sim|Claro|Beleza|Certo|Perfeito)!/.test(cf.reply) && /\n\nUma orientação importante pra esse atendimento: NO MÁXIMO ATÉ 70 ANOS(\n|$)/.test(cf.reply), cf.reply.replace(/\n/g, ' | ').slice(0, 260));
 cf = await turnosDe(['oi', 'quero fazer um teste ergometrico', 'sim', 'guama amanhã', 'na recepção', '52998224725', 'sim']);
 confere('CF5 e repete a orientação na confirmação (mensagem própria entre o modelo e a sugestão)', cf.reply.split(/\n\n/).length === 4 && /^Uma orientação importante pro seu atendimento: NO MÁXIMO ATÉ 70 ANOS$/.test(cf.reply.split(/\n\n/)[2]) && /Procedimento: TESTE ERGOMETRICO - /.test(cf.reply), cf.reply.split(/\n\n/).map((x: string) => x.slice(0, 40)).join(' | '));
 cf = await turnosDe(['oi', 'quero agendar ginecologista', 'sim', 'guama']);
@@ -1154,10 +1167,10 @@ cf = await turnosDe(['oi', 'quero agendar ginecologista', 'sim', 'quando tem age
 confere('AG7 dizer só o dia com a lista mista: mostra os horários desse dia nas unidades (cada item com a unidade)', cf.state.data === dia(1) && /^\d\. (Guamá|Telégrafo), /m.test(cf.reply) && cf.state.listaMista === true && cf.state.lista?.every((x: any) => x.ymd === dia(1)), cf.reply.replace(/\n/g, ' | ').slice(0, 200));
 // sem sinal de agenda, o jeito de antes: resume as unidades e pergunta qual
 cf = await turnosDe(['oi', 'quero agendar ginecologista', 'sim']);
-confere('AG8 sem pedir agenda nem dia: resume unidades e preço e pergunta a unidade (sem lista)', /Tenho sim!/.test(cf.reply) && /Qual dos dois fica melhor/.test(cf.reply) && !/Consegui estes aqui/.test(cf.reply), cf.reply.replace(/\n/g, ' | ').slice(0, 160));
+confere('AG8 sem pedir agenda nem dia: resume unidades e preço e pergunta a unidade (sem lista)', /(?:Tenho sim|Claro|Beleza|Certo|Perfeito)!/.test(cf.reply) && /Qual dos dois fica melhor/.test(cf.reply) && !/Consegui estes aqui/.test(cf.reply), cf.reply.replace(/\n/g, ' | ').slice(0, 160));
 // pediu a agenda já no primeiro pedido: depois do "sim", resumo + horários na mesma resposta (duas mensagens)
 cf = await turnosDe(['oi', 'tem agenda de ginecologista?', 'sim']);
-confere('AG9 "tem agenda de ginecologista?" + "sim": resumo (unidades e preço) e a lista de horários na MESMA resposta, em mensagens separadas', /^Tenho sim!/.test(cf.reply) && cf.reply.split(/\n\n/).length >= 2 && /\n\nConsegui estes aqui:\n1\. /.test(cf.reply) && !/Qual dos dois/.test(cf.reply), cf.reply.split(/\n\n/).map((x: string) => x.slice(0, 30)).join(' | '));
+confere('AG9 "tem agenda de ginecologista?" + "sim": resumo (unidades e preço) e a lista de horários na MESMA resposta, em mensagens separadas', /^(?:Tenho sim|Claro|Beleza|Certo|Perfeito)!/.test(cf.reply) && cf.reply.split(/\n\n/).length >= 2 && /\n\nConsegui estes aqui:\n1\. /.test(cf.reply) && !/Qual dos dois/.test(cf.reply), cf.reply.split(/\n\n/).map((x: string) => x.slice(0, 30)).join(' | '));
 // uma unidade só: o horário já vinha junto (não muda)
 // lista na tela e "quando tem agenda?": repete a lista (não vira "outras opções") e não chama a camada de contexto
 chamadasCtx = [];
