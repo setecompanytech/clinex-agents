@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { achar, autenticarConta, normalizaEmail, registrarAcesso, MODULOS, type Modulo, type Perfil } from './usuarios.js';
-import { estado } from '../crm/banco.js';
+import { atualizarContas, estado } from '../crm/banco.js';
 
 /**
  * Acesso ao painel (/painel, CRM, Agente receptivo). Duas formas de entrar:
@@ -112,7 +112,11 @@ function negarPagina(res: Response, status: number, titulo: string, texto: strin
   res.status(status).type('text/html; charset=utf-8').send(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${titulo}</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/painel/ds.css"></head><body style="display:grid;place-items:center;min-height:100vh;padding:24px"><main style="max-width:460px;text-align:center"><h1 style="font:800 28px/1.2 system-ui;margin-bottom:10px">${titulo}</h1><p class="mut" style="margin-bottom:22px">${texto}</p><a class="btn pri" href="/painel">Voltar ao painel</a></main></body></html>`);
 }
 
+/** Antes de checar a sessão, atualiza as contas a partir do banco (só na Vercel; fora dela não faz nada). */
 export function painelAuth(req: Request, res: Response, next: NextFunction) {
+  atualizarContas().then(() => verificarAcesso(req, res, next), () => verificarAcesso(req, res, next));
+}
+function verificarAcesso(req: Request, res: Response, next: NextFunction) {
   res.setHeader('Cache-Control', 'private, no-store');
   res.setHeader('X-Robots-Tag', 'noindex, nofollow');
   res.setHeader('X-Content-Type-Options', 'nosniff');

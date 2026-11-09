@@ -1,7 +1,7 @@
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { criarToken, definirCookie, entrar, exigirAdmin, exigirModulo, limparCookie, LoginError, painelAuth, sessaoDaRequisicao, sessaoPublica } from '../lib/painel-auth.js';
 import { alterarMinhaSenha, atualizar, criar, listar, MODULOS, PERFIS, redefinirSenha, remover, UsuarioError } from '../lib/usuarios.js';
-import { estado } from '../crm/banco.js';
+import { atualizarContas, estado } from '../crm/banco.js';
 import { tabelasAusentes } from '../crm/persistencia.js';
 import { DS_CSP, paginaModulo } from '../ui/ds.js';
 import { montarGeral } from './dados.js';
@@ -32,10 +32,11 @@ router.get('/login', (req, res) => {
 });
 router.get('/login.js', (_req, res) => js(res, loginJs));
 
-router.post('/login', (req, res) => {
+router.post('/login', async (req, res) => {
   semCache(res);
   if (!mesmaOrigem(req)) return void res.status(403).json({ erro: 'origem', mensagem: 'Pedido de outra origem recusado.' });
   const b = (req.body ?? {}) as { login?: unknown; senha?: unknown; next?: unknown };
+  await atualizarContas(0).catch(() => undefined);
   try {
     const { token } = entrar(req, b.login, b.senha);
     definirCookie(req, res, token);
@@ -75,7 +76,8 @@ function erroUsuario(res: Response, e: unknown) {
 }
 const admin = [painelAuth, exigirAdmin];
 
-router.get('/api/usuarios', ...admin, (req, res) => {
+router.get('/api/usuarios', ...admin, async (req, res) => {
+  await atualizarContas(0).catch(() => undefined); // a lista de contas sempre sai fresca do banco
   res.json({ usuarios: listar(), perfis: PERFIS, modulos: MODULOS, eu: req.sessao!.id, tabelaAusente: tabelasAusentes().includes('painel_usuarios') });
 });
 router.post('/api/usuarios', ...admin, (req, res) => {

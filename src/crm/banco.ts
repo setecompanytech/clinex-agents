@@ -6,7 +6,7 @@ import { regrasPadrao, type LogAuto, type Regra } from './automacoes.js';
 import { funisPadrao } from './pipeline/regras.js';
 import type { EstadoFunis } from './pipeline/tipos.js';
 import { supabaseConfigurado } from '../lib/supabase.js';
-import { agendarGravacao, carregarDoBanco, erroDoBanco, esvaziar } from './persistencia.js';
+import { agendarGravacao, atualizarUsuarios, carregarDoBanco, erroDoBanco, esvaziar } from './persistencia.js';
 
 /**
  * Armazenamento do CRM: um arquivo JSON (.data/crm.json, fora do git) mantido em memória e regravado de forma
@@ -76,6 +76,21 @@ async function carregarTudo() {
 }
 const carregado = carregarTudo();
 export const pronto = () => carregado;
+
+/** Serverless (Vercel): várias instâncias e a função congela depois da resposta, então a memória não é confiável entre requisições. */
+const SERVERLESS_COM_BANCO = () => Boolean(process.env.VERCEL) && USA_BANCO && !bancoIndisponivel;
+
+/** Antes de olhar as contas (login, sessão, lista): traz do banco as que outras instâncias criaram. */
+export async function atualizarContas(ttlMs?: number) {
+  if (!SERVERLESS_COM_BANCO()) return;
+  await carregado;
+  if (!bancoIndisponivel) await atualizarUsuarios(estado, ttlMs);
+}
+
+/** Na resposta de uma escrita, espera o Supabase confirmar antes de devolver ao navegador (a função pode congelar logo depois). */
+export async function gravarAntesDeResponder() {
+  if (SERVERLESS_COM_BANCO()) await esvaziar(estado);
+}
 
 /** Chame depois de qualquer mudança em `estado`. */
 export function salvar() {
