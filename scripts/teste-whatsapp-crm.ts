@@ -15,7 +15,7 @@ const servidor = createServer((req, res) => {
     pedidos.push({ metodo: req.method!, caminho: req.url!, corpo: txt ? JSON.parse(txt) : undefined, auth: req.headers.authorization });
     const j = (s: number, o: unknown) => res.writeHead(s, { 'content-type': 'application/json' }).end(JSON.stringify(o));
     if (req.url === '/api/company') return j(200, { companies: [{ _id: 'emp1' }] });
-    if (req.url === '/api/channels/company/emp1') return j(200, { channels: [{ _id: 'wabaOff', type: 'whatsCloud', status: 'disconnected' }, { _id: 'canal1', type: 'whatsCloud', status: 'connected' }] });
+    if (req.url === '/api/channels/company/emp1') return j(200, { success: true, count: 3, data: [{ _id: 'wabaOff', type: 'whatsCloud', status: 'disconnected' }, { _id: 'outro', type: 'evolution', status: 'connected' }, { _id: 'canal1', type: 'whatsCloud', status: 'connected', name: 'Canal Principal' }] }); // formato real da Inovstar
     if (req.url === '/api/whatsapp/send/template') return modo === 'ok' ? j(200, { data: { whatsappMessageId: 'wamid.ABC' } }) : j(400, { error: { message: 'Template recuperacao_2 does not exist in pt_BR' } });
     j(404, {});
   });

@@ -172,13 +172,16 @@ export function paraE164Brasil(bruto: string): string | null {
 
 let canalCache: { id: string; ate: number } | null = null;
 /** O WhatsApp conectado da empresa. A Inovstar não tem canal fixo no nosso lado: acha o primeiro `whatsCloud` conectado e guarda por 10 minutos. */
-async function canalWhatsApp(): Promise<string> {
+export async function canalWhatsApp(): Promise<string> {
   if (canalCache && canalCache.ate > Date.now()) return canalCache.id;
   const emp = await request<{ companies?: { _id: string }[]; data?: { companies?: { _id: string }[] } }>('GET', '/company');
   const empresa = (emp.companies ?? emp.data?.companies ?? [])[0]?._id;
   if (!empresa) throw new Error('A Inovstar não devolveu nenhuma empresa para este token.');
-  const cs = await request<{ channels?: { _id: string; type: string; status: string }[]; data?: { channels?: { _id: string; type: string; status: string }[] } }>('GET', `/channels/company/${empresa}`);
-  const canal = (cs.channels ?? cs.data?.channels ?? []).find((c) => c.type === 'whatsCloud' && c.status === 'connected');
+  type Canal = { _id: string; type: string; status: string };
+  // resposta real: { success, count, data: [canais] }
+  const cs = await request<{ channels?: Canal[]; data?: Canal[] | { channels?: Canal[] } }>('GET', `/channels/company/${empresa}`);
+  const lista = Array.isArray(cs.data) ? cs.data : cs.channels ?? cs.data?.channels ?? [];
+  const canal = lista.find((c) => c.type === 'whatsCloud' && c.status === 'connected');
   if (!canal) throw new Error('Nenhum canal de WhatsApp conectado na Inovstar.');
   canalCache = { id: canal._id, ate: Date.now() + 10 * 60_000 };
   return canal._id;
