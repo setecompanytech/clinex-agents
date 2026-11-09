@@ -476,6 +476,12 @@ confere('Q6 "tchau, até sexta": despede', /Tenha um ótimo dia/.test(q.reply), 
   confere('HU5 lista na tela + "valores desses exames": responde o valor de cada um (sem colocar nenhum no orçamento)', /^Os valores são:/.test(rV.reply) && /R\$/.test(rV.reply) && !rV.state.orcamento && (rV.state.opcoes?.length ?? 0) > 1, rV.reply.replace(/\n/g, ' | ').slice(0, 160));
   confere('HU4 "não sei, quais vocês fazem?": aí mostra a lista', /\n1\./.test(rF2.reply), rF2.reply.replace(/\n/g, ' | ').slice(0, 160));
 }
+{
+  // caso real (Matheus): com os horários do exame na tela, "marque pra dra X" (que também atende outro serviço) mantém o exame
+  reset({ ocupados: 0 });
+  const rM: any = await responder([['oi'], ['quero marcar teste ergometrico'], ['sim'], ['guama'], ['entao marque pra dra Medica']], { now: new Date(), nome: 'Matheus', tz: 'America/Belem' }, fonteClinilink);
+  confere('MD1 "marque pra dra Medica" com o exame na tela: continua no Teste Ergométrico (não troca para a consulta dela)', rM.state.servico?.nome === 'Teste Ergometrico' && !/Ginecologia/.test(rM.reply), `${rM.state.servico?.nome} | ${rM.reply.replace(/\n/g, ' | ').slice(0, 150)}`);
+}
 q = await pos('confirmado', [['obrigado', 'era só isso']]);
 confere('Q4 "obrigado" + "era só isso" juntos: só a despedida', /Tenha um ótimo dia/.test(q.reply), q.reply);
 q = await pos('encerrou', [['obrigado']]);

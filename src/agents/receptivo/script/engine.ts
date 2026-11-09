@@ -1510,7 +1510,10 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
       // o serviço já foi entendido mas ainda não confirmado, e ele diz outra coisa ("e a transvaginal?", "na verdade quero ergo"): é outro pedido
       const nomesUnBusca = await fonte.nomesUnidades();
       const soConversa = semNomeDeServico(t, nomesUnBusca); // só pagamento/dia/unidade/conversa: sem nome de serviço, não procura
-      const emConfirmacao = Boolean(s.servico) && (!s.servicoConfirmado || !s.slot) && !SIM.test(t) && !semNomeDeServico(t.replace(NAO, ''), nomesUnBusca) && lerEscolha(t, s.lista?.length ?? 0) < 0; // "não" sozinho não traz serviço novo; "não, quero ergo" traz
+      // citou um médico que atende o serviço JÁ escolhido ("marque pra dra Camila" com a lista do USG na tela): é o mesmo serviço com ela, não procura outro
+      // (caso real: virou "consulta Clínico Geral com a Dra. Camila" no meio do agendamento de um USG obstétrico)
+      const citaMedicoDoServico = Boolean(s.servico) && (s.servico?.unidades ?? []).some((u) => (u.profissionais ?? []).some((p) => { const pn = norm(p).split(/\s+/)[0]; return pn.length >= 3 && new RegExp(`\\b${pn}\\b`).test(t); }));
+      const emConfirmacao = Boolean(s.servico) && !citaMedicoDoServico && (!s.servicoConfirmado || !s.slot) && !SIM.test(t) && !semNomeDeServico(t.replace(NAO, ''), nomesUnBusca) && lerEscolha(t, s.lista?.length ?? 0) < 0; // "não" sozinho não traz serviço novo; "não, quero ergo" traz
       const buscar = (!s.servico || emConfirmacao) && (!faq || (faq === 'preco' && !s.servico)) && !soSaudacao && !soConversa;
       let achou = await fonte.descobrir(tBusca, buscar, Boolean(s.servico) || Boolean(faq)); // com serviço em andamento ou dúvida na frase: só serviço claramente citado
       // as regras não acharam, ou só concluíram "não achei" com as palavras soltas da frase ("coisa", "pé"): o intérprete entende o pedido primeiro
