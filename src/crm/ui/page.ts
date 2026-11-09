@@ -170,7 +170,7 @@ ${parte_modais}
 .texto{color:var(--ink2);margin-bottom:10px}
 .linha-b{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.linha-b.centro{justify-content:center}
 .falta{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12.5px;color:var(--ink2)}.ok-t{color:var(--ok);font-weight:600}
-.proximo .seg{margin-bottom:8px}
+.proximo .seg{margin-bottom:8px}.fila-ac{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end}
 .hist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:0}
 .ev{display:flex;gap:12px;padding:10px 0;position:relative}
 .ev::before{content:"";position:absolute;left:13px;top:34px;bottom:-4px;width:1px;background:var(--line)}
