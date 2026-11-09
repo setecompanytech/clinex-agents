@@ -300,6 +300,8 @@ const cpfDoTexto = (t: string): string | undefined => {
   return d.length === 11 ? d : undefined;
 };
 
+/** Rótulo no começo da linha ("Nome:", "Data de nascimento:", "Telefone:", "CPF -"): sai antes de ler o dado (é como muita gente responde a lista). */
+const ROTULO_DE_DADO = /^\s*[•*\-]?\s*(nome( completo)?( do paciente)?|paciente|data( de)? nasc(imento)?|nascimento|dt\.?\s*nasc\.?|nasc\.?|telefone( para contato| de contato)?|tel\.?|fone|celular|cel\.?|whats(app)?|contato|n[uú]mero|cpf)\s*[:=\-]\s*/i;
 /** Um CPF válido na mensagem (o telefone do paciente também tem 11 dígitos e pode vir antes dele). */
 const cpfValidoDoTexto = (t: string, telefone?: string): string | undefined => {
   const tel = telefone?.replace(/\D/g, '');
@@ -1153,7 +1155,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
   const capturaDados = (txt: string, tn: string): { algo: boolean; telefone: boolean } => {
     const c = s.cad; const r = { algo: false, telefone: false };
     // tudo numa mensagem só, um dado por linha ou separado por vírgula
-    for (const parte of txt.split(/[\n;,]+/).map((x) => x.trim()).filter(Boolean)) {
+    for (const parte of txt.split(/[\n;,]+/).map((x) => x.trim().replace(ROTULO_DE_DADO, '').trim()).filter(Boolean)) {
     if (!c.nascimento) { const nsc = lerNascimento(parte); if (nsc) { c.nascimento = nsc; r.algo = true; } }
     const dig = parte.replace(/\D/g, '');
     const soNumero = /^[\d\s().+-]+$/.test(parte);

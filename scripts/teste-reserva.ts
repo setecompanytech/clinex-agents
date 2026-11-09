@@ -1230,6 +1230,14 @@ confere('EN6 o texto do endereço nunca passa pelo GPT (aprovado palavra por pal
   d = await responder([...turnosBase, ['Armando Salbé Nassar\n20/10/1993\n91987182910\n01533383260']], ctx, fonteClinilink);
   const cadAr = posts.find((x) => x.rota.endsWith('/pacientes'))?.corpo;
   confere('NC10 um dado por linha: lê nome, nascimento, telefone e CPF e agenda', d.reply.startsWith(MARCA_AGENDADO) && cadAr?.nome === 'Armando Salbé Nassar' && cadAr?.dataNascimento === '1993-10-20' && cadAr?.telefone === '91987182910' && cadAr?.cpf === '01533383260', `${d.reply.slice(0, 70)} | ${JSON.stringify({ ...cadAr, cpf: cadAr?.cpf ? 'ok' : 'sem' })}`);
+  // dados com rótulo, numa mensagem só (caso real da Aline): "Nome: ...", "Data de nascimento: ...", "Telefone: ..."
+  reset({ ocupados: 0 });
+  d = await responder([...turnosBase, ['Nome: Aline de Sousa Silva Guajajara\nData de nascimento: 30/01/1991\nTelefone: (99)98530-1835']], ctx, fonteClinilink);
+  const cadRot = posts.find((x) => x.rota.endsWith('/pacientes'))?.corpo;
+  confere('NC15 dados com rótulo ("Nome:", "Data de nascimento:", "Telefone:"): lê os três e agenda', d.reply.startsWith(MARCA_AGENDADO) && cadRot?.nome === 'Aline de Sousa Silva Guajajara' && cadRot?.dataNascimento === '1991-01-30' && cadRot?.telefone === '99985301835', `${d.reply.replace(/\n/g, ' | ').slice(0, 100)} | ${JSON.stringify(cadRot)}`);
+  reset({ ocupados: 0 });
+  d = await responder([...turnosBase, ['- Nome completo: Maria Teste Lima'], ['Nascimento - 02/09/1977'], ['Celular: 91 98199-0849']], ctx, fonteClinilink);
+  confere('NC16 rótulos variados, um por mensagem: agenda', d.reply.startsWith(MARCA_AGENDADO), d.reply.replace(/\n/g, ' | ').slice(0, 120));
   const pixBase = [...base0.map((x: string) => [x]), ['Joana Teste Souza, 10/05/1990, 91981990849']];
   reset({ ocupados: 0 });
   d = await responder([...pixBase, ['pix']], ctx, fonteClinilink);
