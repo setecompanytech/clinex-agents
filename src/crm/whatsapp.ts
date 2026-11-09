@@ -83,7 +83,7 @@ export type PedidoEnvio = { modelo: string; parametros?: unknown; passo?: string
 /** Valida tudo, envia e registra o contato no lead. Lança DisparoError com mensagem pronta para a tela. */
 export async function enviarModelo(estado: Estado, l: Lead, p: PedidoEnvio, agora: Date): Promise<{ lead: Lead; mensagemId?: string }> {
   if (!disparoAtivo()) throw new DisparoError('desligado', 'O disparo de WhatsApp está desligado neste ambiente (DISPARO_WHATSAPP).', 403);
-  if (!env.inovstarToken) throw new DisparoError('config', 'INOVSTAR_TOKEN não está configurado.', 503);
+  if (!env.inovstarToken) throw new DisparoError('config', 'O envio de WhatsApp não está configurado neste ambiente.', 503);
   const modelo = MODELOS.find((m) => m.id === p.modelo);
   if (!modelo) throw new DisparoError('modelo', 'Modelo desconhecido.', 400);
   const params = Array.isArray(p.parametros) ? p.parametros.map((x) => String(x ?? '').trim()) : [];
@@ -102,7 +102,7 @@ export async function enviarModelo(estado: Estado, l: Lead, p: PedidoEnvio, agor
 
   let r: { messageId?: string };
   try { r = await sendTemplate({ to, nome: modelo.id, idioma: modelo.idioma, parametros: params, clientMessageId: `clinex-crm-${l.id}-${modelo.id}-${agora.getTime()}` }); }
-  catch (e) { throw new DisparoError('inovstar', `A Inovstar recusou o envio: ${motivoDaInovstar(e as Error)}`, 502); }
+  catch (e) { throw new DisparoError('envio', `O WhatsApp recusou o envio: ${motivoDaInovstar(e as Error)}`, 502); }
 
   // o envio já aconteceu: se o registro do contato não couber nas regras, vira nota (nunca fica sem rastro)
   const texto = `${marca} (${modelo.idioma}) para ${mascarar(to)}${r.messageId ? ` · id ${r.messageId}` : ''}\n${modelo.variaveis.map((v, i) => `${v.rotulo}: ${params[i]}`).join('\n')}`;

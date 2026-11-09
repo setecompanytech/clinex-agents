@@ -126,7 +126,7 @@ await teste('limite diário: depois de N envios no dia, recusa', async () => {
 await teste('a Inovstar recusa (modelo ou idioma errado): erro claro e NADA é registrado no lead', async () => {
   modo = 'recusa';
   const e = novo(); const l = lead(e, 'MARIA SILVA', '91988887777');
-  await assert.rejects(() => enviarModelo(e, l, { modelo: 'recuperacao_2', parametros: P3 }, AGORA), (x: Error) => x instanceof DisparoError && x.codigo === 'inovstar' && x.message.includes('does not exist in pt_BR'));
+  await assert.rejects(() => enviarModelo(e, l, { modelo: 'recuperacao_2', parametros: P3 }, AGORA), (x: Error) => x instanceof DisparoError && x.codigo === 'envio' && x.message.includes('does not exist in pt_BR'));
   assert.equal(l.eventos.filter((x) => x.tipo === 'contato').length, 0); assert.equal(enviadosHoje(e, AGORA), 0);
   modo = 'ok';
 });

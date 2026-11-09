@@ -143,7 +143,7 @@ function composer(l, px) {
   else if (p.id === 'primeiro' && l.valor > M.LIMITES.ligacaoAcimaDe) avisos.push(h('p', { class: 'callout', text: 'Orçamento acima de ' + brl(M.LIMITES.ligacaoAcimaDe) + ': faça o WhatsApp e também a ligação.' }));
   if (desabilitado) avisos.push(h('p', { class: 'callout', text: 'Este passo vence em ' + dBRfull(px.vence) + '. Dá para ver a mensagem, mas o contato só pode ser registrado a partir desse dia.' }));
   if (p.id === 'noshow') avisos.push(h('p', { class: 'callout aviso', text: 'No show é a 1ª prioridade do dia. Envie a mensagem 10 para reagendar.' }));
-  var enviarWA = botao('Enviar pela Inovstar', '', function () { dialogoModeloWA(l, px); }, 'bolt');
+  var enviarWA = botao('Enviar WhatsApp', '', function () { dialogoModeloWA(l, px); }, 'bolt');
   var acoes = h('div', { class: 'linha-b' }, [
     botao('Copiar', '', function () { copiar(area.value); }, 'copy'),
     botao('Abrir no WhatsApp', '', function () { window.open(linkWA(l.telefone, area.value), '_blank', 'noopener'); }, 'message'),
@@ -290,7 +290,7 @@ function dialogoContato(l, px, texto) {
   etapa1();
 }
 
-/* Envio pelo WhatsApp (Inovstar) com modelo aprovado: o que vai para o paciente aparece e é conferido antes de enviar. */
+/* Envio pelo WhatsApp com modelo aprovado: o que vai para o paciente aparece e é conferido antes de enviar. */
 function dialogoModeloWA(l, px) {
   var m = modal({ titulo: 'Enviar WhatsApp por modelo', sub: l.nome + ' · final ' + String(l.telefone).slice(-4), largura: 560, classe: 'peq', corpo: h('div', null, h('p', { class: 'mut', text: 'Carregando os modelos…' })) });
   api('GET', '/whatsapp/modelos?lead=' + encodeURIComponent(l.id)).then(function (r) {
