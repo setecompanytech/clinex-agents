@@ -25,7 +25,7 @@ ${parte_menu}
 .lcard{border:1px solid var(--line);border-radius:14px;padding:11px 12px;background:var(--solid);cursor:pointer;display:flex;flex-direction:column;gap:8px;transition:transform .12s,border-color .12s}
 .lcard:hover{transform:translateY(-2px);border-color:var(--line2)}
 .lcard.p1{border-color:color-mix(in srgb,var(--acc) 60%,transparent);box-shadow:0 0 18px color-mix(in srgb,var(--acc) 22%,transparent)}
-.lcard{min-width:0;overflow:hidden}
+.lcard{min-width:0;overflow:hidden;flex-shrink:0}
 .lcard-t{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px}.lcard-t>div{min-width:105px;flex:1}.lcard-t b,.lcard-t small{display:block;overflow-wrap:break-word}.lcard-t small{color:var(--mut);font-size:11.5px;margin-top:1px}
 .lcard-v{font:700 12.5px ui-monospace,Consolas,monospace;color:var(--ink2);white-space:nowrap;margin-left:auto}
 .lcard-tags{display:flex;flex-wrap:wrap;gap:6px}.lcard-tags>*{max-width:100%}.lcard-tags .pill{white-space:normal;line-height:1.3;text-align:left}.lcard-a{color:var(--mut);font-size:11.5px}
