@@ -216,8 +216,9 @@ async function processar(ev: MessageReceivedEvent) {
   if (ev.isAssigned) return skip(`atendimento já tem atendente humano ${ev.attendanceInfo}`);
   // Conversa parada na fila da equipe, sem atendente: se foi a Amanda que transferiu, ela pode retomar quando o paciente volta a escrever.
   let naFilaDaEquipe = Boolean(env.humanSectorId) && ev.sectorId === env.humanSectorId;
-  // A primeira mensagem de uma conversa nova chega SEM setor (ou na fila da equipe) e o assistente da Inovstar transfere para o setor da IA
-  // logo DEPOIS. A transferência não gera aviso para nós: espera o tempo normal e confere no histórico se a conversa foi para a IA.
+  // A primeira mensagem de uma conversa nova chega SEM setor (ou na fila da equipe) e só depois o assistente da Inovstar transfere para a IA.
+  // A transferência não gera aviso e a API não informa o setor nem mostra as mensagens de sistema: a conversa NOVA (ninguém respondeu nada
+  // neste atendimento) é da IA, regra da clínica. Ela mesma garante o setor da IA e responde; conversa em que a equipe já falou fica com a equipe.
   const podeTerIdoPraIA = Boolean(env.agentSectorId) && (!ev.sectorId || naFilaDaEquipe);
   if (env.agentSectorId && ev.sectorId !== env.agentSectorId && !naFilaDaEquipe && !podeTerIdoPraIA) return skip(`setor ${ev.sectorId} != setor da IA`);
 
@@ -236,8 +237,18 @@ async function processar(ev: MessageReceivedEvent) {
   if (podeTerIdoPraIA) {
     const iMsg = history.findIndex((m) => m._id === ev.messageId);
     const foiPraIA = history.some((m, i) => i > iMsg && m.type === 'system' && TRANSF_PARA_IA.test(m.text ?? ''));
-    if (foiPraIA) { naFilaDaEquipe = false; evt('ignorado', { motivo: 'mensagem chegou antes da transferência para o setor da IA: a Amanda responde' }); }
-    else if (!ev.sectorId) return skip(`setor ${ev.sectorId} != setor da IA`);
+    // conversa nova = atendimento recém-aberto: ninguém respondeu, ninguém da equipe transferiu e todas as mensagens do paciente são dos últimos 3 minutos
+    const conversaNova = !history.some((m) => m.direction === 'out' && m.status !== 'whisper' && !m.isWhisper)
+      && !history.some((m) => m.type === 'system' && /transferid[oa].*por/i.test(m.text ?? '') && !/assistente|api/i.test(m.text ?? ''))
+      && history.filter((m) => m.direction === 'in' && m.type !== 'system').every((m) => Date.now() - +new Date(m.createdAt) < 3 * 60_000);
+    if (foiPraIA || conversaNova) {
+      if (!foiPraIA && env.autoReply) {
+        try { await transferToSector(ev.attendanceId, env.agentSectorId, 'Conversa nova: atendimento pela Amanda (IA)'); }
+        catch (e) { if (!/já está neste setor|Informe um setor diferente/i.test((e as Error).message)) return skip(`não consegui passar a conversa nova para o setor da IA: ${(e as Error).message.slice(0, 120)}`); }
+      }
+      naFilaDaEquipe = false;
+      evt('ignorado', { motivo: 'conversa nova sem setor (ou na fila da equipe): a Amanda assume' });
+    } else if (!ev.sectorId) return skip(`setor ${ev.sectorId} != setor da IA`);
   }
 
   const titulosAmanda = [env.agentTitle, ...env.agentTitlesAntigos].map((t) => t.replace(/\*/g, '').trim()).filter(Boolean);

@@ -303,16 +303,29 @@ confere('D3 aviso de uma jornada que já terminou (antes do fim) não conta', mo
     historico = [pA, sisA]; chamadas = []; leituras = 0;
     await handleIncoming(evento(pA, ''));
     confere('TI1 mensagem antes da transferência para o setor da IA: ela responde', textos(chamadas).length >= 1, JSON.stringify(textos(chamadas)).slice(0, 120));
+    // a API não mostra a transferência: conversa NOVA (ninguém respondeu) sem setor é da IA; ela garante o setor da IA e responde
     loja.clear();
-    const pB = eu('Olá, bom dia');
+    n = 990; // mensagem de agora (atendimento recém-aberto)
+    const pB = eu('Olá');
     historico = [pB]; chamadas = []; leituras = 0;
     await handleIncoming(evento(pB, ''));
-    confere('TI2 sem setor e sem transferência para a IA: não responde', textos(chamadas).length === 0, '');
+    confere('TI2 conversa nova sem setor (caso real da Ana Carolina): passa para o setor da IA e responde', textos(chamadas).length >= 1 && transfs(chamadas).some((x) => x.corpo.toSectorId === 'AI'), JSON.stringify(textos(chamadas)).slice(0, 100));
+    loja.clear();
+    n = 993;
+    const pN = eu('Olá');
+    historico = [pN]; chamadas = []; leituras = 0;
+    await handleIncoming(evento(pN, 'HUM'));
+    confere('TI3 conversa nova na fila da equipe ("Principal"), sem ninguém ter respondido: a Amanda assume', textos(chamadas).length >= 1, JSON.stringify(textos(chamadas)).slice(0, 100));
     loja.clear();
     const pC = eu('quero agendar cardiologia');
-    historico = [pC, sistema('Transferido pelo Assistente para o setor Agendamento de consulta')]; chamadas = []; leituras = 0;
-    await handleIncoming(evento(pC, ''));
-    confere('TI3 transferida para outro setor (da equipe): não responde', textos(chamadas).length === 0, '');
+    historico = [pC, msg('out', 'text', { body: '*_Ana Luiza:_*\nOlá, seja bem-vindo(a)!' }), eu('pode ser amanhã')]; chamadas = []; leituras = 0;
+    await handleIncoming(evento(historico[2], ''));
+    confere('TI4 conversa em que a equipe já respondeu: não entra', textos(chamadas).length === 0 && transfs(chamadas).length === 0, '');
+    loja.clear();
+    const pD = eu('oi');
+    historico = [pD, msg('out', 'text', { body: '*_Rafaela:_*\nOi, tudo bem?' }), eu('quero marcar')]; chamadas = []; leituras = 0;
+    await handleIncoming(evento(historico[2], 'HUM'));
+    confere('TI5 fila da equipe com conversa da equipe: não entra', textos(chamadas).length === 0 && transfs(chamadas).length === 0, '');
   }
   // L) sem lista de números: quem está no setor da IA é atendido; fora dele, ninguém; sem setor configurado, ninguém
   envAg.redisUrl = redisUrl; envAg.redisToken = 'tok';
