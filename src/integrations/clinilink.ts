@@ -50,13 +50,20 @@ async function get<T>(path: string, params: Record<string, string | undefined>):
   const url = `${env.clinilinkBase}${path}${qs.size ? `?${qs}` : ''}`;
   const paramsLog = Object.fromEntries(Object.entries(params).filter(([, v]) => v).map(([k, v]) => [k, /^(unidadeId|procedimentoId|profissionalId)$/.test(k) ? String(v).slice(0, 8) : v]));
   let ultimo: unknown;
-  for (let tentativa = 0; tentativa < 2; tentativa++) {
+  let recusas = 0; // 429 (excesso de consultas, cortado pelo Render): espera e tenta de novo, até 3 vezes, antes de desistir
+  for (let tentativa = 0; tentativa < 2 + recusas; tentativa++) {
     const t0 = Date.now();
     try {
       const res = await fetch(url, { headers: { 'x-api-key': env.clinilinkKey }, signal: AbortSignal.timeout(25000) });
       const body: any = await res.json().catch(() => null);
       evt('clinilink', { metodo: 'GET', caminho: path, params: paramsLog, status: res.status, ms: Date.now() - t0, tentativa: tentativa + 1, ok: Boolean(res.ok && body?.ok), erro: body?.erro, retorno: res.ok ? resumo(path, body) : undefined });
       if (res.ok && body?.ok) return body as T;
+      if (res.status === 429 && recusas < 3) {
+        recusas++;
+        const pedido = Number(res.headers.get('retry-after'));
+        await new Promise((ok) => setTimeout(ok, Number.isFinite(pedido) && pedido > 0 ? Math.min(pedido * 1000, 5000) : 1500 * recusas));
+        continue;
+      }
       if (res.status < 500) throw new ClinilinkError(body?.mensagem ?? `Clinilink ${path} -> ${res.status}`, res.status);
       ultimo = new ClinilinkError(`Clinilink ${path} -> ${res.status}`, res.status);
     } catch (e) {

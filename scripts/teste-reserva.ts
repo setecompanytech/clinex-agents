@@ -130,6 +130,7 @@ const server = http.createServer((req, res) => {
         ].filter((x) => (!un || x.un.includes(un)) && (!proc || x.procs.includes(proc))).map(({ id, nome, especialidade }) => ({ id, nome, especialidade, conselho: 'CRM' }));
         return j(200, { ok: true, profissionais: todos });
       }
+      if (p.endsWith('/agenda') && ((globalThis as any).__recusa429 ?? 0) > 0) { (globalThis as any).__recusa429--; return j(429, { ok: false, erro: 'MUITAS_REQUISICOES' }); } // o Render corta rajadas
       if (p.endsWith('/agenda')) { (globalThis as any).__procAgenda = url.searchParams.get('procedimentoId') ?? ''; }
       if (p.endsWith('/agenda')) return j(200, { ok: true, horarios: horarios(url.searchParams.get('dataInicial') ?? '0000', url.searchParams.get('dataFinal') ?? '9999', url.searchParams.get('profissionalId') ?? undefined, url.searchParams.get('unidadeId') ?? undefined) });
       if (p.endsWith('/agendamentos')) {
@@ -453,6 +454,14 @@ confere('Q6 "tchau, até sexta": despede', /Tenha um ótimo dia/.test(q.reply), 
   const rU2: any = await responder([['oi'], ['Quero uma ultrassom', 'Pra quando tem?']], cxU, fonteClinilink);
   confere('FA2 "Quero uma ultrassom" + "Pra quando tem?": não chama a equipe', !rU2.handoff, rU2.reply.slice(0, 200));
   (globalThis as any).__avulsosCombos = false;
+}
+{
+  // o Clinilink recusou por excesso de consultas (429): ela espera e tenta de novo antes de desistir
+  const { _limparCache } = await import('../src/integrations/clinilink.js');
+  _limparCache(); (globalThis as any).__recusa429 = 2;
+  const r429: any = await responder([['oi'], ['quero agendar ginecologista'], ['sim'], ['guama amanhã']], { now: new Date(), nome: 'Matheus', tz: 'America/Belem' }, fonteClinilink);
+  confere('RL1 Clinilink respondeu 429 duas vezes: ela tenta de novo e segue o atendimento (não chama a equipe)', !r429.handoff && !/dificuldade pra consultar/.test(r429.reply), r429.reply.replace(/\n/g, ' | ').slice(0, 160));
+  (globalThis as any).__recusa429 = 0; _limparCache();
 }
 q = await pos('confirmado', [['obrigado', 'era só isso']]);
 confere('Q4 "obrigado" + "era só isso" juntos: só a despedida', /Tenha um ótimo dia/.test(q.reply), q.reply);
