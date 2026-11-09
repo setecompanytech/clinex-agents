@@ -61,7 +61,7 @@ var DS_MODULOS = {
   },
   receptivo: {
     tag: 'AGENTE', nome: 'Agente receptivo', rota: '/painel/receptivo',
-    itens: [['fluxo', 'Fluxo da Amanda', 'flow', '/painel/receptivo'], ['bi', 'Inteligência (BI)', 'chart', '/painel/receptivo/bi'], ['logs', 'Logs', 'list', '/painel/receptivo/logs']]
+    itens: [['fluxo', 'Fluxo da Amanda', 'flow', '/painel/receptivo'], ['conversas', 'Conversas', 'message', '/painel/receptivo/bi/conversas'], ['bi', 'Inteligência (BI)', 'chart', '/painel/receptivo/bi'], ['logs', 'Logs', 'list', '/painel/receptivo/logs']]
   }
 };
 var DS_ATALHOS = [['Início', 'home', '/painel'], ['CRM', 'funil', '/painel/crm', 'crm'], ['Agente receptivo', 'bolt', '/painel/receptivo', 'agente'], ['Usuários', 'users', '/painel/usuarios', 'admin'], ['Agente Clinex', 'spark', '/painel/assistente', 'crm']];

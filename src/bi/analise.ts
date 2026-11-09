@@ -79,7 +79,7 @@ type Conversa = {
 
 const ABANDONO_MS = 2 * HORA;
 
-function construirConversas(eventos: Evento[], ate: number): Conversa[] {
+export function construirConversas(eventos: Evento[], ate: number): Conversa[] {
   const porId = new Map<string, Evento[]>();
   for (const e of eventos) if (e.atendimento) (porId.get(e.atendimento) ?? porId.set(e.atendimento, []).get(e.atendimento)!).push(e);
   const out: Conversa[] = [];

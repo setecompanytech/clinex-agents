@@ -4,7 +4,7 @@ import { paginaModulo } from '../../ui/ds.js';
 // continuam sendo montados por app.ts e charts.ts; aqui ficam só o HTML e o visual, sobre os mesmos tokens do CRM.
 // REGRAS deste arquivo: sem crases, sem "dollar-chave" e sem barra invertida dentro dos textos (são template literals).
 
-const css = `
+export const css = `
 /* os nomes de cor do BI são aliases dos tokens do design system */
 :root{
   --surface:var(--solid); --surface-2:var(--solid2); --ink-2:var(--ink2); --muted:var(--mut); --accent:var(--acc);

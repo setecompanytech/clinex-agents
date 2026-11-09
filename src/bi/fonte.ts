@@ -1,6 +1,6 @@
 import { buscarEventos, logsConfigurado, type Evento } from '../logs/vercel.js';
 import { estadoArmazem, eventosDaMemoria } from './armazem.js';
-import { analisar } from './analise.js';
+import { analisar, construirConversas } from './analise.js';
 import { gerarDemo } from './demo.js';
 
 const HORA = 3_600_000;
@@ -48,4 +48,25 @@ export async function montarBI(periodo: Periodo, fonte: Fonte, agora = Date.now(
   }
   const r = await eventosReais(agora, janela);
   return analisar(r.todos, { ...opcoes, fonte: { tipo: 'real', origens: r.origens, avisos: r.avisos } });
+}
+
+/**
+ * Monitor de conversas: TODAS as conversas do período (até 500, as mais recentes primeiro), só com o resumo de cada uma.
+ * Com `id`, devolve a conversa inteira (as mensagens dos dois lados) para o detalhe.
+ */
+export async function montarMonitor(periodo: Periodo, id?: string, agora = Date.now()) {
+  const janela = PERIODOS[periodo];
+  const r = await eventosReais(agora, janela);
+  const convs = construirConversas(r.todos, agora).filter((c) => c.fim >= agora - janela).sort((a, b) => b.fim - a.fim);
+  if (id) {
+    const c = convs.find((x) => x.id === id);
+    return { turnos: (c?.turnos ?? []).slice(0, 80).map((t) => ({ t: t.t, paciente: t.paciente.slice(0, 600), amanda: t.amanda.slice(0, 900), etapa: t.etapa, transferiu: t.transferiu, motivo: t.motivo?.slice(0, 240) })) };
+  }
+  return {
+    geradoEm: agora, periodo, origens: r.origens, avisos: r.avisos, total: convs.length,
+    conversas: convs.slice(0, 500).map((c) => ({
+      id: c.id, curto: c.id.slice(-6), inicio: c.inicio, fim: c.fim, status: c.status, mensagens: c.turnos.length, etapa: c.etapaFinal,
+      motivo: c.motivo?.slice(0, 200), problemas: c.problemas, simulada: c.simulada, primeira: (c.turnos.find((t) => t.paciente)?.paciente ?? '').slice(0, 140),
+    })),
+  };
 }

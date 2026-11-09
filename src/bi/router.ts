@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { exigirModulo, painelAuth } from '../lib/painel-auth.js';
-import { montarBI, PERIODOS, type Fonte, type Periodo } from './fonte.js';
+import { montarBI, montarMonitor, PERIODOS, type Fonte, type Periodo } from './fonte.js';
+import { monitorJs, paginaMonitor } from './ui/monitor.js';
 import { base } from './ui/base.js';
 import { charts } from './ui/charts.js';
 import { app } from './ui/app.js';
@@ -26,6 +27,24 @@ router.get('/', (_req, res) => {
 });
 
 router.get('/app.js', (_req, res) => res.type('application/javascript; charset=utf-8').send(clientJs));
+
+// monitor de conversas: /painel/receptivo/bi/conversas (a tela), conversas.js e conversas.json?periodo=24h|7d|30d[&id=atendimento]
+const monitorClienteJs = `(function () {\n'use strict';\n${base}\n${monitorJs}\n})();`;
+router.get('/conversas', (_req, res) => {
+  res.setHeader('Content-Security-Policy', CSP);
+  res.type('text/html; charset=utf-8').send(paginaMonitor);
+});
+router.get('/conversas.js', (_req, res) => res.type('application/javascript; charset=utf-8').send(monitorClienteJs));
+router.get('/conversas.json', async (req, res) => {
+  const periodo = (String(req.query.periodo) in PERIODOS ? String(req.query.periodo) : '24h') as Periodo;
+  const id = typeof req.query.id === 'string' && req.query.id.length <= 80 ? req.query.id : undefined;
+  try {
+    res.json(await montarMonitor(periodo, id));
+  } catch (e) {
+    console.error('[bi] falha ao montar o monitor:', (e as Error).message);
+    res.status(500).json({ erro: 'Falha ao montar a lista de conversas.' });
+  }
+});
 
 router.get('/dados.json', async (req, res) => {
   const periodo = (String(req.query.periodo) in PERIODOS ? String(req.query.periodo) : '7d') as Periodo;
