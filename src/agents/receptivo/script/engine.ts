@@ -291,6 +291,10 @@ function semNomeDeServico(t: string, unidades: string[] = []): boolean {
 }
 /** Palavras curtas e do dia a dia que mostram que a frase NÃO é um nome ("um minuto", "já vou mandar", "pode ser esse"). */
 const NAO_E_NOME = new Set('sim nao nem pix oi ola bom boa dia tchau vou vai ver tem ter pra por que cpf rg telefone nascimento nome completo data whatsapp numero esse essa este esta isso aguarda aguarde espera espere minuto minutinho momento segundo mande mando enviar enviei mandei comprovante paciente tambem ainda agora entao tudo obrigado obrigada favor claro certo combinado pode ser fica ficar manda mandar segue seguindo aqui consulta consultas exame exames medico medica doutor doutora resultado resultados laudo atestado receita orcamento valor preco quanto custa marcar agendar remarcar cancelar sangue urina fezes hemograma ultrassom usg raio tomografia ressonancia mamografia eletrocardiograma ecocardiograma endoscopia colonoscopia papanicolau preventivo realizar fazer'.split(' '));
+/** Sobrenomes comuns que também são palavras do dia a dia ("Nascimento", "Dias", "Segundo"): depois do primeiro nome, são nome. */
+const SOBRENOME_COMUM = new Set(['nascimento', 'dias', 'segundo', 'domingos', 'primo', 'claro', 'certo', 'bom']);
+/** Uma palavra do texto que mostra que ele não é um nome (a primeira palavra nunca é sobrenome). */
+const palavraNaoENome = (w: string, i: number, leve = false) => { const x = norm(w); if (i > 0 && SOBRENOME_COMUM.has(x)) return false; return NAO_E_NOME.has(x) || (!leve && x.length > 3 && PALAVRAS_DE_CONVERSA.has(x)); };
 /** Orientação de preparo longa (várias linhas ou texto grande) vai como mensagem própria, do jeito que está cadastrada no Clinilink; a curta leva uma frase de abertura. */
 const preparoLongo = (p: string) => p.includes('\n') || p.length > 160;
 /** A mensagem tem cara de nome de pessoa ("Silmara Emanuele Sousa da Silva"): 2+ palavras de letras, sem palavra de conversa, de pedido ou de exame. */
@@ -298,7 +302,7 @@ function pareceNome(txt: string, tn: string): boolean {
   if (/[?\d]/.test(txt)) return false;
   const m = limparNome(txt);
   const toks = m.split(/\s+/).filter(Boolean);
-  const proibida = toks.some((w) => { const x = norm(w); return NAO_E_NOME.has(x) || (x.length > 3 && PALAVRAS_DE_CONVERSA.has(x)); });
+  const proibida = toks.some((w, i) => palavraNaoENome(w, i));
   return /^[\p{L}' ]{5,80}$/u.test(m) && toks.length >= 2 && toks.filter((w) => w.length >= 3).length >= 2 && !proibida && !SIM.test(tn) && !NAO.test(tn);
 }
 const SO_CUMPRIMENTO =/^(oi+|ola|ola+ boa|e ai|ei|bom dia|boa tarde|boa noite|teste|ola teste|agente de ia|amanda|atendimento|tudo bem\??|oie)[\s!.,?]*(teste|amanda|tudo bem\??)?[\s!.,?]*$/;
@@ -1178,7 +1182,9 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     if (!c.nome && !/[?\d]/.test(parte)) {
       const m = limparNome(parte);
       const toks = m.split(/\s+/).filter(Boolean);
-      const proibida = toks.some((w) => { const x = norm(w); return NAO_E_NOME.has(x) || (x.length > 3 && PALAVRAS_DE_CONVERSA.has(x)); });
+      // só falta o nome (ela acabou de pedir): a regra fica mais leve, para não recusar um nome de verdade
+      const soFaltaNome = Boolean(c.nascimento && c.telefone);
+      const proibida = toks.some((w, i) => palavraNaoENome(w, i, soFaltaNome));
       if (/^[\p{L}' ]{5,80}$/u.test(m) && toks.length >= 2 && toks.filter((w) => w.length >= 3).length >= 2 && !proibida && !SIM.test(norm(parte)) && !NAO.test(norm(parte)) && !faq) { c.nome = titulo(m); r.algo = true; }
     }
     }

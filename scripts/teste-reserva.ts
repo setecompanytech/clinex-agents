@@ -1257,6 +1257,18 @@ confere('EN6 o texto do endereço nunca passa pelo GPT (aprovado palavra por pal
   reset({ ocupados: 0 });
   d = await responder([...turnosBase, ['Nome: Aline de Sousa Silva Guajajara\nData de nascimento: 30/01/1991\nTelefone: (99)98530-1835']], ctx, fonteClinilink);
   const cadRot = posts.find((x) => x.rota.endsWith('/pacientes'))?.corpo;
+  let dn: any;
+  for (const nomeT of ['Natália Vieitas do Nascimento', 'Maria Dias Costa', 'João Pedro Silva Segundo']) {
+    reset({ ocupados: 0 });
+    dn = await responder([...turnosBase, [`${nomeT}\n11/10/2002\n91985908374`]], ctx, fonteClinilink);
+    confere(`NC19 sobrenome que também é palavra comum ("${nomeT}"): aceita o nome e agenda`, dn.reply.startsWith(MARCA_AGENDADO) && posts.find((x) => x.rota.endsWith('/pacientes'))?.corpo.nome === nomeT, dn.reply.replace(/\n/g, ' | ').slice(0, 100));
+  }
+  reset({ ocupados: 0 });
+  dn = await responder([...turnosBase, ['11/10/2002', '91985908374'], ['Natália Vieitas do Nascimento']], ctx, fonteClinilink);
+  confere('NC20 só faltava o nome e ela mandou o nome sozinho: aceita', dn.reply.startsWith(MARCA_AGENDADO), dn.reply.slice(0, 90));
+  reset({ ocupados: 0 });
+  dn = await responder([...turnosBase, ['11/10/2002', '91985908374'], ['já mandei']], ctx, fonteClinilink);
+  confere('NC21 "já mandei" não vira nome', !dn.state.cad?.nome, JSON.stringify(dn.state.cad?.nome));
   {
     // hoje só sobrou um horário no fim do dia numa agenda que começou de manhã: é TARDE (nunca "hoje de manhã a partir das 23h50"), e exame não pega
     (globalThis as any).__hojeTarde = true;
