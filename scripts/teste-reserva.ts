@@ -1250,6 +1250,14 @@ confere('EN6 o texto do endereço nunca passa pelo GPT (aprovado palavra por pal
   reset({ ocupados: 0 });
   d = await responder([...turnosBase, ['- Nome completo: Maria Teste Lima'], ['Nascimento - 02/09/1977'], ['Celular: 91 98199-0849']], ctx, fonteClinilink);
   confere('NC16 rótulos variados, um por mensagem: agenda', d.reply.startsWith(MARCA_AGENDADO), d.reply.replace(/\n/g, ' | ').slice(0, 120));
+  // "pode ser esse número": o WhatsApp vem com 55; o cadastro vai sem o código do país (caso real: a tela do Clinilink mostrava "(55) 99985-3018")
+  reset({ ocupados: 0 });
+  d = await responder([...turnosBase, ['Aline de Sousa Silva Guajajara'], ['30/01/1991'], ['pode ser esse número mesmo']], ctx, fonteClinilink);
+  const cad55 = posts.find((x) => x.rota.endsWith('/pacientes'))?.corpo;
+  confere('NC17 telefone do WhatsApp vai para o cadastro sem o 55', d.reply.startsWith(MARCA_AGENDADO) && cad55?.telefone === '91999990000', `${d.reply.slice(0, 60)} | ${cad55?.telefone}`);
+  reset({ ocupados: 0 });
+  d = await responder([...turnosBase, ['Joana Teste Souza', '10/05/1990', '+55 91 98199-0849']], ctx, fonteClinilink);
+  confere('NC18 telefone digitado com +55 vai sem o código do país', posts.find((x) => x.rota.endsWith('/pacientes'))?.corpo.telefone === '91981990849', String(posts.find((x) => x.rota.endsWith('/pacientes'))?.corpo.telefone));
   const pixBase = [...base0.map((x: string) => [x]), ['Joana Teste Souza, 10/05/1990, 91981990849']];
   reset({ ocupados: 0 });
   d = await responder([...pixBase, ['pix']], ctx, fonteClinilink);
@@ -1279,7 +1287,7 @@ confere('EN6 o texto do endereço nunca passa pelo GPT (aprovado palavra por pal
   // frases de conversa NÃO viram nome
   reset({ ocupados: 0 });
   d = await responder([...turnosBase, ['um minuto, já vou mandar'], ['pode ser esse número mesmo']], ctx, fonteClinilink);
-  confere('DD5 "um minuto, já vou mandar" não vira nome e "pode ser esse número mesmo" usa o WhatsApp como telefone', !d.state.cad?.nome && d.state.cad?.telefone === String(ctx.telefone).replace(/\D/g, ''), JSON.stringify(d.state.cad));
+  confere('DD5 "um minuto, já vou mandar" não vira nome e "pode ser esse número mesmo" usa o WhatsApp como telefone', !d.state.cad?.nome && d.state.cad?.telefone === '91999990000', JSON.stringify(d.state.cad));
   // nome fora das listas: o sexo não é chutado, ela pergunta
   reset({ ocupados: 0 });
   d = await responder([...turnosBase, ['Xuxu Teste Souza', '91981990849', '12345678909'], ['10/05/1990']], ctx, fonteClinilink);

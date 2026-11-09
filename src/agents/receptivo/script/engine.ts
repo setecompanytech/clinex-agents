@@ -300,6 +300,8 @@ const cpfDoTexto = (t: string): string | undefined => {
   return d.length === 11 ? d : undefined;
 };
 
+/** Telefone como o Clinilink guarda: só DDD + número. O WhatsApp chega com o código do país (55), que a tela do Clinilink lia como DDD ("(55) 99985-3018"). */
+export const soTelefone = (v: string) => { let d = v.replace(/\D/g, ''); if (d.length >= 12 && d.startsWith('55')) d = d.slice(2); return d; };
 /** Rótulo no começo da linha ("Nome:", "Data de nascimento:", "Telefone:", "CPF -"): sai antes de ler o dado (é como muita gente responde a lista). */
 const ROTULO_DE_DADO = /^\s*[•*\-]?\s*(nome( completo)?( do paciente)?|paciente|data( de)? nasc(imento)?|nascimento|dt\.?\s*nasc\.?|nasc\.?|telefone( para contato| de contato)?|tel\.?|fone|celular|cel\.?|whats(app)?|contato|n[uú]mero|cpf)\s*[:=\-]\s*/i;
 /** Um CPF válido na mensagem (o telefone do paciente também tem 11 dígitos e pode vir antes dele). */
@@ -1162,7 +1164,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     const dig = parte.replace(/\D/g, '');
     const soNumero = /^[\d\s().+-]+$/.test(parte);
     // telefone: 10 a 13 dígitos; CPF válido não conta; 11 dígitos só como celular (o terceiro dígito é 9) ou se já falta só ele
-    if (!c.telefone && soNumero && dig.length >= 10 && dig.length <= 13 && !(dig.length === 11 && cpfValido(dig)) && (dig.length !== 11 || dig[2] === '9' || Boolean(s.cpf))) { c.telefone = dig; r.algo = true; r.telefone = true; }
+    if (!c.telefone && soNumero && dig.length >= 10 && dig.length <= 13 && !(dig.length === 11 && cpfValido(dig)) && (dig.length !== 11 || dig[2] === '9' || Boolean(s.cpf))) { c.telefone = soTelefone(dig); r.algo = true; r.telefone = true; }
     if (!c.nome && !/[?\d]/.test(parte)) {
       const m = limparNome(parte);
       const toks = m.split(/\s+/).filter(Boolean);
@@ -1878,7 +1880,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     if (cpf) { s.cpf = cpf; if (s.paciente === null) s.paciente = undefined; } // já tinha procurado sem achar: procura de novo pelo CPF
   }
   // "pode ser esse número": usa o WhatsApp do paciente
-  if (emDados && !s.cpf && s.cad.pediuTelefone && !s.cad.telefone && ctx.telefone && !anotado.telefone && (SIM.test(t) || /\b(esse|este|mesmo|whats\w*)\b/.test(t))) s.cad.telefone = ctx.telefone.replace(/\D/g, '');
+  if (emDados && !s.cpf && s.cad.pediuTelefone && !s.cad.telefone && ctx.telefone && !anotado.telefone && (SIM.test(t) || /\b(esse|este|mesmo|whats\w*)\b/.test(t))) s.cad.telefone = soTelefone(ctx.telefone);
   const faltaDados = (): string[] => [!s.cad.nome ? 'o nome completo do paciente' : '', !s.cad.nascimento ? 'a data de nascimento' : '', !s.cad.telefone ? 'o telefone com DDD' : ''].filter(Boolean);
   if (!s.cpf && s.paciente === undefined && faltaDados().length) {
     if (primeiraVezNoSlot) { s.cad.pediuTelefone = true; dizResumo(); return dizer(`\n${PEDIDO_DADOS}`); } // confirma o que ficou combinado e já pede os dados
@@ -1920,7 +1922,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
   if (s.paciente === null) {
     const c = s.cad;
     // "pode ser esse número": usa o WhatsApp do paciente
-    if (!acabouDeConsultar && c.pediuTelefone && !c.telefone && ctx.telefone && !anotado.telefone && (SIM.test(t) || /\b(esse|este|mesmo|whats\w*)\b/.test(t))) c.telefone = ctx.telefone.replace(/\D/g, '');
+    if (!acabouDeConsultar && c.pediuTelefone && !c.telefone && ctx.telefone && !anotado.telefone && (SIM.test(t) || /\b(esse|este|mesmo|whats\w*)\b/.test(t))) c.telefone = soTelefone(ctx.telefone);
     if (c.nome && !c.sexo) {
       await prepararGeneros([c.nome]);
       const g = generoConfirmado(c.nome);

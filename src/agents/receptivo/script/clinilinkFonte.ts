@@ -1,3 +1,4 @@
+import { soTelefone } from './engine.js';
 import { criarAgendamento, criarPaciente, demandaPorProcedimento, getPacientePorCpf, getPacientesPorTelefone, listAgendamentosDoDia, listAgenda, listAgendaFresca, listClinicas, listCombos, listProcedimentos, listProfissionais, type Clinica, type Combo, type Horario, type Paciente, type Procedimento } from '../../../integrations/clinilink.js';
 import { env } from '../../../lib/env.js';
 import { exibir, prepararGeneros } from '../../../lib/genero.js';
@@ -408,7 +409,7 @@ async function garantirPaciente(p: PedidoReserva): Promise<{ pacienteId: string;
   if (!pacienteId) {
     if (!p.cadastro) return { erro: { ok: false, codigo: 'SEM_DADOS', motivo: 'faltam dados do cadastro' } };
     const c = p.cadastro;
-    const r = await criarPaciente({ nome: c.nome, cpf: p.cpf, dataNascimento: c.nascimento, sexo: c.sexo, telefone: c.telefone });
+    const r = await criarPaciente({ nome: c.nome, cpf: p.cpf, dataNascimento: c.nascimento, sexo: c.sexo, telefone: c.telefone && soTelefone(c.telefone) });
     if (r.ok) { pacienteId = r.dados.paciente?.id ?? r.dados.id; cadastrou = true; }
     else if (r.codigo === 'CPF_DUPLICADO' && r.corpo?.pacienteExistente?.id) pacienteId = r.corpo.pacienteExistente.id;
     else return { erro: { ok: false, codigo: r.codigo, motivo: `cadastro recusado: ${r.mensagem || r.codigo}`, incerto: r.incerto } };
