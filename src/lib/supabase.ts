@@ -11,9 +11,10 @@ export class SupabaseError extends Error {
   constructor(public codigo: string, mensagem: string) { super(mensagem); }
 }
 
-const ESPERA_MS = 15_000;
-/** Leituras repetem em falha de rede ou tempo: na Vercel uma conexão reaproveitada pode ficar pendurada, e a nova tentativa abre outra. */
-const TENTATIVAS_LEITURA = 3;
+const ESPERA_MS = 8_000;
+/** Em falha de rede ou tempo repete (na Vercel uma conexão reaproveitada pode ficar pendurada, e a nova tentativa abre outra). Só o que é seguro repetir: leitura, apagar e gravar com upsert. Inserir sem chave (eventos) não repete, para não duplicar. */
+const TENTATIVAS = 3;
+const repetivel = (metodo: string, extra: Record<string, string>) => metodo === 'GET' || metodo === 'DELETE' || (extra.Prefer ?? '').includes('merge-duplicates');
 const PAGINA = 1000; // limite do PostgREST por resposta
 
 /** "fetch failed" sozinho não ajuda: junta o motivo real (ENOTFOUND, ECONNREFUSED...) e o endereço que foi usado. */
@@ -25,7 +26,7 @@ function detalheRede(e: unknown, u: URL): string {
 
 type Param = string | number;
 async function pedir<T>(metodo: string, tabela: string, query: Record<string, Param> = {}, corpo?: unknown, extra: Record<string, string> = {}): Promise<T> {
-  const max = metodo === 'GET' ? TENTATIVAS_LEITURA : 1;
+  const max = repetivel(metodo, extra) ? TENTATIVAS : 1;
   for (let n = 1; ; n++) {
     try { return await pedirUma<T>(metodo, tabela, query, corpo, extra); }
     catch (e) {

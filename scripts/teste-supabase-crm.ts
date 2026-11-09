@@ -12,6 +12,7 @@ type Linha = Record<string, unknown>;
 const tabelas = new Map<string, Map<string, Linha>>();
 const pedidos: { metodo: string; tabela: string; linhas: number }[] = [];
 let falhar = 0;
+let derrubar = 0; // as próximas N conexões caem sem resposta (rede instável da Vercel)
 let seq = 0;
 const reordenar = (v: unknown): unknown => (Array.isArray(v) ? v.map(reordenar) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v as Linha).sort(([a], [b]) => a.length - b.length || a.localeCompare(b)).map(([k, x]) => [k, reordenar(x)])) : v);
 const comoPostgres = (l: Linha): Linha => Object.fromEntries(Object.entries(l).map(([k, v]) => [k, typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/.test(v) ? v.replace('Z', '+00:00') : typeof v === 'object' ? reordenar(v) : v]));
@@ -37,6 +38,7 @@ const servidor = createServer((req, res) => {
   let corpo = ''; req.on('data', (d) => { corpo += d; }).on('end', () => {
     const json = corpo ? (JSON.parse(corpo) as Linha[]) : [];
     pedidos.push({ metodo: req.method!, tabela: nome, linhas: json.length });
+    if (derrubar > 0) { derrubar--; req.socket.destroy(); return; }
     if (req.headers.apikey !== 'chave-teste') { res.writeHead(401, { 'content-type': 'application/json' }).end(JSON.stringify({ message: 'Invalid API key' })); return; }
     if (falhar > 0 && req.method !== 'GET') { falhar--; res.writeHead(500, { 'content-type': 'application/json' }).end(JSON.stringify({ message: 'falha simulada' })); return; }
     const t = tab(nome);
@@ -67,7 +69,7 @@ const { funisPadrao, moverCard } = await import('../src/crm/pipeline/regras.js')
 const { ingerir, funilDestino } = await import('../src/crm/pipeline/ingestao.js');
 const { regrasPadrao } = await import('../src/crm/automacoes.js');
 const { criarLead } = await import('../src/crm/motor.js');
-const { sbFaltantes, SupabaseError } = await import('../src/lib/supabase.js');
+const { sbFaltantes, sbGravar, sbInserir, sbLer, SupabaseError } = await import('../src/lib/supabase.js');
 type Estado = import('../src/crm/banco.js').Estado;
 
 let ok = 0;
@@ -164,6 +166,17 @@ await teste('eventos do agente vão para a tabela agente_eventos e voltam pelo B
   const evs = await eventosDaMemoria(Date.now() - 60_000);
   assert.equal(evs.filter((e) => e.evt === 'webhook' || e.evt === 'resposta').length, 2, 'BI lê do banco sem duplicar');
   assert.equal(estadoArmazem().destino, 'supabase'); assert.equal(estadoArmazem().pendentes, 0);
+});
+await teste('conexão que cai: leitura e gravação com upsert repetem; inserir sem chave não repete (não duplica)', async () => {
+  const aviso = console.warn; console.warn = () => undefined;
+  try {
+    derrubar = 2; await sbGravar('t_retry', [{ id: 'a', v: 1 }], 'id');
+    assert.equal(tab('t_retry').size, 1, 'o upsert chegou depois de 2 quedas');
+    derrubar = 2; assert.equal((await sbLer('t_retry')).length, 1, 'a leitura chegou depois de 2 quedas');
+    derrubar = 1; await assert.rejects(() => sbInserir('t_log', [{ x: 1 }]), (e: Error) => e instanceof SupabaseError && e.codigo === 'rede');
+    assert.equal(tab('t_log').size, 0, 'nada foi inserido, então nada duplica');
+    derrubar = 3; await assert.rejects(() => sbGravar('t_retry', [{ id: 'b', v: 2 }], 'id'), (e: Error) => e instanceof SupabaseError, 'depois de 3 quedas desiste com erro claro');
+  } finally { console.warn = aviso; derrubar = 0; }
 });
 console.log = log;
 console.log(`${ok} testes passaram.`);
