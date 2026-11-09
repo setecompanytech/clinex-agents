@@ -63,7 +63,7 @@ export function analisarHoje(leads: Lead[], agora: Date, tarefas: Tarefa[], vist
 
   // ------------------------------------------------------------------ progresso do dia e ritmo
   const feitasHoje = eventosTodos.filter(({ e, dia }) => dia === hoje && ((e.tipo === 'contato' && e.passo) || (e.tipo === 'comparecimento') || (e.tipo === 'descarte' && !e.auto))).length;
-  const pendentes = tarefas.length;
+  const pendentes = tarefas.filter((t) => t.situacao === 'hoje').length; // só o que vence hoje; as atrasadas têm contador próprio
   const atrasadas = tarefas.filter((t) => t.situacao === 'atrasada').length;
   const { h: horaAgora, m: minAgora } = horaDe(agora);
   const restaH = horaAgora < LIMITES.janelaInicioH ? LIMITES.janelaFimH - LIMITES.janelaInicioH : horaAgora >= LIMITES.janelaFimH ? 0 : LIMITES.janelaFimH - horaAgora - minAgora / 60;

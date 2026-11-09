@@ -60,7 +60,7 @@ function heroHoje(A) {
   var passou = Math.min(1, Math.max(0, (tm.h + tm.m / 60 - M.LIMITES.janelaInicioH) / (M.LIMITES.janelaFimH - M.LIMITES.janelaInicioH)));
   var restantes = P.horasRestantes;
   var frase = [
-    b(P.pendentes + ' ' + plural(P.pendentes, 'tarefa', 'tarefas')), ' na fila', P.atrasadas ? [', ', b(P.atrasadas + ' ' + plural(P.atrasadas, 'atrasada', 'atrasadas'))] : ', todas em dia', '. ',
+    b(P.pendentes + ' ' + plural(P.pendentes, 'tarefa', 'tarefas')), ' para hoje', P.atrasadas ? [', ', b(P.atrasadas + ' ' + plural(P.atrasadas, 'atrasada', 'atrasadas'))] : ', todas em dia', '. ',
     b(brlCompacto(K.pipelineValor)), ' em andamento', K.riscoValor ? [', ', b(brlCompacto(K.riscoValor)), ' em risco'] : '', '.'
   ];
   return h('section', { class: 'hh' }, [
@@ -103,7 +103,10 @@ function linhaTarefa(t) {
 }
 function secaoFila() {
   var D = S.D;
-  var tarefas = D.tarefas.filter(function (t) { if (S.hojeAtend === 'eu' && S.eu) { var l = lead(t.leadId); return l && l.atendente === S.eu; } return true; });
+  var minhas = D.tarefas.filter(function (t) { if (S.hojeAtend === 'eu' && S.eu) { var l = lead(t.leadId); return l && l.atendente === S.eu; } return true; });
+  var nHoje = minhas.filter(function (t) { return t.situacao !== 'atrasada'; }).length, nAtr = minhas.length - nHoje;
+  var aba = S.filaAba === 'atrasadas' ? 'atrasadas' : 'hoje';
+  var tarefas = minhas.filter(function (t) { return (t.situacao === 'atrasada') === (aba === 'atrasadas'); });
   var grupos = [[1, '1º', 'No show e comparecimentos'], [2, '2º', 'Leads novos em aberto'], [3, '3º', 'Demais tarefas']];
   var LIM = 8, total = tarefas.length, cabem = S.filaTudo ? total : Math.min(total, LIM), usadas = 0;
   var corpo = grupos.map(function (g) {
@@ -118,7 +121,12 @@ function secaoFila() {
     h('button', { type: 'button', 'aria-pressed': String(S.hojeAtend === 'todos'), onclick: function () { S.hojeAtend = 'todos'; desenhar(true); }, text: 'Todos' }),
     h('button', { type: 'button', 'aria-pressed': String(S.hojeAtend === 'eu'), onclick: function () { S.hojeAtend = 'eu'; desenhar(true); }, text: 'Só os meus' })
   ]) : null;
-  return blocoCartao('Fila do dia', 'Na ordem de prioridade do guia. Clique em uma tarefa para ver a mensagem pronta.', tarefas.length ? h('div', { class: 'fila-l' }, corpo) : vazio('Nada pendente por hoje.', 'Quando um passo da cadência vencer, ele aparece aqui.'), 8, eu, 'sec-fila');
+  var abas = h('div', { class: 'seg', role: 'group', 'aria-label': 'Quais tarefas' }, [
+    h('button', { type: 'button', 'aria-pressed': String(aba === 'hoje'), onclick: function () { S.filaAba = 'hoje'; S.filaTudo = false; desenhar(true); }, text: 'Hoje (' + nHoje + ')' }),
+    h('button', { type: 'button', 'aria-pressed': String(aba === 'atrasadas'), onclick: function () { S.filaAba = 'atrasadas'; S.filaTudo = false; desenhar(true); }, text: 'Atrasadas (' + nAtr + ')' })
+  ]);
+  var vz = aba === 'hoje' ? vazio('Nada vence hoje.', nAtr ? 'Há ' + nAtr + ' ' + plural(nAtr, 'tarefa atrasada', 'tarefas atrasadas') + ' na aba Atrasadas.' : 'Quando um passo da cadência vencer, ele aparece aqui.') : vazio('Nenhuma tarefa atrasada.', 'Tudo em dia.');
+  return blocoCartao('Fila do dia', aba === 'hoje' ? 'O que vence hoje, na ordem de prioridade do guia. Clique em uma tarefa para ver a mensagem pronta.' : 'Passos que já passaram do dia combinado, os mais antigos primeiro.', tarefas.length ? h('div', { class: 'fila-l' }, corpo) : vz, 8, h('div', { class: 'fila-ac' }, [abas, eu]), 'sec-fila');
 }
 
 /* ------------------------------------------------------------------ lateral: radar enxuto e próximos dias */
