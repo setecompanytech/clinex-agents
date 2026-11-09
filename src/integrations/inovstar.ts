@@ -14,7 +14,9 @@ export type InovstarMessage = {
   isWhisper?: boolean;
   transcription?: { text: string | null; status: string };
   media?: { caption?: string | null; url?: string | null; mimeType?: string | null; filename?: string | null };
-  interactiveReply?: { title?: string | null };
+  interactiveReply?: { title?: string | null; kind?: string | null };
+  /** Mensagem respondida ("responder" do WhatsApp). type 'template' = mensagem automática da clínica (confirmação de consulta, campanha). */
+  replyTo?: { type?: string | null; template?: { name?: string | null } | null } | null;
 };
 
 export type MessageReceivedEvent = {

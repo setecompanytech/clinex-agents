@@ -234,6 +234,10 @@ async function processar(ev: MessageReceivedEvent) {
   const { messages: history } = await getHistory(ev.attendanceId, 80); // a jornada inteira (o padrão de 30 mensagens cortava o começo das conversas longas)
   const lastIn = [...history].reverse().find((m) => m.direction === 'in' && m.type !== 'system');
   if (lastIn && lastIn._id !== ev.messageId) return skip(`chegou mensagem mais nova (${lastIn._id} != ${ev.messageId}); o webhook dela responde`);
+  // Resposta a uma mensagem AUTOMÁTICA da clínica (modelo do WhatsApp: confirmação de consulta com "Confirmar/Reagendar/Cancelar", campanha):
+  // não é pedido de atendimento. A Amanda fica fora desse atendimento inteiro (e não puxa a conversa para o setor dela).
+  const modelo = history.find((m) => m.direction === 'in' && (m.replyTo?.type === 'template' || m.interactiveReply?.kind === 'template_button'));
+  if (modelo) return skip(`resposta a mensagem automática da clínica (${modelo.replyTo?.template?.name ?? modelo.interactiveReply?.kind ?? 'modelo'}): a Amanda não entra`);
   if (podeTerIdoPraIA) {
     const iMsg = history.findIndex((m) => m._id === ev.messageId);
     const foiPraIA = history.some((m, i) => i > iMsg && m.type === 'system' && TRANSF_PARA_IA.test(m.text ?? ''));

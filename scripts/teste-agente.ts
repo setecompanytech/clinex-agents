@@ -327,6 +327,21 @@ confere('D3 aviso de uma jornada que já terminou (antes do fim) não conta', mo
     await handleIncoming(evento(historico[2], 'HUM'));
     confere('TI5 fila da equipe com conversa da equipe: não entra', textos(chamadas).length === 0 && transfs(chamadas).length === 0, '');
   }
+  // TP) resposta ao botão da confirmação de consulta (modelo da clínica): a Amanda não entra, nem puxa para o setor dela
+  {
+    loja.clear();
+    n = 996;
+    const pT: any = eu('Confirmar');
+    pT.replyTo = { type: 'template', template: { name: 'confirmacao_agendamento_inovstar_2025' } };
+    pT.interactiveReply = { kind: 'template_button', title: 'Confirmar' };
+    historico = [pT]; chamadas = []; leituras = 0;
+    await handleIncoming(evento(pT, ''));
+    confere('TP1 "Confirmar" no botão da confirmação de consulta: a Amanda não responde nem transfere', textos(chamadas).length === 0 && transfs(chamadas).length === 0, JSON.stringify(textos(chamadas)).slice(0, 80));
+    const pT2 = eu('obrigada');
+    historico = [pT, pT2]; chamadas = []; leituras = 0;
+    await handleIncoming(evento(pT2, 'AI'));
+    confere('TP2 mensagem seguinte no mesmo atendimento (mesmo no setor da IA): continua fora', textos(chamadas).length === 0, '');
+  }
   // L) sem lista de números: quem está no setor da IA é atendido; fora dele, ninguém; sem setor configurado, ninguém
   envAg.redisUrl = redisUrl; envAg.redisToken = 'tok';
   const listaAntes = envAg.allowedNumbers; envAg.allowedNumbers = [];
