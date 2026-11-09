@@ -262,6 +262,16 @@ const EMERGENCIA = /dor (forte )?no peito|falta de ar|nao consigo respirar|desma
 const CRISE = /suicid|me matar|tirar minha vida|acabar com minha vida|nao quero mais viver|me machucar|autolesao/;
 /** Emergência ou crise: a Amanda não espera os 15 s de agrupamento de mensagens para responder. */
 export const ehUrgencia = (texto: unknown) => { if (typeof texto !== 'string') return false; const t = norm(texto); return EMERGENCIA.test(t) || CRISE.test(t); };
+/**
+ * Assuntos que a Amanda não resolve (só agenda e passa valores): vão direto para a equipe, sem ela tentar achar um serviço na frase
+ * ("resultado do RX" virava lista de Raio-X). Cada um com o motivo que a equipe lê.
+ */
+const ASSUNTOS_DA_EQUIPE: { re: RegExp; motivo: string }[] = [
+  { re: /\b(resultados?|laudos?)\b|\bexames?\b.{0,25}\b(pront[oa]s?|saiu|sairam|chegou|chegaram)\b|\b(pegar|buscar|retirar|receber)\b.{0,15}\b(o |os |meu |meus )?exames?\b/, motivo: 'Paciente quer saber de RESULTADO/LAUDO de exame' },
+  { re: /\b(cancel\w*|desmarc\w*)\b/, motivo: 'Paciente quer CANCELAR um agendamento' },
+  { re: /\b(remarc\w*|reagend\w*)\b/, motivo: 'Paciente quer REMARCAR um agendamento' },
+  { re: /\b(atestado|declaracao|receita|relatorio medico|reembolso|estorno|nota fiscal)\b/, motivo: 'Paciente pede documento/financeiro (atestado, declaração, receita, reembolso...)' },
+];
 const HUMANO = /atendente|humano|pessoa de verdade|falar com alguem|falar com uma pessoa|(falar|conversar|chamar|chama|passar|passa|pedir|quero|pode chamar).{0,20}(recepcao|recepcionista|equipe)/;
 const SIM = /^(s+i+m+|s|pode|pode (sim|reservar|agendar|marcar|confirmar|fazer|seguir|continuar|ser)|quero|quero sim|ok|okay|isso|isso (mesmo|ai|a)|e isso|e isso mesmo|e esse|e esse mesmo|esse (mesmo|ai)|ele mesmo|ela mesma|exato|exatamente|confirmo|confirma|confirmado|fechado|fechou|combinado|bora|vamos|vamo|vai la|manda ver|claro|claro que sim|mas claro|com certeza|por favor|ta bom|ta certo|ta otimo|ta|tudo bem|correto|certo|certinho|perfeito|otimo|beleza|blz|demorou|uhum|aham|u+h+u+m+|positivo|afirmativo|yes|sim senhora|sim senhor|sou eu|sou eu mesmo)\b/;
 const RETOMAR = /\b(retom\w*|continu\w*|dar continuidade|voltei|ainda quero|onde (a gente )?parou|de onde paramos|seguir com (o|meu) agendamento)\b/;
@@ -1205,6 +1215,13 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     return out(comAbertura('Claro! Vou chamar alguém da equipe pra te ajudar. Só um instante.'), { motivo: `Paciente pediu atendimento humano.${s.combo ? ` ${notaCombo()}.` : ''}` });
   }
 
+  // 1a0) assunto que só a equipe resolve (resultado de exame, cancelar, remarcar, documentos): passa direto, sem tentar agendar.
+  // Só fora de um agendamento em andamento (no meio da escolha do horário, "cancela" é desistência e tem tratamento próprio).
+  const assuntoEquipe = !s.slot && !s.combo && !s.orcamento && !s.dup ? ASSUNTOS_DA_EQUIPE.find((a) => a.re.test(t)) : undefined;
+  if (assuntoEquipe) {
+    return out(comAbertura('Isso a nossa equipe resolve pra você. Vou te passar pra eles agora, só um instante.'), { duro: true, motivo: `${assuntoEquipe.motivo}: "${texto.replace(TOKEN_MIDIA, ' ').trim().slice(0, 200)}"` });
+  }
+
   // 1a) "já tá agendado?" depois de um agendamento confirmado: responde com o que foi confirmado, em vez de tratar como pedido novo
   if (ctx.confirmacao && !s.servico && !s.opcoes && STATUS_Q.test(t)) return out(`Está sim, confirmado! Olha como ficou:\n\n${ctx.confirmacao}`);
 
@@ -1596,7 +1613,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
       of.vezes += 1;
       if (of.vezes <= 3) return dizer(textoOferta(of.opcoes, 'Os combos que incluem esse serviço são:'));
       s.ofertaCombo = undefined;
-    } else if (SIM.test(t)) {
+    } else if (SIM.test(t) && !(COMBO_RECUSA.test(t) && !/\bcombos?\b/.test(t.replace(/\b(sem|nao quero( o| os| nenhum)?) combos?\b/g, '')))) { // "quero só mesmo a ultra" é recusa, não "sim"
       return dizer(`Qual combo você prefere? Pode ser o número, ou me diz que quer só ${soOServico}.`);
     } else {
       s.ofertaCombo = undefined; // recusou ou seguiu com outro assunto (unidade, dia...): continua só com o serviço, sem insistir

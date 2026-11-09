@@ -21,7 +21,8 @@ const somaDias = (ymd: string, n: number) => { const [y, m, d] = ymd.split('-').
 const periodoDe = (inicio?: string): Periodo => (inicio && inicio < '12:00' ? 'manhã' : 'tarde');
 /** REGRA DA CLÍNICA: exames, laboratório e demais procedimentos (tudo que não é consulta) só nas agendas da manhã. */
 const ehConsultaProc = (p: { nome: string; categoria?: string | null }) => /consulta/i.test(p.nome) || /consulta/i.test(p.categoria ?? '');
-const soManha = (hs: Horario[]) => hs.filter((h) => periodoDe(h.agendaHoraInicio ?? h.hora) === 'manhã');
+/** Exame só de manhã: o horário de verdade (não só o começo da agenda) tem de ser antes do meio-dia. Uma agenda das 7h às 17h não deixa passar 16h40. */
+const soManha = (hs: Horario[]) => hs.filter((h) => turnoDe(h) === 'manhã' && h.hora < '12:00');
 
 type Cand = { proc: Procedimento; clinicas: Clinica[] };
 const conhecidos = new Map<string, Cand>(); // procedimentoId -> candidato (preenchido por descobrir, lido por resolver)
@@ -36,9 +37,11 @@ function pontuar(p: Procedimento, texto = '') {
 
 /** Hoje o começo da agenda (ex.: 14h) já passou: vale o primeiro horário livre que sobrou. Nos outros dias, o começo da agenda (ordem de chegada). */
 const inicioMostrado = (h: Horario) => { const bloco = h.agendaHoraInicio ?? h.hora; return h.data === hojeYmd() && h.hora > bloco ? h.hora : bloco; };
+/** Período do horário como o paciente vai ver: pelo horário mostrado (hoje às 16h40 é tarde, mesmo numa agenda que começou de manhã). */
+function turnoDe(h: Horario): Periodo { return periodoDe(inicioMostrado(h)); }
 const slotDe = (h: Horario): Slot => {
   const inicio = inicioMostrado(h);
-  return { ymd: h.data, turno: periodoDe(h.agendaHoraInicio ?? h.hora), inicio, profissional: nomeDePessoa(h.profissional?.nome), profissionalId: h.profissional?.id, profissionalBruto: h.profissional?.nome };
+  return { ymd: h.data, turno: periodoDe(inicio), inicio, profissional: nomeDePessoa(h.profissional?.nome), profissionalId: h.profissional?.id, profissionalBruto: h.profissional?.nome };
 };
 /** Um slot por (data, período): várias horas de uma mesma agenda viram um único período. */
 function agrupar(horarios: Horario[]): Slot[] {
@@ -649,7 +652,7 @@ async function reservarCombo(p: PedidoReserva): Promise<ResultadoReserva> {
   const outros = cmb.itens.filter((i) => i.id !== ancora.id);
   // 1) a âncora: horário livre AGORA (sem cache), como nos serviços avulsos
   const livresA = (await listAgendaFresca({ unidadeId: unidade.id, dataInicial: slot.ymd, dataFinal: slot.ymd, procedimentoId: ancora.id }))
-    .filter((h) => periodoDe(h.agendaHoraInicio ?? h.hora) === slot.turno && (!slot.profissionalId || h.profissional?.id === slot.profissionalId))
+    .filter((h) => turnoDe(h) === slot.turno && (!slot.profissionalId || h.profissional?.id === slot.profissionalId))
     .sort((a, b) => a.hora.localeCompare(b.hora));
   if (livresA.length === 0) return { ok: false, codigo: 'SEM_VAGA_AGORA', motivo: 'a vaga escolhida acabou de ser preenchida' };
   // 2) os outros serviços no mesmo dia: se algum não tem horário, nada é gravado
@@ -1007,7 +1010,7 @@ export const fonteClinilink: Fonte = {
     if (!unidade.id) return { ok: false, codigo: 'UNIDADE_SEM_ID', motivo: 'unidade sem id' };
     // 1) horário livre AGORA (sem cache): o primeiro do período escolhido, com o mesmo médico informado ao paciente
     const livres = (await listAgendaFresca({ unidadeId: unidade.id, dataInicial: slot.ymd, dataFinal: slot.ymd, procedimentoId: servico.id, profissionalId: servico.profissional?.id }))
-      .filter((h) => periodoDe(h.agendaHoraInicio ?? h.hora) === slot.turno && (!slot.profissionalId || h.profissional?.id === slot.profissionalId))
+      .filter((h) => turnoDe(h) === slot.turno && (!slot.profissionalId || h.profissional?.id === slot.profissionalId))
       .sort((a, b) => a.hora.localeCompare(b.hora));
     if (livres.length === 0) return { ok: false, codigo: 'SEM_VAGA_AGORA', motivo: 'a vaga escolhida acabou de ser preenchida' };
 

@@ -67,6 +67,8 @@ const horarios = (ini: string, fim: string, profId?: string, unidadeId?: string)
     return [dia(1), dia(5)].flatMap((d) => ['10:00', '10:30'].map((h) => ({ ...mk(d, h, '10:00', usg), agendaId: AGENDA_USGC, agendaNome: 'USG' }))).filter((h) => h.data >= ini && h.data <= fim);
   }
   if ((globalThis as any).__procAgenda?.startsWith('40000000-')) return []; // teste rápido de laboratório: sem agenda
+  const hojeBelem = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Belem', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  if ((globalThis as any).__hojeTarde) return [mk(hojeBelem, '23:50', '07:00'), mk(dia(5), '08:00', '08:00')].filter((h) => h.data >= ini && h.data <= fim); // sobrou só um horário no fim do dia, numa agenda das 7h
   const semAmanhaNoGuama = (hs: any[]) => ((globalThis as any).__dicaUnidade && unidadeId === U_GUAMA ? hs.filter((h) => h.data !== dia(1)) : hs);
   if (profId === P_REB) return unidadeId === U_TELEGRAFO ? [] : [...["10:00", "10:30"].map((h) => mk(dia(3), h, "10:00", { id: P_REB, nome: "REBECCA SILVA MOURA" }))].filter((h) => h.data >= ini && h.data <= fim);
   return semAmanhaNoGuama([
@@ -431,6 +433,15 @@ confere('Q6 "tchau, até sexta": despede', /Tenha um ótimo dia/.test(q.reply), 
   confere('Q8 despedida citando "consulta" não vira pedido de consulta', /Tenha um ótimo dia/.test(rD.reply) && !/Qual consulta/.test(rD.reply), rD.reply);
   const rC: any = await responder([['oi'], ['quero marcar uma consulta']], { now: new Date(), nome: 'Aline', tz: 'America/Belem' }, fonteClinilink);
   confere('Q9 pedido de consulta continua sendo pedido', !/Tenha um ótimo dia/.test(rC.reply) && !rC.state.fim, rC.reply);
+}
+{
+  const cx = { now: new Date(), nome: 'Mara', tz: 'America/Belem' };
+  for (const [frase, tipo] of [['Gostaria de saber do resultado do RX', 'RESULTADO'], ['meu exame já ficou pronto?', 'RESULTADO'], ['quero cancelar minha consulta de amanhã', 'CANCELAR'], ['preciso remarcar minha consulta', 'REMARCAR'], ['preciso de um atestado', 'documento']] as const) {
+    const rA: any = await responder([['oi'], [frase]], cx, fonteClinilink);
+    confere(`EQ "${frase}": vai para a equipe (transferência definitiva), sem oferecer serviço`, Boolean(rA.handoff) && rA.handoff.duro === true && rA.handoff.motivo.includes(tipo) && !/Achei estas opções/.test(rA.reply), `${rA.reply.slice(0, 80)} | ${rA.handoff?.motivo?.slice(0, 80)}`);
+  }
+  const rR: any = await responder([['oi'], ['quero agendar um raio x']], cx, fonteClinilink);
+  confere('EQ pedido de agendamento de raio x continua sendo agendamento', !rR.handoff, rR.reply.slice(0, 80));
 }
 q = await pos('confirmado', [['obrigado', 'era só isso']]);
 confere('Q4 "obrigado" + "era só isso" juntos: só a despedida', /Tenha um ótimo dia/.test(q.reply), q.reply);
@@ -887,7 +898,7 @@ confere('M1 "preciso agendar um exame": em vez de listar exames, pede o pedido m
 m = await turnosDe(['quero marcar uma consulta']);
 confere('M2 consultas: a mais agendada vem primeiro (ginecologia), depois dermatologia e cardiologia', /1\. Consulta Ginecologia/.test(m.reply) && m.reply.indexOf('Consulta Dermatologia') < m.reply.indexOf('Consulta Cardiologia'), (m.state.opcoes ?? []).map((x: any) => x.nome).join(' | '));
 m = await turnosDe(['oi, quero remarcar minha consulta']);
-confere('M3 remarcar/cancelar não é busca de serviço: chama a equipe', !/mais procuradas|Não achei/.test(m.reply) && Boolean(m.handoff) && /remarcar ou cancelar/.test(m.handoff.motivo), m.reply.replace(/\n/g, ' | ').slice(0, 140));
+confere('M3 remarcar/cancelar não é busca de serviço: chama a equipe', !/mais procuradas|Não achei/.test(m.reply) && Boolean(m.handoff) && /remarcar ou cancelar|REMARCAR|CANCELAR/.test(m.handoff.motivo), m.reply.replace(/\n/g, ' | ').slice(0, 140));
 m = await turnosDe(['quero agendar uma consulta ou exame']);
 confere('M3 "consulta ou exame" (os dois tipos) não escolhe um tipo sozinha', !/mais procuradas/.test(m.reply), m.reply.replace(/\n/g, ' | ').slice(0, 140));
 m = await turnosDe(['quero fazer um ultrassom']);
@@ -1246,6 +1257,19 @@ confere('EN6 o texto do endereço nunca passa pelo GPT (aprovado palavra por pal
   reset({ ocupados: 0 });
   d = await responder([...turnosBase, ['Nome: Aline de Sousa Silva Guajajara\nData de nascimento: 30/01/1991\nTelefone: (99)98530-1835']], ctx, fonteClinilink);
   const cadRot = posts.find((x) => x.rota.endsWith('/pacientes'))?.corpo;
+  {
+    // hoje só sobrou um horário no fim do dia numa agenda que começou de manhã: é TARDE (nunca "hoje de manhã a partir das 23h50"), e exame não pega
+    (globalThis as any).__hojeTarde = true;
+    const hojeB = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Belem', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    const dCons: any = await responder([['oi'], ['quero agendar ginecologista'], ['sim']], ctx, fonteClinilink);
+    const slC = await fonteClinilink.periodos(dCons.state.servico, dCons.state.servico.unidades[0], hojeB); // só hoje (sem o cache das buscas anteriores)
+    const hojeC = slC.find((x: any) => x.ymd === hojeB);
+    confere('TR1 consulta: horário de hoje no fim do dia, numa agenda que começa de manhã, é "tarde"', hojeC?.turno === 'tarde' && hojeC?.inicio === '23:50', JSON.stringify(hojeC));
+    const dEx: any = await responder([['oi'], ['quero marcar teste ergometrico'], ['sim']], ctx, fonteClinilink);
+    const slE = await fonteClinilink.proximas(dEx.state.servico, dEx.state.servico.unidades[0], hojeB, 12);
+    confere('TR2 exame: horário da tarde de hoje não entra (só manhã), mesmo a agenda começando de manhã', !slE.some((x: any) => x.ymd === hojeB) && slE.every((x: any) => x.turno === 'manhã'), JSON.stringify(slE.map((x: any) => x.ymd + ' ' + x.turno + ' ' + x.inicio)));
+    (globalThis as any).__hojeTarde = false;
+  }
   confere('NC15 dados com rótulo ("Nome:", "Data de nascimento:", "Telefone:"): lê os três e agenda', d.reply.startsWith(MARCA_AGENDADO) && cadRot?.nome === 'Aline de Sousa Silva Guajajara' && cadRot?.dataNascimento === '1991-01-30' && cadRot?.telefone === '99985301835', `${d.reply.replace(/\n/g, ' | ').slice(0, 100)} | ${JSON.stringify(cadRot)}`);
   reset({ ocupados: 0 });
   d = await responder([...turnosBase, ['- Nome completo: Maria Teste Lima'], ['Nascimento - 02/09/1977'], ['Celular: 91 98199-0849']], ctx, fonteClinilink);
@@ -1519,6 +1543,8 @@ confere('EN6 o texto do endereço nunca passa pelo GPT (aprovado palavra por pal
   reset({ ocupados: 0 });
   k = await responder([['bom dia'], ['quero agendar uma consulta com ginecologista', 'tem?'], ['sim, quero agendar', 'quando da pra agendar?']], ctx, fonteClinilink);
   confere('CB15 se a sugestão de combos caiu numa resposta que foi descartada (2 mensagens juntas), ela é feita na resposta que vale (não é "gasta" sem o paciente ver)', /Tenho combos que incluem consulta Ginecologia/.test(k.reply) && k.state.ofertaCombo?.opcoes.length === 2, k.reply.replace(/\n/g, ' | ').slice(0, 200));
+  s1 = await seq(['oi', 'quero agendar ginecologista', 'sim', 'Quero só mesmo a consulta']);
+  confere('CB16b "Quero só mesmo a consulta" (começa com "quero") é recusa do combo, não "sim"', /^Sem problema, vamos só com consulta Ginecologia\./.test(s1.r.reply) && !/Qual combo/.test(s1.r.reply), s1.r.reply.replace(/\n/g, ' | ').slice(0, 160));
   s1 = await seq(['oi', 'quero agendar ginecologista', 'sim', 'só a consulta mesmo']);
   confere('CB16 "só a consulta mesmo": segue com a consulta avulsa (sem insistir) e pergunta a unidade', /^Sem problema, vamos só com consulta Ginecologia\./.test(s1.r.reply) && /Qual dos dois/.test(s1.r.reply) && !s1.r.state.combo && !s1.r.state.ofertaCombo, s1.r.reply.replace(/\n/g, ' | ').slice(0, 220));
   s1 = await seq(['oi', 'quero agendar ginecologista', 'sim', 'só a consulta mesmo', 'guama amanhã', '52998224725', 'sim', 'na recepção']);
