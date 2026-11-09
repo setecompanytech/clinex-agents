@@ -1,7 +1,8 @@
 import type { NextFunction, Request, Response } from 'express';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { achar, autenticarConta, normalizaEmail, registrarAcesso, MODULOS, type Modulo, type Perfil } from './usuarios.js';
+import { achar, autenticarConta, motivoDaRecusa, normalizaEmail, totalDeContas, registrarAcesso, MODULOS, type Modulo, type Perfil } from './usuarios.js';
 import { atualizarContas, estado } from '../crm/banco.js';
+import { evt } from './log.js';
 
 /**
  * Acesso ao painel (/painel, CRM, Agente receptivo). Duas formas de entrar:
@@ -90,6 +91,8 @@ export function entrar(req: Request, loginBruto: unknown, senhaBruta: unknown, a
   if (!sessao) {
     const n = (t && t.ate > agoraMs ? t.n : 0) + 1;
     tentativas.set(chave, { n, ate: agoraMs + TRAVA_MS });
+    // o motivo real fica só no log do servidor (nunca a senha); a tela não revela qual dos casos foi
+    evt('login_recusado', { conta: login, motivo: login === LOGIN_MESTRE ? (senhaMestra ? 'senha_mestra_errada' : 'senha_mestra_nao_configurada') : motivoDaRecusa(login, senha), contas_carregadas: totalDeContas(), tentativa: n });
     throw new LoginError(401, 'E-mail ou senha incorretos.');
   }
   tentativas.delete(chave);

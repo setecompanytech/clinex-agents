@@ -154,6 +154,15 @@ export function registrarAcesso(id: string) {
 }
 
 /** Confere e-mail e senha. Faz o cálculo do hash mesmo para e-mail desconhecido (não revela quais e-mails existem pelo tempo). */
+/** Por que um login foi recusado (só para o log do servidor; a tela continua dizendo apenas "e-mail ou senha incorretos"). */
+export function motivoDaRecusa(email: string, senha: string): 'email_inexistente' | 'senha_errada' | 'conta_desativada' {
+  const u = acharPorEmail(email);
+  if (!u) return 'email_inexistente';
+  if (!confereSenha(senha, u.senha)) return 'senha_errada';
+  return u.ativo ? 'senha_errada' : 'conta_desativada';
+}
+export const totalDeContas = () => lista().length;
+
 export function autenticarConta(email: string, senha: string): Usuario | null {
   const u = acharPorEmail(email);
   const ok = confereSenha(senha, u?.senha ?? 'scrypt$00$00');
