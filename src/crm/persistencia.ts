@@ -190,3 +190,23 @@ export function agendarGravacao(estado: Estado) {
 /** Espera tudo o que está pendente (usado em testes e no desligamento). */
 export async function esvaziar(estado: Estado) { if (timer) { clearTimeout(timer); timer = null; } await gravarMudancas(estado); }
 
+let usuariosLidosEm = 0;
+/**
+ * Relê as contas do banco. Na Vercel há várias instâncias, cada uma com a sua memória: sem isto, a conta criada numa
+ * instância não existe nas outras (e "some" ao atualizar a página). Grava o que está pendente antes, para nunca
+ * sobrescrever uma mudança ainda não enviada; se a gravação ou a leitura falhar, mantém o que está na memória.
+ */
+export async function atualizarUsuarios(estado: Estado, ttlMs = 3000) {
+  if (ausentes.has(usuarios.tabela) || Date.now() - usuariosLidosEm < ttlMs) return;
+  await esvaziar(estado);
+  if (ultimoErro) return;
+  try {
+    const linhas = await sbLer<Linha>(usuarios.tabela, { ordem: usuarios.ordem });
+    estado.usuarios = linhas.map((r) => usuarios.deLinha(r));
+    const m = new Map<string, string>();
+    for (const x of estado.usuarios) { const l = usuarios.paraLinha(x); m.set(chaveDe(usuarios, l), JSON.stringify(l)); }
+    noBanco.set(usuarios.tabela, m);
+    usuariosLidosEm = Date.now();
+  } catch (e) { console.error(`[usuarios] não consegui reler as contas do banco: ${(e as Error).message}`); }
+}
+
