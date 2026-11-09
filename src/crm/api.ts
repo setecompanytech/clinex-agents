@@ -3,6 +3,7 @@ import { estado, infoArmazenamento, pronto, salvar } from './banco.js';
 import { aplicar, automatizar, criarLead, hojeDe, RegraError, resumo, soDigitos, tarefasDoDia, vistaDoLead, type Acao, type Lead, type NovoLead } from './motor.js';
 import { gerarExemplos } from './exemplos.js';
 import { leadsDosOrcamentos } from './leadsOrcamento.js';
+import { DisparoError, enviarModelo, MODELOS as MODELOS_WA, modelosParaLead, statusDisparo } from './whatsapp.js';
 import { analisarHoje } from './analise.js';
 import { analisarTempo, type Periodo } from './tempo.js';
 import { analisarExecutivo, meuReport } from './executivo.js';
@@ -261,6 +262,23 @@ router.delete('/exemplos', (_req, res) => {
   estado.leads = estado.leads.filter((l) => !l.demo);
   salvar();
   res.json({ removidos: antes - estado.leads.length });
+});
+
+/** Modelos de WhatsApp e o estado das travas; com ?lead=<id> já vêm as variáveis preenchidas com os dados do lead. */
+router.get('/whatsapp/modelos', (req, res) => {
+  const agora = new Date();
+  const l = typeof req.query.lead === 'string' ? achar(req.query.lead) : undefined;
+  res.json({ status: statusDisparo(estado, agora), modelos: l ? modelosParaLead(estado, l) : MODELOS_WA.map((m) => ({ id: m.id, idioma: m.idioma, titulo: m.titulo, variaveis: m.variaveis.map((v) => ({ id: v.id, rotulo: v.rotulo, valor: '' })) })) });
+});
+
+router.post('/leads/:id/whatsapp', (req, res, next) => {
+  const l = achar(req.params.id);
+  if (!l) return void res.status(404).json({ erro: 'nao_encontrado', mensagem: 'Lead não encontrado.' });
+  const b = (req.body ?? {}) as { modelo?: string; parametros?: unknown; passo?: string; msg?: number };
+  const agora = new Date();
+  enviarModelo(estado, l, { modelo: String(b.modelo ?? ''), parametros: b.parametros, passo: b.passo, msg: typeof b.msg === 'number' ? b.msg : undefined, atendente: req.sessao?.nome }, agora)
+    .then((r) => { salvar(); res.json({ ...r.lead, v: vistaDoLead(r.lead, agora), mensagemId: r.mensagemId }); })
+    .catch((e) => { if (e instanceof DisparoError) return void res.status(e.status).json({ erro: e.codigo, mensagem: e.message }); next(e); });
 });
 
 router.get('/exportar.csv', (_req, res) => {
