@@ -508,7 +508,16 @@ async function emLotes<T, R>(itens: T[], n: number, fn: (x: T) => Promise<R>): P
  * Cada etapa tem horário aberto nos próximos 30 dias, em alguma unidade? Olha só o primeiro serviço da etapa (os exames de laboratório
  * compartilham a agenda da coleta). Se o Clinilink falhar na consulta, conta como "tem" (não sei): sem vaga de verdade aparece na hora de agendar.
  */
+/** Viabilidade de cada combo guardada por 30 min: vários pacientes pedem o mesmo serviço e cada checagem são várias consultas de agenda de 30 dias. */
+const viabilidadeDoCombo = new Map<string, { em: number; r: Promise<boolean[]> }>();
 async function etapasComAgenda(info: ComboInfo): Promise<boolean[]> {
+  const k = `${info.id}:${hojeYmd()}`; const g = viabilidadeDoCombo.get(k);
+  if (g && Date.now() - g.em < 30 * 60_000) return g.r;
+  const r = etapasComAgendaAgora(info); viabilidadeDoCombo.set(k, { em: Date.now(), r });
+  r.catch(() => viabilidadeDoCombo.delete(k));
+  return r;
+}
+async function etapasComAgendaAgora(info: ComboInfo): Promise<boolean[]> {
   const clinicas = await listClinicas(); const ini = hojeYmd(); const fim = somaDias(ini, 30);
   const pares = info.etapas.flatMap((ids, e) => clinicas.map((u) => ({ e, u, id: ids[0] })));
   const achou = await emLotes(pares, 4, (x) => listAgenda({ unidadeId: x.u.id, dataInicial: ini, dataFinal: fim, procedimentoId: x.id }).then((h) => h.length > 0).catch(() => true));

@@ -157,6 +157,8 @@ export const MARCA_PAGAMENTO = 'antecipar o pagamento';
 export const MARCA_DUP = 'Vi que esse paciente já tem';
 export const MARCAS_FIM = [MARCA_FIM, MARCA_AGENDADO, MARCA_MAIS, MARCA_ADEUS];
 /** Mensagens com texto exato (valores, chave, marcas): não passam pelo GPT. */
+/** Quanto a sugestão de combos pode atrasar a resposta: depois disso ela segue sem sugerir (caso real: 28 consultas de agenda, 429 do Clinilink, 2 min de espera). */
+export const PRAZO_SUGESTAO_COMBO_MS = Number(process.env.PRAZO_SUGESTAO_COMBO_MS ?? 6000);
 export const SEM_GPT = [MARCA_AGENDADO, MARCA_MAIS, MARCA_ADEUS, MARCA_PIX, MARCA_PAGAMENTO];
 /** Textos que o Giovanny aprovou palavra por palavra (unidades, horários, "o mais rápido", comprovante, aviso de segurança do sintoma): também não passam pelo GPT. */
 SEM_GPT.push('encontrei estes exames', 'Anotei estes exames', 'Total: R$', 'Total no ', 'total dos exames', 'foto do pedido médico', 'não entraram na soma', 'não entrou na soma', 'combo', 'Combo', MARCA_DUP, 'Está sim, confirmado!', 'Tenho sim!', 'exames de laboratório mais procurados', 'Cada serviço tem o seu médico', 'Consegui estes aqui', 'Esses são os horários que tenho', 'Guamá: Endereço:', 'Travessa Coronel Luís Bentes com a Rua do Úna', 'Claro! Tenho estes combos', 'Claro! Tenho combos de', ' inclui: ', 'me manda por favor os dados do paciente', 'Como você prefere pagar', 'O mais rápido que tenho é', 'O último que tenho é', 'Não to conseguindo ler esse comprovante', 'Recebi o seu comprovante', 'Pelo que você contou');
@@ -1627,7 +1629,8 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     }
   } else if (!s.comboOferecido && !s.combo && fonte.combosComServico && !sv.viaSintoma && !sv.profissional && !sv.pacote && !sv.combo && !/\bretorno\b/.test(norm(sv.nome))) {
     s.comboOferecido = true;
-    const ofertas = await fonte.combosComServico(sv).catch(() => [] as OfertaCombo[]);
+    // a sugestão de combos é um extra: se o Clinilink demorar (ou recusar por excesso de consultas), segue sem ela em vez de deixar o paciente esperando
+    const ofertas = await Promise.race([fonte.combosComServico(sv).catch(() => [] as OfertaCombo[]), new Promise<OfertaCombo[]>((ok) => setTimeout(() => ok([]), PRAZO_SUGESTAO_COMBO_MS))]);
     if (ofertas.length) { s.ofertaCombo = { opcoes: ofertas, vezes: 1 }; return dizer(textoOferta(ofertas)); }
   }
 
