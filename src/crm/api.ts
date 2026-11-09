@@ -1,5 +1,8 @@
 import { Router, json } from 'express';
-import { estado, infoArmazenamento, pronto, salvar } from './banco.js';
+import { bancoFora, estado, infoArmazenamento, pronto, salvar } from './banco.js';
+import { diagnosticarSupabase } from '../lib/supabase.js';
+import { exigirAdmin } from '../lib/painel-auth.js';
+import { erroDoBanco, TABELAS_CRM } from './persistencia.js';
 import { aplicar, automatizar, criarLead, hojeDe, RegraError, resumo, soDigitos, tarefasDoDia, vistaDoLead, type Acao, type Lead, type NovoLead } from './motor.js';
 import { gerarExemplos } from './exemplos.js';
 import { leadsDosOrcamentos } from './leadsOrcamento.js';
@@ -45,6 +48,11 @@ const resumoDoLead = (l: Lead, agora: Date) => {
   const contatos = eventos.filter((e) => e.tipo === 'contato');
   return { ...resto, v: vistaDoLead(l, agora), nContatos: contatos.length, ultimoContato: contatos.at(-1)?.quando, ultimo: ultimo ? { quando: ultimo.quando, texto: ultimo.texto, tipo: ultimo.tipo } : undefined };
 };
+
+/** Só administrador: mede o Supabase a partir do servidor (na Vercel mostra tempo, tamanho e o motivo real de cada falha). */
+router.get('/banco/diagnostico', exigirAdmin, (_req, res, next) => {
+  diagnosticarSupabase(TABELAS_CRM).then((d) => res.json({ ...d, bancoIndisponivel: bancoFora(), ultimoErro: erroDoBanco() })).catch(next);
+});
 
 router.get('/estado', (_req, res) => {
   const agora = new Date();

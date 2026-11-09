@@ -9,9 +9,11 @@ import { createServer } from 'node:http';
 
 type Linha = Record<string, unknown>;
 const tabelas = new Map<string, Map<string, Linha>>();
+let fora = false; // banco "fora do ar": derruba toda conexão
 const tab = (n: string) => { let t = tabelas.get(n); if (!t) { t = new Map(); tabelas.set(n, t); } return t; };
 const banco = createServer((req, res) => {
   const u = new URL(req.url!, 'http://x'); const nome = u.pathname.split('/').pop()!;
+  if (fora) { req.socket.destroy(); return; }
   let corpo = ''; req.on('data', (d) => { corpo += d; }).on('end', () => {
     const t = tab(nome);
     if (req.method === 'POST') {
@@ -35,7 +37,7 @@ const filhos: ChildProcess[] = [];
 const subir = async (porta: number) => {
   const p = spawn('npx', ['tsx', 'src/server.ts'], { shell: true, stdio: 'ignore', env: {
     ...process.env, VERCEL: '1', PORT: String(porta), SUPABASE_URL: `http://127.0.0.1:${portaBanco}`, SUPABASE_SERVICE_ROLE_KEY: 'chave-teste',
-    PAINEL_PASSWORD: 'senha-mestra-teste', CRM_ROTINA: 'false', CLINILINK_API_KEY: '', CRM_CLINILINK_API_KEY: '', INOVSTAR_TOKEN: '', ANTHROPIC_API_KEY: '', CRM_PERSISTIR: 'false',
+    PAINEL_PASSWORD: 'senha-mestra-teste', SUPABASE_ESPERA_MS: '500', CRM_ROTINA: 'false', CLINILINK_API_KEY: '', CRM_CLINILINK_API_KEY: '', INOVSTAR_TOKEN: '', ANTHROPIC_API_KEY: '', CRM_PERSISTIR: 'false',
   } });
   filhos.push(p);
   for (let i = 0; i < 60; i++) { try { if ((await fetch(`http://127.0.0.1:${porta}/healthz`)).ok) return; } catch { /* ainda subindo */ } await new Promise((r) => setTimeout(r, 500)); }
@@ -86,11 +88,24 @@ try {
     const r = await fetch('http://127.0.0.1:3072/painel/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ login: 'eva@clinex.com', senha: 'SenhaForte123' }) });
     assert.equal(r.status, 200, await r.text());
   });
+  await t('banco fora do ar na subida: escrita é recusada (não finge que salvou) e a instância volta sozinha quando o banco volta', async () => {
+    const antes = tab('painel_usuarios').size;
+    fora = true; await subir(3073);
+    const r = await api(3073, 'POST', '/api/usuarios', { nome: 'Fátima', email: 'fatima@clinex.com', perfil: 'atendente', modulos: ['crm'], senha: 'SenhaForte123' });
+    assert.equal(r.status, 503, 'com o banco fora a escrita deveria ser recusada: ' + (await r.clone().text()));
+    assert.equal(((await r.json()) as { erro: string }).erro, 'banco');
+    fora = false;
+    await new Promise((x) => setTimeout(x, 10_500)); // intervalo mínimo entre tentativas
+    const r2 = await api(3073, 'POST', '/api/usuarios', { nome: 'Fátima', email: 'fatima@clinex.com', perfil: 'atendente', modulos: ['crm'], senha: 'SenhaForte123' });
+    assert.equal(r2.status, 201, 'depois que o banco volta a escrita deveria funcionar: ' + (await r2.clone().text()));
+    assert.equal(tab('painel_usuarios').size, antes + 1, 'a conta está no banco');
+    assert.ok((await nomes(3071)).includes('Fátima'), 'as outras instâncias enxergam');
+  });
 } finally {
   for (const f of filhos) f.kill();
   banco.close();
 }
 console.log(falhas ? `${falhas} falha(s)` : 'Todos os testes passaram.');
 // os processos do tsx podem sobreviver ao kill do shell no Windows: encerra por porta
-if (process.platform === 'win32') spawn('powershell', ['-NoProfile', '-Command', 'Get-NetTCPConnection -LocalPort 3071,3072 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }'], { stdio: 'ignore' });
+if (process.platform === 'win32') spawn('powershell', ['-NoProfile', '-Command', 'Get-NetTCPConnection -LocalPort 3071,3072,3073 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }'], { stdio: 'ignore' });
 process.exit(falhas ? 1 : 0);
