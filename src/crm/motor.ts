@@ -32,6 +32,8 @@ export type EventoLead = { id: string; quando: string; tipo: TipoEvento; texto: 
 export type Lead = {
   id: string; nome: string; telefone: string; exame: string; valor: number;
   origem?: string; unidade?: string; atendente?: string; obs?: string; demo?: boolean;
+  /** card do funil de Orçamentos (Clinilink) que originou este lead, quando veio de lá */
+  cardId?: string; fonte?: 'clinilink';
   criadoEm: string;
   /** D0: dia em que o lead entrou */
   d0: string;

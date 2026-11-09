@@ -2,6 +2,7 @@ import { Router, json } from 'express';
 import { estado, infoArmazenamento, pronto, salvar } from './banco.js';
 import { aplicar, automatizar, criarLead, hojeDe, RegraError, resumo, soDigitos, tarefasDoDia, vistaDoLead, type Acao, type Lead, type NovoLead } from './motor.js';
 import { gerarExemplos } from './exemplos.js';
+import { leadsDosOrcamentos } from './leadsOrcamento.js';
 import { analisarHoje } from './analise.js';
 import { analisarTempo, type Periodo } from './tempo.js';
 import { analisarExecutivo, meuReport } from './executivo.js';
@@ -47,6 +48,7 @@ const resumoDoLead = (l: Lead, agora: Date) => {
 
 router.get('/estado', (_req, res) => {
   const agora = new Date();
+  if (leadsDosOrcamentos(estado, agora).criados) salvar(); // orçamentos do Clinilink ainda sem lead (inclusive os que já estavam nos funis)
   automatizarTodos(agora);
   const leads = estado.leads.map((l) => resumoDoLead(l, agora));
   const tarefas = tarefasDoDia(estado.leads, agora);

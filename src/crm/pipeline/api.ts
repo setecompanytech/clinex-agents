@@ -4,6 +4,7 @@ import { estado, salvar } from '../banco.js';
 import { clinilinkConfigurado } from '../clinilink.js';
 import { aplicarAutomacoes, atrasado, diaBRT, diasNaEtapa, diffDia, estrelas, funisPadrao, moverCard, recortar, somaDia, validarAutomacoes, validarConfig, valorExibido, visiveis, type FiltroPor, type Recorte } from './regras.js';
 import { sincronizar } from './ingestao.js';
+import { leadsDosOrcamentos } from '../leadsOrcamento.js';
 import { logMovimentacoes, painelExecutivo, relatorio } from './metricas.js';
 import { FunilError, type Atribuicao, type Dimensao, type Funil } from './tipos.js';
 import { responsaveis } from '../../lib/usuarios.js';
@@ -24,7 +25,7 @@ let sincronizando = false;
 export async function rodarSincronizacao(pedido?: unknown) {
   if (sincronizando) throw new FunilError('ocupado', 'Já existe uma sincronização em andamento.');
   sincronizando = true;
-  try { const r = await sincronizar(P(), new Date(), pedido); salvar(); return r; } finally { sincronizando = false; }
+  try { const agora = new Date(); const r = await sincronizar(P(), agora, pedido); leadsDosOrcamentos(estado, agora); salvar(); return r; } finally { sincronizando = false; }
 }
 export function rodarAutomacoesDosFunis(agora: Date) {
   let n = 0;
