@@ -285,7 +285,15 @@ export function canonizar<T>(itens: T[], nome: (x: T) => string, pedido: string,
 const PRINCIPAIS = /ergometr|esforco|eletrocardio|\becg\b|ecocardio|holter|\bmapa\b|ultrassom|\busg\b|ultrassonograf|raio ?x|radiograf|tomograf|resson|mamograf|densitom|endosc|colonosc|espirom|audiom|papanicolau|preventivo|\bconsulta\b/;
 
 /** Quantos horários abertos o serviço tem nos próximos 30 dias, somando as unidades (compartilha o cache da agenda com o resto do fluxo). */
+/** Vagas abertas por serviço, guardadas por 20 min: a lista de "mais procurados" checa vários serviços e o Render corta rajadas (429). */
+const vagasGuardadas = new Map<string, { em: number; r: Promise<number> }>();
 async function vagasAbertas(c: Cand): Promise<number> {
+  const k = `${c.proc.id}:${hojeYmd()}`; const g = vagasGuardadas.get(k);
+  if (g && Date.now() - g.em < 20 * 60_000) return g.r;
+  const r = vagasAbertasAgora(c); vagasGuardadas.set(k, { em: Date.now(), r });
+  return r;
+}
+async function vagasAbertasAgora(c: Cand): Promise<number> {
   const ini = hojeYmd(); const fim = somaDias(ini, 30);
   const r = await Promise.all(c.clinicas.map((u) => listAgenda({ unidadeId: u.id, dataInicial: ini, dataFinal: fim, procedimentoId: c.proc.id }).then((h) => h.length).catch(() => 0)));
   return r.reduce((a, b) => a + b, 0);
@@ -357,12 +365,10 @@ async function sugerirFamilia(f: (typeof FAMILIAS_DE_EXAME)[number]): Promise<De
   const [itens, dem] = await Promise.all([catalogo(), demandaPorProcedimento()]);
   const fila = canonizar(itens.map((i) => i.cand).filter((c) => f.re.test(norm(c.proc.nome)) && !/\bretorno\b/i.test(c.proc.nome) && !/extern/i.test(c.proc.categoria ?? ''))
     .sort((a, b) => (dem.get(b.proc.id) ?? 0) - (dem.get(a.proc.id) ?? 0) || a.proc.nome.localeCompare(b.proc.nome)), (c) => c.proc.nome, '', true);
-  const achados: Cand[] = [];
-  for (let i = 0; i < fila.length && i < 36 && achados.length < 6; i += 12) {
-    const bloco = fila.slice(i, i + 12);
-    const vagas = await Promise.all(bloco.map((c) => vagasAbertas(c)));
-    bloco.forEach((c, k) => { if (vagas[k] > 0 && achados.length < 6) achados.push(c); });
-  }
+  // só os 8 mais agendados, poucos de cada vez (o Render corta rajadas): a lista sai rápido e não esgota o limite de consultas
+  const candidatos = fila.slice(0, 8);
+  const vagas = await emLotes(candidatos, 3, (c) => vagasAbertas(c));
+  const achados = candidatos.filter((_, k) => vagas[k] > 0).slice(0, 6);
   if (achados.length === 0) return undefined;
   for (const c of achados) conhecidos.set(c.proc.id, c);
   if (achados.length === 1) return montar(achados[0]);
@@ -383,7 +389,7 @@ async function sugerirPorTipo(tipo: 'exame' | 'consulta'): Promise<Descoberta> {
   // (senão a lista fica só de laboratório e some o ultrassom, o eletrocardiograma...)
   for (let i = 0; i < fila.length && i < 60 && achados.length < 6; i += 12) {
     const bloco = fila.slice(i, i + 12);
-    const vagas = await Promise.all(bloco.map((c) => vagasAbertas(c)));
+    const vagas = await emLotes(bloco, 3, (c) => vagasAbertas(c)); // poucos de cada vez: o Render corta rajadas
     bloco.forEach((c, k) => {
       if (vagas[k] === 0 || achados.length >= 6) return;
       const cat = norm(c.proc.categoria ?? '');
@@ -759,7 +765,7 @@ async function sugerirLaboratorio(): Promise<Descoberta> {
   const achados: Cand[] = [];
   for (let i = 0; i < fila.length && i < 36 && achados.length < 6; i += 12) {
     const bloco = fila.slice(i, i + 12);
-    const vagas = await Promise.all(bloco.map((c) => vagasAbertas(c)));
+    const vagas = await emLotes(bloco, 3, (c) => vagasAbertas(c)); // poucos de cada vez: o Render corta rajadas
     bloco.forEach((c, k) => { if (vagas[k] > 0 && achados.length < 6) achados.push(c); });
   }
   if (achados.length === 0) return undefined;

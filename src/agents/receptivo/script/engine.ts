@@ -1621,7 +1621,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
       of.vezes += 1;
       if (of.vezes <= 3) return dizer(textoOferta(of.opcoes, 'Os combos que incluem esse serviço são:'));
       s.ofertaCombo = undefined;
-    } else if (SIM.test(t) && !(COMBO_RECUSA.test(t) && !/\bcombos?\b/.test(t.replace(/\b(sem|nao quero( o| os| nenhum)?) combos?\b/g, '')))) { // "quero só mesmo a ultra" é recusa, não "sim"
+    } else if (SIM.test(t) && !(COMBO_RECUSA.test(t) && !/\bcombos?\b/.test(t.replace(/\b(sem|nao quero( o| os| nenhum)?) combos?\b/g, ''))) && !(await fonte.nomesUnidades()).some((u) => t.includes(norm(u))) && !lerData(t, ctx) && !lerTurno(t)) { // "quero no Guamá", "quero amanhã": segue com o serviço // "quero só mesmo a ultra" é recusa, não "sim"
       return dizer(`Qual combo você prefere? Pode ser o número, ou me diz que quer só ${soOServico}.`);
     } else {
       s.ofertaCombo = undefined; // recusou ou seguiu com outro assunto (unidade, dia...): continua só com o serviço, sem insistir

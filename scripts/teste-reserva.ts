@@ -1575,6 +1575,8 @@ confere('EN6 o texto do endereço nunca passa pelo GPT (aprovado palavra por pal
   reset({ ocupados: 0 });
   k = await responder([['bom dia'], ['quero agendar uma consulta com ginecologista', 'tem?'], ['sim, quero agendar', 'quando da pra agendar?']], ctx, fonteClinilink);
   confere('CB15 se a sugestão de combos caiu numa resposta que foi descartada (2 mensagens juntas), ela é feita na resposta que vale (não é "gasta" sem o paciente ver)', /Tenho combos que incluem consulta Ginecologia/.test(k.reply) && k.state.ofertaCombo?.opcoes.length === 2, k.reply.replace(/\n/g, ' | ').slice(0, 200));
+  s1 = await seq(['oi', 'quero agendar ginecologista', 'sim', 'Quero no Guamá']);
+  confere('CB16c "Quero no Guamá" depois da oferta de combos: segue com a consulta no Guamá (não pergunta qual combo)', !/Qual combo/.test(s1.r.reply) && !s1.r.state.ofertaCombo && /Guam/.test(s1.r.state.unidade?.nome ?? ''), s1.r.reply.replace(/\n/g, ' | ').slice(0, 160));
   s1 = await seq(['oi', 'quero agendar ginecologista', 'sim', 'Quero só mesmo a consulta']);
   confere('CB16b "Quero só mesmo a consulta" (começa com "quero") é recusa do combo, não "sim"', /^Sem problema, vamos só com consulta Ginecologia\./.test(s1.r.reply) && !/Qual combo/.test(s1.r.reply), s1.r.reply.replace(/\n/g, ' | ').slice(0, 160));
   s1 = await seq(['oi', 'quero agendar ginecologista', 'sim', 'só a consulta mesmo']);
