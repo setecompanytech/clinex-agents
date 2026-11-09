@@ -1597,7 +1597,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
       const seguranca = sv.viaSintoma ? ' Se a dor estiver forte ou vier com falta de ar, procure agora o pronto-socorro mais próximo ou ligue 192.' : '';
       const pergunta = s.confirmPerguntado && prev.confirmPerguntado && !mudouServico
         ? pick([`Só pra confirmar: é ${sv.frase}, né?`, `Então é ${sv.frase}, certo?`], n)
-        : sv.viaSintoma ? `Pelo que você contou, o serviço indicado é ${sv.frase}.${seguranca} É isso que você precisa?` : pick([`Ah, então é ${sv.frase}, né?`, `Entendi, você quer ${sv.frase}, é isso?`], n);
+        : sv.viaSintoma ? `Pelo que você contou, o serviço indicado é ${sv.frase}.${seguranca} É isso que você precisa?` : pick([`Certo, é ${sv.frase}, né?`, `Entendi, você quer ${sv.frase}, é isso?`, `Perfeito! Vai ser ${sv.frase}, certo?`, `Beleza, vai ser ${sv.frase}, é isso?`], n);
       return dizer(pergunta);
     }
   }

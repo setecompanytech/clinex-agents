@@ -27,7 +27,7 @@ Escrito para: Giovanny, para testar a Amanda no WhatsApp com vários cenários e
 | # | Você manda | Esperado |
 |---|---|---|
 | 1.1 | "oi" | "Oi [nome], [bom dia/boa tarde/boa noite]! Aqui é a Amanda, da Clinex. Me conta o que você precisa?" |
-| 1.2 | "quero agendar cardiologia" | Confirma o serviço: "Ah, então é consulta ... né?" (ou "Entendi, você quer ..., é isso?") |
+| 1.2 | "quero agendar cardiologia" | Confirma o serviço: "Certo, é consulta ... né?" (ou "Entendi, você quer ..., é isso?") |
 | 1.3 | "sim" | "Tenho sim! No Guamá com a Dra. ... e no Telégrafo com ..." + preço "A consulta é R$ ..." + "Qual dos dois fica melhor pra você?" |
 | 1.4 | "Guamá" | "Consegui estes aqui:" com até 4 opções numeradas (dia da semana, dia, período, "a partir das Xh", médico se houver mais de um) |
 | 1.5 | "2" | Resumo do que ficou combinado ("Beleza, então fica ... por ordem de chegada ... com a Dra. ...") e, em outra mensagem, **o pedido dos dados do paciente**: "Pra gerar o agendamento, me manda por favor os dados do paciente:" com Nome completo, Data de nascimento, Telefone para contato (pode ser esse número do WhatsApp) e CPF. **Ainda não** fala de pagamento. |
@@ -55,7 +55,7 @@ Variações para fazer o mesmo caminho:
 - 2.8a "bom dia, preciso agendar um exame" (sem dizer qual) → pede o **pedido médico** (foto) ou o nome dos exames para montar o orçamento (veja o **Fluxo 17**). Não lista mais "exames mais procurados".
 - 2.8b "consulta ou exame" (os dois tipos) → ela pergunta "Qual consulta ou exame você precisa?" sem escolher um tipo sozinha.
 - 2.8c "só um ultrassom" / "teste" (vários parecidos) → sugere primeiro o que a clínica mais agenda e que tem horário.
-- 2.8d Pedidos que as regras não pegam, mas a IA entende pelo contexto: "quero ver meu coração", "estou com tontura", "preciso de um raio x do joelho", "estou com unha encravada". Ela busca no Clinilink o que entendeu e **sempre confirma** ("Ah, então é ..., né?"). Queixa de saúde vem com o aviso do pronto-socorro/192.
+- 2.8d Pedidos que as regras não pegam, mas a IA entende pelo contexto: "quero ver meu coração", "estou com tontura", "preciso de um raio x do joelho", "estou com unha encravada". Ela busca no Clinilink o que entendeu e **sempre confirma** ("Certo, é ..., né?"). Queixa de saúde vem com o aviso do pronto-socorro/192.
 - 2.8e Contexto: "preciso agendar uma coisa" e depois "daqueles de sangue" → entende no contexto (e segue o orçamento de exames do Fluxo 17).
 - 2.8f "quero remarcar" / "preciso cancelar minha consulta" → "Claro! Pra remarcar ou cancelar eu chamo alguém da equipe pra te ajudar." e transfere (não procura "remarcar" como serviço).
 - 2.9 "blablabla" → 1ª vez: "Hmm não peguei qual é o serviço. Me diz a especialidade ou o exame? Pode ser o nome do médico também." 2ª vez: lembra que você pode pedir a equipe. **Ela não transfere sozinha.**
@@ -219,7 +219,7 @@ Faça cada uma em etapas diferentes (antes do serviço, na unidade, nos horário
 | # | Você manda | Esperado |
 |---|---|---|
 | 11.1 | Faça o fluxo completo até o "sim" final com um paciente que **já tem** aquele serviço naquele dia | Ela NÃO transfere. Responde: "Vi que esse paciente já tem [serviço] marcado pra [dia] no [unidade] [período] a partir das [hora] com [Dr./Dra.]." e pergunta "O que você prefere: manter esse que já está marcado, marcar mais um em outro dia ou remarcar esse que já está agendado?" |
-| 11.2 | "já tá agendado teste ergométrico então?" (ou "então já está marcado?") | Responde **no contexto**: "Isso mesmo! Vi que esse paciente já tem ..." e repete as opções. **Nunca** pode voltar a "Ah, então é Teste Ergométrico, né?" nem recomeçar o fluxo. |
+| 11.2 | "já tá agendado teste ergométrico então?" (ou "então já está marcado?") | Responde **no contexto**: "Isso mesmo! Vi que esse paciente já tem ..." e repete as opções. **Nunca** pode voltar a "Certo, é Teste Ergométrico, né?" nem recomeçar o fluxo. |
 | 11.3 | "pode manter" / "deixa assim" / "era só pra conferir" | "Combinado, fica mantido o que já está marcado. Posso te ajudar com mais alguma coisa?" Nada é gravado. Depois "obrigado" → despedida. |
 | 11.4 | "quero remarcar" / "preciso trocar esse" | "Combinado! Vou chamar alguém da equipe pra remarcar esse agendamento." e transfere, com a anotação REMARCAR (serviço, dia, unidade, hora e médico do agendamento que já existe). Nada novo é gravado. Se você escrever de novo, a Amanda fica quieta (a equipe assume). |
 | 11.5 | "quero marcar mais um em outro dia" | "Beleza, vamos marcar mais um em outro dia." + lista de horários **sem o dia que já está ocupado**. Escolher um número **reserva de verdade** (grava!) |
@@ -254,7 +254,7 @@ Antes de responder, a Amanda lê a conversa inteira (os dois lados e a pergunta 
 
 | # | Você manda | Esperado |
 |---|---|---|
-| 13.1 | Depois de "Agendamento confirmado": "já tá agendado teste ergométrico então?" | "Está sim, confirmado! Olha como ficou:" e, em mensagem separada, o mesmo modelo da clínica que foi enviado na confirmação (Paciente, Profissional, Procedimento, Data ...). **Nunca** "Ah, então é Teste Ergométrico, né?". Depois "obrigado" → "Posso te ajudar com mais alguma coisa?" |
+| 13.1 | Depois de "Agendamento confirmado": "já tá agendado teste ergométrico então?" | "Está sim, confirmado! Olha como ficou:" e, em mensagem separada, o mesmo modelo da clínica que foi enviado na confirmação (Paciente, Profissional, Procedimento, Data ...). **Nunca** "Certo, é Teste Ergométrico, né?". Depois "obrigado" → "Posso te ajudar com mais alguma coisa?" |
 | 13.2 | Variações depois da confirmação: "então está marcado?", "deu certo?", "ficou confirmado?", "qual o horário mesmo?" | Mesma resposta (os dados do que foi confirmado). |
 | 13.3 | No meio do agendamento (ela perguntou a unidade ou o pagamento): "então já tá agendado?" | "Ainda não está agendado. [o que falta]" + repete a pergunta pendente. Nunca diz que está agendado antes de estar. |
 | 13.4 | "quanto é mesmo?" / "e o valor?" | O valor do serviço + repete a pergunta pendente. |
@@ -267,7 +267,7 @@ Antes de responder, a Amanda lê a conversa inteira (os dois lados e a pergunta 
 | 13.11 | Em qualquer ponto do fluxo, pergunte algo sobre o que ela acabou de dizer ("como assim?", "isso é o quê?") | Responde no contexto e repete a pergunta. Nunca reinicia o fluxo. |
 | 13.12 | Depois de dois ou três minutos parado, volte com "e aí?" | Ela retoma de onde parou (não se apresenta de novo, não recomeça). |
 
-**O que nunca pode acontecer:** voltar para "Ah, então é ..., né?" quando você perguntou algo sobre o que já foi dito; repetir a lista de horários sem necessidade; se apresentar de novo no meio da conversa; dizer que algo está agendado sem estar.
+**O que nunca pode acontecer:** voltar para "Certo, é ..., né?" quando você perguntou algo sobre o que já foi dito; repetir a lista de horários sem necessidade; se apresentar de novo no meio da conversa; dizer que algo está agendado sem estar.
 
 ## Fluxo 14. Confirmação no modelo da clínica e sugestões (várias mensagens)
 
@@ -294,7 +294,7 @@ A Amanda não faz o paciente esperar outra mensagem para ver os horários: quand
 
 | # | Você manda | Esperado |
 |---|---|---|
-| 15.1 | "boa tarde quero agendar uma consulta" e depois "um teste ergo" | Lista das consultas mais procuradas e, em seguida, "Ah, então é Teste Ergométrico, né?". **Nunca** "consulta Ginecologista" (que é a opção 1 da lista). |
+| 15.1 | "boa tarde quero agendar uma consulta" e depois "um teste ergo" | Lista das consultas mais procuradas e, em seguida, "Certo, é Teste Ergométrico, né?". **Nunca** "consulta Ginecologista" (que é a opção 1 da lista). |
 | 15.2 | Com a lista de consultas na tela: "uma consulta de cardiologia" | Entende como pedido novo (Cardiologia), não como a opção 1. |
 | 15.3 | Com a lista na tela: só "1", "um", "o dois", "opção três" | Escolhe a posição certa. |
 | 15.4 | Serviço com duas unidades: "quando tem agenda?" (ou "tem horário?", "tem vaga?", "quais as datas disponíveis?") | Na mesma resposta: o resumo (unidades, médicos, preço) **e** "Consegui estes aqui:" com os próximos horários das duas unidades, cada item dizendo a unidade. Sem "Qual dos dois fica melhor?". Termina com "Se preferir uma unidade ou outro dia, é só me falar." |
@@ -314,7 +314,7 @@ Frases de pacientes reais, com erro de digitação, gíria e várias mensagens s
 
 | # | Você manda | Esperado |
 |---|---|---|
-| 16.1 | "Crônico geral" (erro de "clínico geral") | "Ah, então é Clinico Geral Consulta, né?" (uma só, **sem** lista com duas opções iguais). |
+| 16.1 | "Crônico geral" (erro de "clínico geral") | "Certo, é Clinico Geral Consulta, né?" (uma só, **sem** lista com duas opções iguais). |
 | 16.2 | "Meu bem vocês teriam disponibilidade para essa semana de consulta com a ginecologista" | Confirma "consulta Ginecologista" (**sem** "Retorno" na lista). Depois do "sim": se não houver vaga essa semana, "Pra essa semana não tenho horário. Mas consegui estes aqui:". |
 | 16.3 | "Quero fazer uma ultrassom transvaginal" | Confirma "Usg Transvaginal" (a simples, R$ 90), **sem** listar "com Doppler", "folículos", "colo uterino". Se você pedir "com doppler", aí sim. |
 | 16.4 | Com a Ginecologista confirmada ou com a lista de horários na tela: "E a transvaginal?" | Troca para a transvaginal e segue (não responde "essa eu prefiro confirmar" nem repete a lista da Gineco). |

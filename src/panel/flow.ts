@@ -353,8 +353,8 @@ export const flow = {
       subtitle: 'Em caso de dor, com aviso de segurança',
       detail: {
         oQueFaz: 'A Amanda diz qual serviço entendeu e pergunta se é isso mesmo. O paciente sempre confirma antes de a conversa avançar.',
-        regra: 'Pediu o serviço direto: "Ah, então é [serviço], né?" (ou "Entendi, você quer [serviço], é isso?"; ela alterna). Se a consulta é com uma médica ou um médico pedido pelo nome, a frase diz "com a Dra. Fulana" ou "com o Dr. Fulano"\nDescreveu um sintoma: "Pelo que você contou, o serviço indicado é [serviço]. Se a dor estiver forte ou vier com falta de ar, procure agora o pronto-socorro mais próximo ou ligue 192. É isso que você precisa?"\nA Amanda nunca dá diagnóstico: só indica o tipo de consulta. Se o paciente já citou unidade, dia ou turno, ela guarda para não perguntar de novo.',
-        exemplo: 'Amanda: "Oi, bom dia! Aqui é a Amanda, da Clinex. Ah, então é consulta de Cardiologia, né?"\n\nCom sintoma:\nAmanda: "Pelo que você contou, o serviço indicado é consulta de Cardiologia. Se a dor estiver forte ou vier com falta de ar, procure agora o pronto-socorro mais próximo ou ligue 192. É isso que você precisa?"',
+        regra: 'Pediu o serviço direto: ela confirma alternando 4 frases ("Certo, é [serviço], né?", "Entendi, você quer [serviço], é isso?", "Perfeito! Vai ser [serviço], certo?", "Beleza, vai ser [serviço], é isso?"). Se a consulta é com uma médica ou um médico pedido pelo nome, a frase diz "com a Dra. Fulana" ou "com o Dr. Fulano"\nDescreveu um sintoma: "Pelo que você contou, o serviço indicado é [serviço]. Se a dor estiver forte ou vier com falta de ar, procure agora o pronto-socorro mais próximo ou ligue 192. É isso que você precisa?"\nA Amanda nunca dá diagnóstico: só indica o tipo de consulta. Se o paciente já citou unidade, dia ou turno, ela guarda para não perguntar de novo.',
+        exemplo: 'Amanda: "Oi, bom dia! Aqui é a Amanda, da Clinex. Certo, é consulta de Cardiologia, né?"\n\nCom sintoma:\nAmanda: "Pelo que você contou, o serviço indicado é consulta de Cardiologia. Se a dor estiver forte ou vier com falta de ar, procure agora o pronto-socorro mais próximo ou ligue 192. É isso que você precisa?"',
         seFalhar: 'Sem falha técnica. Se o paciente responder algo que não é sim nem não, a Amanda repete a pergunta de outro jeito.',
         tecnico: 'Bloco "sugere o serviço" de step() em src/agents/receptivo/script/engine.ts (campo viaSintoma).',
       },
@@ -700,7 +700,7 @@ export const flow = {
       detail: {
         oQueFaz: 'Toda resposta da Amanda nasce no roteiro, com os fatos exatos (valores, datas, horários, unidades, médicos, perguntas).',
         regra: 'O roteiro decide o conteúdo e a ordem da conversa. O GPT nunca decide o que dizer nem consulta dados: só recebe um texto pronto e reescreve o tom, se as regras permitirem.',
-        exemplo: 'Texto-base: "Ah, então é consulta de Cardiologia, né?"',
+        exemplo: 'Texto-base: "Certo, é consulta de Cardiologia, né?"',
         seFalhar: 'Sem falha própria.',
         tecnico: 'Retorno de responder() em src/agents/receptivo/agent.ts (r.reply).',
       },
@@ -724,7 +724,7 @@ export const flow = {
       detail: {
         oQueFaz: 'O GPT deixa a mensagem com cara de atendente atenciosa, sem mudar o conteúdo.',
         regra: 'Regras de estilo que o GPT recebe:\n- Preservar todos os fatos: valores em R$, datas, dias da semana, horários, nomes de unidades, especialidades, nomes de pessoas e a pergunta final\n- Manter a mesma ação e UMA pergunta só, no fim (se não havia pergunta, não criar)\n- Manter a abertura "Aqui é a Amanda, da Clinex." quando existir; fora disso, não se apresentar nem cumprimentar de novo\n- Voz natural de WhatsApp ("pra", "tá", "né"), frases curtas e poucas vírgulas; o texto do roteiro já está no tom certo, então mudar pouco\n- Manter exatamente o nome do serviço e os nomes e títulos dos médicos (a Dra. Fernanda, o Dr. Armando); nunca acrescentar título nem trocar o gênero\n- Proibido: emoji, travessão, asterisco, aspas decorativas\n- Não ACRESCENTAR uma abertura com Perfeito, Certo, Ótimo, Entendi, Beleza, Claro, Com certeza (se o roteiro já abre assim, mantém)\n- Não falar de sistema, ferramentas ou tecnologia\nUsa o modelo configurado (padrão gpt-4o-mini) com limite de 15 segundos.',
-        exemplo: 'Texto-base: "Ah, então é consulta de Cardiologia, né?"\nPossível reescrita: "Ah, então é consulta de Cardiologia mesmo, né?" (só vale se passar na validação; o nome do serviço não pode mudar)',
+        exemplo: 'Texto-base: "Certo, é consulta de Cardiologia, né?"\nPossível reescrita: "Certo, é consulta de Cardiologia mesmo, né?" (só vale se passar na validação; o nome do serviço não pode mudar)',
         seFalhar: 'Se o GPT demorar mais de 15 segundos, der erro, ou não houver chave configurada, a Amanda usa o texto original do roteiro. Nada trava.',
         tecnico: 'amigavel() e REGRAS em src/lib/humanizer.ts. Variáveis OPENAI_API_KEY e OPENAI_MODEL.',
       },
@@ -748,7 +748,7 @@ export const flow = {
       detail: {
         oQueFaz: 'A reescrita do GPT, aprovada na validação, vira a mensagem enviada.',
         regra: 'Só chega aqui o texto que manteve todos os fatos e o estilo.',
-        exemplo: '"Oi, bom dia! Aqui é a Amanda, da Clinex. Ah, então é consulta de Cardiologia, né?"',
+        exemplo: '"Oi, bom dia! Aqui é a Amanda, da Clinex. Certo, é consulta de Cardiologia, né?"',
         seFalhar: 'Sem falha própria.',
         tecnico: 'Retorno de amigavel() quando validar() devolve null (humanizer.ts).',
       },
@@ -760,7 +760,7 @@ export const flow = {
       detail: {
         oQueFaz: 'O plano B: o texto do roteiro, sem reescrita.',
         regra: 'Acontece quando a validação reprova, o GPT demora mais de 15 segundos, dá erro, ou não há chave do GPT. O paciente recebe a mensagem do roteiro, que já está correta.',
-        exemplo: '"Ah, então é consulta de Cardiologia, né?"',
+        exemplo: '"Certo, é consulta de Cardiologia, né?"',
         seFalhar: 'Sem falha possível: é o texto que o roteiro já produziu.',
         tecnico: 'return texto em amigavel() (humanizer.ts).',
       },
@@ -861,7 +861,7 @@ export const flow = {
       descricao: 'Pede cardiologista, escolhe unidade e data, paga na recepção, informa um CPF novo, faz o cadastro e a reserva é gravada no Clinilink. Exemplo numa quarta-feira, 14 de outubro, às 9h30 (hora de Belém).',
       mensagens: [
         { de: 'paciente', texto: 'Oi, bom dia! Preciso de um cardiologista', etapa: 'entende' },
-        { de: 'amanda', texto: 'Oi, bom dia! Aqui é a Amanda, da Clinex. Ah, então é consulta de Cardiologia, né?', etapa: 'sugere' },
+        { de: 'amanda', texto: 'Oi, bom dia! Aqui é a Amanda, da Clinex. Certo, é consulta de Cardiologia, né?', etapa: 'sugere' },
         { de: 'paciente', texto: 'sim, é isso', etapa: 'confirma' },
         { de: 'nota', texto: 'Nos bastidores, a Amanda consulta o Clinilink: unidades com agenda, médico de cada uma e preço.', etapa: 'agenda' },
         { de: 'amanda', texto: 'Tenho sim! No Guamá com o Dr. Carlos e no Telégrafo com a Dra. Mariana. A consulta é R$ 200,00.\nQual dos dois fica melhor pra você?', etapa: 'informa' },
@@ -913,7 +913,7 @@ export const flow = {
         { de: 'paciente', texto: 'quero marcar amanhã de manhã, meu cpf é 111.222.333-44 (CPF fictício)', etapa: 'entende' },
         { de: 'amanda', texto: 'Oi, bom dia! Aqui é a Amanda, da Clinex.\nAnotei quinta dia 15 de manhã. Qual consulta ou exame você precisa?', etapa: 'repete' },
         { de: 'paciente', texto: 'cardiologia', etapa: 'entende' },
-        { de: 'amanda', texto: 'Ah, então é consulta de Cardiologia, né?', etapa: 'sugere' },
+        { de: 'amanda', texto: 'Certo, é consulta de Cardiologia, né?', etapa: 'sugere' },
         { de: 'paciente', texto: 'sim, no guamá', etapa: 'confirma' },
         { de: 'amanda', texto: 'Tenho sim! No Guamá com o Dr. Carlos e a Dra. Beatriz. A consulta é R$ 200,00.\nPra quinta dia 15 tenho:\n1. Quinta, dia 15, de manhã, a partir das 7h, com o Dr. Carlos\n2. Quinta, dia 15, de manhã, a partir das 8h, com a Dra. Beatriz\nQual desses fica bom pra você?', etapa: 'lista' },
         { de: 'paciente', texto: 'na verdade quero com a dra beatriz', etapa: 'escolhe' },

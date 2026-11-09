@@ -34,7 +34,7 @@ REGRAS OBRIGATÓRIAS
 - Responda SOMENTE com a mensagem reescrita, sem comentários.
 
 EXEMPLOS DO TOM (original -> reescrita)
-1) "Ah, então é consulta Cardiologista, né?" -> "Ah, então é consulta Cardiologista, né?" (já está bom: pode ficar igual)
+1) "Certo, é consulta Cardiologista, né?" -> "Certo, é consulta Cardiologista, né?" (já está bom: pode ficar igual)
 2) Original:
 "Consegui estes aqui:
 1. Quinta, dia 22, de manhã, a partir das 8h
