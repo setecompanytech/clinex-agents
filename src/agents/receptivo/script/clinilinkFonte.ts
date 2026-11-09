@@ -199,6 +199,8 @@ async function descobrirProfissional(t: string): Promise<Descoberta> {
 // ---------------- similaridade no catálogo: "teste ergo", "ergometrio", "só teste" ----------------
 /** Palavras que não identificam serviço nenhum (verbos, saudações, dias...). "teste" NÃO está aqui: ele pode ser o começo de "teste ergométrico". */
 const SEM_VALOR = new Set([...STOP].filter((w) => w !== 'teste').concat(['ola', 'bom', 'boa', 'uma', 'umas', 'uns', 'pra', 'com', 'sem', 'ter', 'que', 'quer', 'queria', 'exames', 'vou', 'ver', 'info', 'minha', 'meu', 'esse', 'essa', 'isso', 'aqui', 'algum', 'alguma', 'qual', 'quais', 'onde', 'como', 'quando', 'custa', 'pode', 'poderia', 'possivel', 'agora', 'proxima', 'proximo', 'medico', 'medica', 'doutor', 'doutora', 'unidade', 'unidades', 'guama', 'telegrafo', 'clinica', 'clinex', 'tudo', 'mais', 'ainda', 'porque', 'tambem', 'muito', 'pouco', 'alguem', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo', 'realizar', 'marcado', 'marcada', 'agendado', 'agendada']));
+// dia da semana e palavras de agenda nunca são nome de serviço ("para o dia 16, segunda-feira" virava "Não achei feira")
+for (const w of ["feira", "segunda", "terca", "quarta", "quinta", "sexta", "sabado", "domingo", "semana", "proxima", "proximo", "agendar", "agenda", "agendamento", "marcar", "horario", "horarios", "amanha", "hoje"]) SEM_VALOR.add(w);
 
 /** Palavras do pedido que podem ser parte do nome de um serviço (4+ letras, sem acento). */
 const palavrasDoPedido = (t: string) => [...new Set(t.split(/[^a-z]+/).filter((w) => w.length >= 4 && !SEM_VALOR.has(w)))].slice(0, 4);

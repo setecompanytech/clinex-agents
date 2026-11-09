@@ -176,7 +176,7 @@ process.env.CLINILINK_BASE_URL = `http://127.0.0.1:${(server.address() as any).p
 process.env.CLINILINK_API_KEY = 'chave-de-teste';
 process.env.LOG_QUIET = '1';
 
-const { responder, MARCA_AGENDADO, MARCAS_FIM, SEM_GPT, estadoDepoisDaResposta, etapa, handoffDuro } = await import('../src/agents/receptivo/script/engine.js');
+const { responder, MARCA_AGENDADO, MARCAS_FIM, SEM_GPT, estadoDepoisDaResposta, etapa, handoffDuro, extrairNomesExames } = await import('../src/agents/receptivo/script/engine.js');
 const { fonteClinilink, formasDoTelefone, melhorPaciente } = await import('../src/agents/receptivo/script/clinilinkFonte.js');
 const ctx = { now: new Date(), nome: 'Teste', tz: 'America/Sao_Paulo', telefone: '5591999990000' };
 
@@ -481,6 +481,16 @@ confere('Q6 "tchau, até sexta": despede', /Tenha um ótimo dia/.test(q.reply), 
   reset({ ocupados: 0 });
   const rM: any = await responder([['oi'], ['quero marcar teste ergometrico'], ['sim'], ['guama'], ['entao marque pra dra Medica']], { now: new Date(), nome: 'Matheus', tz: 'America/Belem' }, fonteClinilink);
   confere('MD1 "marque pra dra Medica" com o exame na tela: continua no Teste Ergométrico (não troca para a consulta dela)', rM.state.servico?.nome === 'Teste Ergometrico' && !/Ginecologia/.test(rM.reply), `${rM.state.servico?.nome} | ${rM.reply.replace(/\n/g, ' | ').slice(0, 150)}`);
+}
+{
+  // caso real (Jonaia): no meio do orçamento, pedido de consulta e frases de conversa não viram exame
+  const cxJ = { now: new Date(), nome: 'Jonaia', tz: 'America/Belem' };
+  const rJ: any = await responder([['oi'], ['quero fazer um exame de sangue'], ['hemograma'], ['Eu quero agendar uma consulta para o dia 16, segunda-feira.']], cxJ, fonteClinilink);
+  confere('OJ1 no orçamento, "quero agendar uma consulta para o dia 16": sai do orçamento (sem "Não achei no sistema")', !rJ.state.orcamento && !/Não achei no sistema/.test(rJ.reply), rJ.reply.replace(/\n/g, ' | ').slice(0, 160));
+  const rJ2: any = await responder([['oi'], ['quero fazer um exame de sangue'], ['hemograma'], ['Consulta só tem para a próxima semana?']], cxJ, fonteClinilink);
+  confere('OJ2 "Consulta só tem para a próxima semana?" no orçamento não vira exame', !/Não achei no sistema/.test(rJ2.reply), rJ2.reply.replace(/\n/g, ' | ').slice(0, 160));
+  confere('OJ3 frase longa de conversa não é nome de exame', extrairNomesExames('Eu quero primeiro fazer a consulta e ver o que a médica vai solicitar, após a avaliação.').length === 0 && extrairNomesExames('Mas gostaria de saber os valores desses exames').length === 0, JSON.stringify(extrairNomesExames('Eu quero primeiro fazer a consulta e ver o que a médica vai solicitar, após a avaliação.')));
+  confere('OJ4 nome de exame continua sendo lido', extrairNomesExames('hemograma, glicose e colesterol total').length >= 2, '');
 }
 q = await pos('confirmado', [['obrigado', 'era só isso']]);
 confere('Q4 "obrigado" + "era só isso" juntos: só a despedida', /Tenha um ótimo dia/.test(q.reply), q.reply);

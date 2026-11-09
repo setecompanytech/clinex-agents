@@ -586,7 +586,8 @@ const ORC_COMBO = /\bcombo\b|\bcheck ?-?up\b/;
 /** Palavras que sozinhas NÃO são nome de exame ("são vários", "segue o pedido", "esses mesmos"). */
 const SO_CONVERSA_EXAMES = new Set(('sao varios varias alguns algumas uns umas todos todas esses esse essas essa mesmo mesma isso estes estas aqui segue seguem anexo foto pedido medico medica exames exame quero queria preciso fazer mais tambem dois duas tres alguma coisa tudo uma bateria rotina estou precisando geral gerais completo completos completa completas sugira sugere sugerir sugestao sugestoes indique indica indicar recomenda recomende recomendar quais principais procurados vendidos combo combos voces fazem '
   + 'ola bom dia tarde noite obrigado obrigada favor pode ser claro sim nao ok certo ta tudo bem sei lembro nome nomes escrever mandar manda mando enviar envio enviei lista tenho vou ver depois agora hoje amanha laboratorio laboratoriais sangue coleta orcamento valor valores quanto custa total soma ' +
-  'mas porem gostaria gostava saber desses dessas destes destas daquele daquela deles delas eles elas primeiro primeira depois antes avaliacao solicitar solicitou pedir pediu vai vou ver olhar consulta consultas medico medica doutor doutora tambem ainda so apenas preco precos qual quais como onde quando').split(' '));
+  'mas porem gostaria gostava saber desses dessas destes destas daquele daquela deles delas eles elas primeiro primeira depois antes avaliacao solicitar solicitou pedir pediu vai vou ver olhar consulta consultas medico medica doutor doutora tambem ainda so apenas preco precos qual quais como onde quando ' +
+  'agendar agendamento marcar marcacao remarcar dia dias semana proxima proximo segunda terca quarta quinta sexta sabado domingo feira manha tarde noite horario horarios vaga vagas tem para pra apos durante desde resultado').split(' '));
 /** "Me sugira uns exames", "quais os principais exames", "uma bateria de exames", "exames de rotina": quer sugestão (sem citar nenhum exame pelo nome). */
 export const querSugestaoDeExames = (t: string, texto: string) => {
   const pede = /\b(sugir\w*|suger\w*|sugest\w*|indi(ca|que)\w*|recomend\w*|principais|mais (procurad|vendid)\w*|quais)\b/.test(t) && /\b(exames?|laborat\w*|sangue)\b/.test(t);
@@ -597,7 +598,7 @@ export const querSugestaoDeExames = (t: string, texto: string) => {
 export function extrairNomesExames(texto: string): string[] {
   const t = texto.replace(TOKEN_MIDIA, ' ').replace(/^\s*(oi|ola|bom dia|boa tarde|boa noite)[,!.\s]+/i, '')
     .replace(/^\s*(quero|queria|preciso|gostaria)\s+(de\s+)?(fazer|realizar)?\s*/i, '').replace(/^\s*(os exames\s+)?(s[aã]o|seguem?|segue|exames?:)\s+/i, '');
-  return t.split(/[\n,;•]+|\s+\+\s+/).map((c) => c.replace(/^(?:\s*(?:e|mais|tamb[eé]m|tbm|al[eé]m disso|ainda|falta|faltou|quero|queria|preciso|fazer|fazer o|o|a|os|as|um|uma)\b[\s,]*)+/i, '').trim()).filter((c) => norm(c).split(/[^a-z0-9]+/).some((w) => (w.length >= 3 || /\d/.test(w)) && !SO_CONVERSA_EXAMES.has(w) && !PALAVRAS_DE_CONVERSA.has(w)));
+  return t.split(/[\n,;•]+|\s+\+\s+/).filter((c) => c.trim().split(/\s+/).length <= 7).map((c) => c.replace(/^(?:\s*(?:e|mais|tamb[eé]m|tbm|al[eé]m disso|ainda|falta|faltou|quero|queria|preciso|fazer|fazer o|o|a|os|as|um|uma)\b[\s,]*)+/i, '').trim()).filter((c) => norm(c).split(/[^a-z0-9]+/).some((w) => (w.length >= 3 || /\d/.test(w)) && !SO_CONVERSA_EXAMES.has(w) && !PALAVRAS_DE_CONVERSA.has(w)));
 }
 const arred2 = (n: number) => Math.round(n * 100) / 100;
 /** O preço de um exame: o mesmo valor nas unidades (um só), ou o de cada unidade. */
@@ -1030,6 +1031,7 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     : o.fase === 'confirmando' ? 'São esses mesmos? Se faltar algum ou tiver algum a mais, é só me avisar.' : 'Quer que eu já agende a coleta desses exames?');
   /** A lista dos exames com o valor de cada um, a soma, o que não foi achado e a dica de combo (se houver), terminando na pergunta de confirmação. */
   const textoOrcamento = async (o: Orcamento, intro?: string): Promise<string> => {
+    limparNaoAchados(o);
     const t = totaisDoOrcamento(o.itens);
     const total = t.unico !== undefined ? `Total: ${reais(t.unico)}` : t.porUnidade.map((x) => `Total no ${x.u}: ${reais(x.total)}`).join('\n');
     const lista = [intro ?? (o.origem === 'foto' ? 'Li o pedido e encontrei estes exames:' : 'Anotei estes exames:'), ...o.itens.map((i) => `• ${i.nome}: ${precoDoItem(i)}`), ...(total ? ['', total] : [])].join('\n');
@@ -1042,6 +1044,8 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
     return partesO.join('\n\n');
   };
   /** Casa os nomes com o Clinilink, junta aos exames já anotados e mostra a lista para o paciente confirmar. */
+  /** Tira da lista de "não achei" o que é frase de conversa (conversas guardadas antes da correção traziam "Eu quero agendar..."). */
+  const limparNaoAchados = (o: Orcamento) => { o.naoAchados = o.naoAchados.filter((n) => n.split(/\s+/).length <= 7 && extrairNomesExames(n.replace(/\.\.\.$/, '')).length > 0); };
   const adicionarExames = async (nomes: string[], origem: 'foto' | 'texto', ilegivel = false): Promise<Result> => {
     const o = s.orcamento!;
     const r = await fonte.casarExames!(nomes, ctx.casarExames);
@@ -1105,6 +1109,8 @@ async function stepBase(prev: State, texto: string, ctx: Ctx, fonte: Fonte, n = 
       if (nums.length) { o.sugeridos = undefined; return adicionarExames([...new Set(nums)], 'texto'); }
     }
     if (ORC_COMBO.test(t)) { s.orcamento = undefined; return undefined; } // "quero o check up 10": segue o fluxo de combos
+    // "quero agendar uma consulta para o dia 16": não é exame. Sai do orçamento e segue o agendamento (caso real: virava "Não achei no sistema: Eu quero agendar...")
+    if (/\b(consultas?|consultar com|medic[oa]|doutor[a]?|dr|dra)\b/.test(t) && /\b(agendar|marcar|agenda|consulta|quero|queria|preciso)\b/.test(t) && !/\bexames?\b|\bcoleta\b/.test(t)) { s.orcamento = undefined; return undefined; }
     if (faq && !SIM.test(t)) return dizer(perguntaOrcamento(o)); // dúvida: a resposta dela vem antes (prefixo) e a pergunta continua valendo
     const semSim = texto.replace(TOKEN_MIDIA, ' ').replace(/^\s*(sim|isso|pode|ok|certo|esses?( mesmo)?|e)[,.!\s]+(e |mas |tamb[eé]m )?/i, '');
     const nomes = extrairNomesExames(texto);
