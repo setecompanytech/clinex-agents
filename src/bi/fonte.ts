@@ -66,7 +66,7 @@ export async function montarMonitor(periodo: Periodo, id?: string, agora = Date.
     geradoEm: agora, periodo, origens: r.origens, avisos: r.avisos, total: convs.length,
     conversas: convs.slice(0, 500).map((c) => ({
       id: c.id, curto: c.id.slice(-6), inicio: c.inicio, fim: c.fim, status: c.status, mensagens: c.turnos.length, etapa: c.etapaFinal,
-      motivo: c.motivo?.slice(0, 200), problemas: c.problemas, simulada: c.simulada, primeira: (c.turnos.find((t) => t.paciente)?.paciente ?? '').slice(0, 140),
+      motivo: c.motivo?.slice(0, 200), problemas: c.problemas, estagio: c.estagio, motor: c.motor, simulada: c.simulada, primeira: (c.turnos.find((t) => t.paciente)?.paciente ?? '').slice(0, 140),
     })),
   };
 }

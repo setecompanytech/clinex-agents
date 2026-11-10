@@ -75,9 +75,30 @@ type Conversa = {
   id: string; inicio: number; fim: number; turnos: Turno[]; maxEtapa: number; etapaFinal: string;
   agendada: boolean; tAgendou?: number; simulada: boolean; transferida: boolean; tTransferiu?: number; urgente: boolean;
   motivo?: string; retomou: boolean; problemas: number; status: Status;
+  /** fluxo (leadflow): 0 entrou, 1 serviço identificado, 2 horários oferecidos, 3 dados do paciente, 4 agendou */
+  estagio: number; motor: 'ia' | 'roteiro';
 };
 
 const ABANDONO_MS = 2 * HORA;
+
+/**
+ * Até onde a conversa chegou no caminho do agendamento (o leadflow do monitor): 0 entrou, 1 serviço identificado, 2 horários oferecidos,
+ * 3 dados do paciente, 4 agendou. Roteiro: pela etapa (posicaoEtapa). Amanda IA: pelas ferramentas que ela usou com resultado.
+ */
+function estagioDoFluxo(c: { agendada: boolean; maxEtapa: number }, evs: Evento[]): number {
+  if (c.agendada) return 4;
+  let e = c.maxEtapa >= 4 ? 3 : c.maxEtapa >= 3 ? 2 : c.maxEtapa >= 1 ? 1 : 0;
+  for (const ev of evs) {
+    const fs = Array.isArray(ev.ferramentas) ? (ev.ferramentas as { nome?: string; res?: string }[]) : [];
+    for (const f of fs) {
+      const res = String(f.res ?? '');
+      if (f.nome === 'agendar' || f.nome === 'buscar_paciente') e = Math.max(e, 3);
+      else if (f.nome === 'ver_horarios' && res.includes('horario_id')) e = Math.max(e, 2);
+      else if (/"resultado":"servico"/.test(res) || (f.nome === 'orcar_exames' && res.includes('"exame"'))) e = Math.max(e, 1);
+    }
+  }
+  return e;
+}
 
 export function construirConversas(eventos: Evento[], ate: number): Conversa[] {
   const porId = new Map<string, Evento[]>();
@@ -102,9 +123,11 @@ export function construirConversas(eventos: Evento[], ate: number): Conversa[] {
       simulada: turnos.some((t) => t.amanda.includes('Simulação: nada foi agendado')),
       transferida: Boolean(tr), tTransferiu: tr?.t, urgente: turnos.some((t) => t.urgente), motivo: tr?.motivo,
       retomou: evs.some((e) => e.retomou_da_fila === true),
+      estagio: 0, motor: evs.some((e) => e.motor === 'ia') ? 'ia' : 'roteiro',
       problemas: evs.filter((e) => e.evt === 'erro' || e.ok === false).length,
       status: 'andamento',
     };
+    c.estagio = estagioDoFluxo(c, evs);
     c.status = c.agendada ? 'agendada' : c.urgente ? 'emergencia' : c.transferida ? 'transferida'
       : ultimo.etapa.includes('concluída') ? 'finalizada' : ate - c.fim > ABANDONO_MS ? 'abandonada' : 'andamento';
     out.push(c);
