@@ -25,6 +25,7 @@ export type MemoriaIA = {
   etapas?: Record<string, { combo: string; etapa: number; rotulo: string }>;
   ate?: string;
   transferiu?: boolean; // a IA passou a conversa para a equipe
+  combosVistos?: string[]; // serviços cujos combos já foram consultados (a sugestão é feita uma vez só)
 };
 export const memoriaNova = (): MemoriaIA => ({ v: 1, servicos: {}, slots: {}, proxSlot: 1, agendados: [] });
 
@@ -127,6 +128,26 @@ async function descobertaParaModelo(d: Descoberta, c: Contexto): Promise<unknown
   return { resultado: 'nao_encontrado' };
 }
 
+/**
+ * O serviço aberto faz parte de algum combo que sai mais em conta? Anexa ao resultado (uma vez por serviço, no máximo 6 s de espera)
+ * para a Amanda citar o combo logo depois do valor. Caso real: o paciente pediu a consulta e só soube do combo porque perguntou.
+ */
+async function comCombos(r: any, c: Contexto): Promise<unknown> {
+  if (r?.resultado !== 'servico' || r.combo || !c.fonte.combosComServico) return r;
+  const sv = c.mem.servicos[r.servico_id];
+  if (!sv || sv.pacote || sv.combo) return r;
+  const vistos = (c.mem.combosVistos ??= []);
+  if (vistos.includes(sv.id)) return r;
+  vistos.push(sv.id);
+  const cs = await Promise.race([c.fonte.combosComServico(sv).catch(() => []), new Promise<[]>((ok) => setTimeout(() => ok([]), 6000))]);
+  if (!cs.length) return r;
+  return {
+    ...r,
+    combos_que_incluem_este_servico: cs.slice(0, 2).map((x) => ({ servico_id: `combo:${x.id}`, combo: x.rotulo, total: reais(x.total), economia: reais(x.economia), inclui: x.texto })),
+    orientacao_combo: 'Cite o combo UMA vez, numa linha curta logo depois do valor (nome, o que inclui de forma resumida, valor e economia em negrito), sem insistir, e termine com a pergunta normal da unidade. Se o paciente quiser o combo, abra com abrir_servico(servico_id do combo); se recusar, siga só com o serviço.',
+  };
+}
+
 const acharServico = async (id: string, c: Contexto): Promise<Servico | undefined> => {
   if (c.mem.servicos[id]) return c.mem.servicos[id];
   const d = await c.fonte.resolver(id).catch(() => undefined);
@@ -172,11 +193,11 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
       case 'buscar_servico': {
         const t = norm(String(args.pedido ?? ''));
         if (!t) return { erro: 'pedido vazio' };
-        return descobertaParaModelo(await f.descobrir(t, true), c);
+        return comCombos(await descobertaParaModelo(await f.descobrir(t, true), c), c);
       }
       case 'abrir_servico': {
         const d = await f.resolver(String(args.servico_id));
-        return descobertaParaModelo(d, c);
+        return comCombos(await descobertaParaModelo(d, c), c);
       }
       case 'servico_com_profissional': {
         const sv = await acharServico(String(args.servico_id), c);
