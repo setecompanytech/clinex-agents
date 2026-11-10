@@ -25,7 +25,8 @@ export type MemoriaIA = {
   etapas?: Record<string, { combo: string; etapa: number; rotulo: string }>;
   ate?: string;
   transferiu?: boolean; // a IA passou a conversa para a equipe
-  combosVistos?: string[]; // serviços cujos combos já foram consultados (a sugestão é feita uma vez só)
+  combosVistos?: string[];
+  combosOferecidos?: { combo: string; total: string; economia: string }[]; // combos já citados (o valor deles é dado real) // serviços cujos combos já foram consultados (a sugestão é feita uma vez só)
 };
 export const memoriaNova = (): MemoriaIA => ({ v: 1, servicos: {}, slots: {}, proxSlot: 1, agendados: [] });
 
@@ -37,7 +38,7 @@ export type Contexto = {
   lerComprovante?: () => Promise<Comprovante | null>; // a última imagem da conversa, lida como comprovante
   lerPedidos?: () => Promise<(PedidoLido | null)[]>; // TODAS as imagens recentes do paciente, cada uma lida como pedido médico (álbum de fotos)
   /** preenchidos pelas ferramentas: o que o código faz depois da resposta */
-  saida: { confirmacoes: string[]; handoff?: { motivo: string; urgente?: boolean }; encerrar?: boolean; usadas: string[] };
+  saida: { confirmacoes: string[]; handoff?: { motivo: string; urgente?: boolean }; encerrar?: boolean; usadas: string[]; dados?: string[] /* resultados das ferramentas nesta resposta */ };
 };
 
 // ------------------------------------------------------------------------------------------------ datas
@@ -110,7 +111,7 @@ async function resumoServico(sv: Servico, c: Contexto) {
     })),
     ...(sv.detalhe ? { detalhe: sv.detalhe } : {}),
     ...(sv.preparo ? { preparo: sv.preparo } : {}),
-    ...(sv.pacote ? { combo: { etapas: sv.pacote.etapas.map((ids, i) => ({ etapa: i + 1, itens: ids.map((id) => sv.pacote!.itens.find((x) => x.id === id)?.nome).filter(Boolean) })), observacao: 'Combo: agende uma etapa de cada vez com etapa_do_combo.' } } : {}),
+    ...(sv.pacote ? { combo: { etapas: sv.pacote.etapas.map((ids, i) => ({ etapa: i + 1, itens: ids.map((id) => sv.pacote!.itens.find((x) => x.id === id)?.nome).filter(Boolean) })), observacao: 'Combo: NÃO tem unidades nem profissionais próprios aqui. NUNCA cite médico ou unidade do combo antes de chamar etapa_do_combo (cada etapa devolve as unidades e os profissionais reais dela). Para agendar, chame etapa_do_combo(etapa 1), mostre as unidades/profissionais que ela devolver e siga etapa por etapa.' } } : {}),
     ...(sv.unidades.length === 0 && !sv.pacote ? { aviso: 'sem unidade com agenda aberta' } : {}),
   };
 }
@@ -141,6 +142,7 @@ async function comCombos(r: any, c: Contexto): Promise<unknown> {
   vistos.push(sv.id);
   const cs = await Promise.race([c.fonte.combosComServico(sv).catch(() => []), new Promise<[]>((ok) => setTimeout(() => ok([]), 6000))]);
   if (!cs.length) return r;
+  (c.mem.combosOferecidos ??= []).push(...cs.slice(0, 2).map((x) => ({ combo: x.rotulo, total: reais(x.total), economia: reais(x.economia) })));
   return {
     ...r,
     combos_que_incluem_este_servico: cs.slice(0, 2).map((x) => ({ servico_id: `combo:${x.id}`, combo: x.rotulo, total: reais(x.total), economia: reais(x.economia), inclui: x.texto })),

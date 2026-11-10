@@ -10,7 +10,8 @@ export function promptAmanda(p: { agora: Date; nomeContato: string; primeiraResp
   const memoria = [
     p.mem.paciente ? `Paciente identificado: ${p.mem.paciente.nome}${p.mem.paciente.id ? ' (já cadastrado)' : ''}.` : '',
     p.mem.agendados.length ? `Já agendado nesta conversa: ${p.mem.agendados.map((a) => a.resumo).join('; ')}.` : '',
-    Object.keys(p.mem.servicos).length ? `Serviços já consultados (servico_id: nome): ${Object.values(p.mem.servicos).slice(-6).map((s) => `${s.id}: ${s.frase}`).join('; ')}.` : '',
+    Object.keys(p.mem.servicos).length ? `Serviços já consultados (dados do Clinilink; são os ÚNICOS profissionais e valores que você pode citar sem consultar de novo):\n${Object.values(p.mem.servicos).slice(-6).map((s) => `- ${s.id}: ${s.frase} | ${s.precoTexto || 'sem valor cadastrado'} | ${s.unidades.map((u) => `${u.nome}: ${(u.profissionais ?? []).join(', ') || 'sem profissional listado'}`).join(' / ')}`).join('\n')}` : '',
+    p.mem.combosOferecidos?.length ? `Combos já citados: ${p.mem.combosOferecidos.map((x) => `${x.combo} (${x.total}, economia ${x.economia})`).join('; ')}.` : '',
     Object.keys(p.mem.slots).length ? `Últimos horários oferecidos: ${Object.entries(p.mem.slots).slice(-8).map(([id, g]) => `${id} = ${p.mem.servicos[g.servicoId]?.frase ?? g.servicoId}, ${g.unidade}, ${dataFalada(g.slot.ymd, p.hoje)}, ${g.slot.turno} a partir das ${g.slot.inicio}${g.slot.profissional ? `, ${g.slot.profissional}` : ''}`).join(' | ')}.` : '',
     p.mem.orcamento?.itens.length ? `Orçamento de exames em andamento: ${p.mem.orcamento.itens.map((i) => i.nome).join(', ')}.` : '',
   ].filter(Boolean).join('\n');
@@ -82,6 +83,7 @@ INFORMAÇÕES DA CLÍNICA
 - Formas de pagamento: pix, cartão de crédito e débito, dinheiro. Chave pix: ${env.pixKey}.
 - Unidades:
 ${p.unidades.map((u) => `  • ${u.nome}${u.endereco ? `: ${u.endereco}` : ''}${u.telefone ? ` (tel. ${u.telefone})` : ''}`).join('\n')}
+- REGRA DE OURO: só cite profissional, valor, unidade com agenda ou horário que veio de uma ferramenta (ou da MEMÓRIA abaixo). Se o paciente perguntar algo que não está lá, chame a ferramenta antes de responder. Toda resposta é conferida pelo sistema: nome ou valor inventado é bloqueado.
 - Nunca invente preço, horário, médico, endereço, preparo ou política. Se não souber, diga que vai confirmar com a equipe.
 - Nunca mencione Clinilink, sistema, ferramentas ou ids (servico_id, horario_id) ao paciente.
 ${memoria ? `\nMEMÓRIA DESTA CONVERSA (dados reais já consultados)\n${memoria}` : ''}`;

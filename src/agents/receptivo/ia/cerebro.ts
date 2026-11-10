@@ -19,6 +19,7 @@ export async function pensar(system: string, conversa: Msg[], c: Contexto): Prom
 async function rodarFerramenta(nome: string, args: unknown, c: Contexto, log: Resposta['ferramentas']) {
   const t0 = Date.now();
   const r = JSON.stringify(await executar(nome, args, c)).slice(0, 12000);
+  (c.saida.dados ??= []).push(r);
   log.push({ nome, args, ms: Date.now() - t0, res: r.slice(0, 300) });
   return r;
 }
@@ -33,7 +34,7 @@ async function comOpenai(system: string, conversa: Msg[], c: Contexto): Promise<
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST', signal: AbortSignal.timeout(Math.max(5000, PRAZO_MS - (Date.now() - ini))),
       headers: { Authorization: `Bearer ${env.openaiKey}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ model: modelo, messages: msgs, tools, temperature: 0.3, parallel_tool_calls: true }),
+      body: JSON.stringify({ model: modelo, messages: msgs, tools, temperature: 0.2, parallel_tool_calls: true }),
     });
     if (!res.ok) throw new Error(`OpenAI ${res.status}: ${(await res.text()).slice(0, 300)}`);
     const j: any = await res.json();

@@ -9,6 +9,7 @@ import { describe, textoRoteiro, type InovstarMessage } from '../../../integrati
 import type { Fonte } from '../script/catalog.js';
 import { unidadesDaClinica } from '../script/clinilinkFonte.js';
 import { pensar, type Msg, type Resposta } from './cerebro.js';
+import { evt } from '../../../lib/log.js';
 import { memoriaNova, type Contexto, type MemoriaIA } from './ferramentas.js';
 import { promptAmanda, type Unidades } from './prompt.js';
 
@@ -66,6 +67,36 @@ export function acabamento(t: string): string {
     .replace(/\n{3,}/g, '\n\n');
 }
 
+/** Palavras que podem vir com maiúscula logo depois do nome do médico e não são sobrenome ("Dra. Camila Atende no Guamá"). */
+const DEPOIS_DO_NOME = new Set('atende atendem faz fazem no na nos nas em e ou tambem esta tem que para pra pelo pela com hoje amanha segunda terca quarta quinta sexta sabado domingo de da do as os a o tudo ok sim nao pode'.split(' '));
+const semAcento = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+/**
+ * TRAVA DE VERACIDADE: todo médico (Dr./Dra. Nome) e todo valor em R$ da resposta tem de ter vindo do Clinilink (ferramentas desta resposta
+ * ou memória do atendimento). Nome citado pelo próprio paciente também vale (ela pode dizer "não achei a Dra. X").
+ * Caso real: depois de a ferramenta devolver Camila, Jean e Emanuelly a R$ 90,00, ela escreveu "Dra. Ana Carolina", "Dr. Bruno" e R$ 120,00.
+ */
+export function inventados(texto: string, fontes: string[], doPaciente: string): string[] {
+  const base = semAcento(fontes.join(' \n '));
+  const pac = semAcento(doPaciente);
+  const ruins: string[] = [];
+  const tem = (alvo: string, txt: string) => new RegExp('(^|[^a-z])' + alvo + '([^a-z]|$)').test(txt);
+  for (const m of texto.matchAll(/\b(?:Dra?\.?|Doutora?)\s+([A-ZÁÉÍÓÚÂÊÔÃÕÇ][a-záéíóúâêôãõçü]+)(?:\s+([A-ZÁÉÍÓÚÂÊÔÃÕÇ][a-záéíóúâêôãõçü]+))?/g)) {
+    const n1 = semAcento(m[1]); const n2 = m[2] && !DEPOIS_DO_NOME.has(semAcento(m[2])) ? semAcento(m[2]) : '';
+    // nome composto ("Ana Carolina"): os dois nomes juntos têm de existir ("Ana Clara" não autoriza "Ana Carolina")
+    const ok = n2 ? tem(n1 + ' ' + n2, base) || tem(n1 + ' ' + n2, pac) : tem(n1, base) || tem(n1, pac);
+    if (!ok) ruins.push(m[0]);
+  }
+  for (const m of texto.matchAll(/R\$\s?(\d{1,3}(?:\.\d{3})*,\d{2})/g)) {
+    const v = m[1];
+    const num = Number(v.replace(/\./g, '').replace(',', '.'));
+    const comoTexto = new RegExp('r\\$\\s?' + v.replace(/\./g, '\\.'));
+    const comoNumero = new RegExp('[:\\[,]\\s*' + String(num).replace('.', '\\.') + '(?![\\d.])');
+    if (num > 0 && !comoTexto.test(base) && !comoNumero.test(base)) ruins.push(m[0]);
+  }
+  return [...new Set(ruins)];
+}
+
 export async function atenderComIA(p: {
   history: InovstarMessage[];
   titulos: string[];
@@ -86,7 +117,22 @@ export async function atenderComIA(p: {
   const hoje = new Intl.DateTimeFormat('en-CA', { timeZone: env.timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(agora);
   const system = promptAmanda({ agora, nomeContato: p.nomeContato, primeiraResposta, mem, unidades: await unidades(), hoje });
   const c: Contexto = { fonte: p.fonte, mem, telefone: p.telefone, agora, lerComprovante: p.lerComprovante, lerPedidos: p.lerPedidos, saida: { confirmacoes: [], usadas: [] } };
-  const resposta = await pensar(system, conversa, c);
+  let resposta = await pensar(system, conversa, c);
+  // conferência: médico ou valor que não veio do Clinilink -> refaz UMA vez, obrigando a consultar; se insistir, não envia o inventado
+  const doPaciente = conversa.filter((m) => m.role === 'user').map((m) => m.content).join('\n');
+  const fontesDe = () => [...(c.saida.dados ?? []), JSON.stringify({ servicos: mem.servicos, slots: mem.slots, orcamento: mem.orcamento, combos: mem.combosOferecidos, paciente: mem.paciente })];
+  let ruins = c.saida.confirmacoes.length ? [] : inventados(resposta.texto, fontesDe(), doPaciente);
+  if (ruins.length) {
+    evt('erro', { mensagem: 'IA: resposta com dado que não veio do Clinilink (refazendo)', itens: ruins, rascunho: resposta.texto.slice(0, 400) });
+    const correcao: Msg[] = [...conversa, { role: 'assistant', content: resposta.texto }, { role: 'user', content: '[CHECAGEM INTERNA DO SISTEMA, não é o paciente] Sua última resposta citou ' + ruins.join(', ') + ', que NÃO veio das ferramentas. Isso é proibido. Consulte agora as ferramentas (buscar_servico, servico_com_profissional, ver_horarios, orcar_exames) e reescreva a resposta ao paciente usando SOMENTE os profissionais e valores que elas devolverem. Não mencione esta checagem.' }];
+    resposta = await pensar(system, correcao, c);
+    ruins = inventados(resposta.texto, fontesDe(), doPaciente);
+    if (ruins.length) {
+      evt('erro', { mensagem: 'IA: insistiu em dado que não veio do Clinilink; resposta bloqueada', itens: ruins, rascunho: resposta.texto.slice(0, 400) });
+      resposta = { ...resposta, texto: 'Deixa eu confirmar essa informação certinho no sistema. Vou chamar alguém da equipe pra te passar os dados corretos, só um instante.' };
+      c.saida.handoff = { motivo: 'Amanda IA bloqueada pela trava de veracidade (citou profissional ou valor que não veio do Clinilink: ' + ruins.join(', ') + '). Conferir o pedido do paciente e responder.' };
+    }
+  }
   let texto = acabamento(resposta.texto);
   // agendou: a confirmação oficial já traz tudo; do texto do modelo só fica o que for do pix (chave/comprovante), nunca o resumo repetido
   if (c.saida.confirmacoes.length) texto = [...c.saida.confirmacoes, /\bpix\b/i.test(texto) ? texto : ''].filter(Boolean).join('\n\n');
