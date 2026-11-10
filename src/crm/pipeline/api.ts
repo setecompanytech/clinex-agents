@@ -42,7 +42,8 @@ function tique() {
     rodarSincronizacao().then((r) => console.log(`[crm] rotina Clinilink: orçamentos +${r.orcamentos?.criados ?? 0}, no-show +${r.agendamentos?.criados ?? 0}${r.erros.length ? ` (erros: ${r.erros.join(' | ')})` : ''}`)).catch((e) => console.error('[crm] rotina Clinilink falhou:', (e as Error).message));
   }
 }
-if (process.env.CRM_ROTINA !== 'false') setInterval(tique, 60_000).unref();
+// Na Vercel a rotina é do Cron (/cron/crm): um relógio por instância sincronizava antes de a instância ler o banco.
+if (process.env.CRM_ROTINA !== 'false' && !process.env.VERCEL) setInterval(tique, 60_000).unref();
 
 // ------------------------------------------------------------------------------------------------ funis
 

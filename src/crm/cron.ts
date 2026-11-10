@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import { Router } from 'express';
-import { estado, pronto } from './banco.js';
+import { bancoFora, estado, pronto, tentarVoltarAoBanco } from './banco.js';
 import { clinilinkConfigurado } from './clinilink.js';
 import { esvaziar } from './persistencia.js';
 import { rodarAutomacoesDosFunis, rodarSincronizacao } from './pipeline/api.js';
@@ -21,6 +21,8 @@ cron.get('/crm', (req, res, next) => {
   if (!clinilinkConfigurado()) return void res.status(503).json({ erro: 'clinilink', mensagem: 'CRM_CLINILINK_API_KEY não está configurada.' });
   (async () => {
     await pronto();
+    await tentarVoltarAoBanco();
+    if (bancoFora()) return void res.status(503).json({ erro: 'banco', mensagem: 'O banco não respondeu: a rotina foi adiada para não gravar sobre dados não lidos.' });
     const automacoes = rodarAutomacoesDosFunis(new Date());
     const r = await rodarSincronizacao();
     await esvaziar(estado);

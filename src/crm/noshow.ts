@@ -22,7 +22,9 @@ export function chaveDaEtapa(rotulo: string): string | null {
 }
 
 export function funilNoShow(est: EstadoFunis): Funil | undefined {
-  return est.funis.find((f) => f.dimensao === 'agendamento') ?? est.funis.find((f) => /no.?show/.test(norm(f.nome)));
+  // se houver mais de um (duplicatas antigas), vale o mais antigo: é o que a aba Pipelines e a rotina usam
+  const doTipo = est.funis.filter((f) => f.dimensao === 'agendamento').sort((a, b) => a.criadoEm.localeCompare(b.criadoEm));
+  return doTipo[0] ?? est.funis.find((f) => /no.?show/.test(norm(f.nome)));
 }
 
 const soma = (xs: number[]) => xs.reduce((s, x) => s + x, 0);
