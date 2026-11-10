@@ -31,6 +31,18 @@ const soma = (xs: number[]) => xs.reduce((s, x) => s + x, 0);
 const pct = (a: number, b: number) => (b > 0 ? Math.round((a / b) * 100) : null);
 const med = (xs: number[]) => (xs.length ? Math.round((xs.reduce((s, x) => s + x, 0) / xs.length) * 10) / 10 : null);
 
+/**
+ * Faltas de UM dia (o dia do agendamento, não o da entrada no funil), contadas das duas formas: por agendamento (cada card)
+ * e por paciente (mesmo nome conta uma vez). Considera todos os cards do funil, mesmo os que já saíram da etapa No-show.
+ */
+export function faltasDoDia(f: Funil, est: EstadoFunis, dia: string) {
+  const nome = (t: string) => norm(t).replace(/\s+/g, " ").trim();
+  const doDia = visiveis(f, est.atribuicoes).filter((a) => { const d = Date.parse(a.originSnapshot.criadoEm); return !Number.isNaN(d) && diaBRT(new Date(d)) === dia; });
+  const porUnidade = new Map<string, { cards: number; pac: Set<string> }>();
+  for (const a of doDia) { const u = a.originSnapshot.unidade || "Sem unidade"; const x = porUnidade.get(u) ?? { cards: 0, pac: new Set<string>() }; x.cards++; x.pac.add(nome(a.originSnapshot.paciente)); porUnidade.set(u, x); }
+  return { dia, agendamentos: doDia.length, pacientes: new Set(doDia.map((a) => nome(a.originSnapshot.paciente))).size, porUnidade: [...porUnidade].map(([unidade, x]) => ({ unidade, agendamentos: x.cards, pacientes: x.pac.size })).sort((x, y) => y.pacientes - x.pacientes) };
+}
+
 /** Números do mapa: quantos cards há em cada etapa agora e quem são (os de maior valor primeiro). */
 export function dadosNoShow(est: EstadoFunis, agora: Date) {
   const f = funilNoShow(est);
@@ -46,7 +58,7 @@ export function dadosNoShow(est: EstadoFunis, agora: Date) {
     total++; valor += v;
   }
   for (const k of Object.keys(cards)) cards[k] = cards[k].sort((x, y) => y.valor - x.valor).slice(0, 40);
-  return { funilId: f.id, nome: f.nome, total, valor, contagens, cards };
+  return { funilId: f.id, nome: f.nome, total, valor, contagens, cards, faltas: faltasDoDia(f, est, somaDia(diaBRT(agora), -1)) };
 }
 
 type Passagem = { a: Atribuicao; entrada: string; saida?: string; dest?: string; dur?: number; primeira?: boolean };

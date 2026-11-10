@@ -402,6 +402,18 @@ function calendarioNS() {
   return h('div', { class: 'cal-w' }, h('div', { class: 'cal cal-ns' }, topo.concat(itens)));
 }
 
+/* faltas do dia anterior, por paciente e por agendamento: separado do número acumulado do mapa */
+function faltasOntemNS() {
+  var F = S.NS && S.NS.faltas; if (!F) return null;
+  var d = F.dia.slice(8, 10) + '/' + F.dia.slice(5, 7);
+  var un = (F.porUnidade || []).map(function (u) { return fvUnidadeCurta(u.unidade) + ': ' + u.pacientes + ' ' + plural(u.pacientes, 'paciente', 'pacientes') + ' (' + u.agendamentos + ' ' + plural(u.agendamentos, 'falta', 'faltas') + ')'; }).join('  ·  ');
+  return h('div', { class: 'cartao' }, [
+    h('h3', { class: 'h3', text: 'Faltas de ontem (' + d + ')' }),
+    h('p', null, [h('b', { text: F.pacientes + ' ' + plural(F.pacientes, 'paciente', 'pacientes') }), ' · ' + F.agendamentos + ' ' + plural(F.agendamentos, 'agendamento com falta', 'agendamentos com falta')]),
+    un ? h('p', { class: 'mut peq', text: un }) : null,
+    h('p', { class: 'mut peq', text: 'O mesmo paciente com mais de um horário no dia conta uma vez em pacientes e uma vez por horário em agendamentos. Os números no mapa abaixo são outra coisa: quantos cards estão em cada etapa agora, somando todos os dias.' })
+  ]);
+}
 function telaFluxoNS() {
   if (!S.NScarregando && (!S.NS || Date.now() - (S.NSt || 0) > 30000)) pedirNoShow();
   var estreito = window.matchMedia && matchMedia('(max-width: 820px)').matches;
@@ -411,10 +423,11 @@ function telaFluxoNS() {
   corpo.appendChild(S.fluxoVista === 'mapa' ? mapaFluxo(M.NOSHOW.MAPA, cont, legendaNS()) : listaFluxo(ordemListaNS(), M.NOSHOW.MAPA, cont));
   var sem = S.NS && !S.NS.funilId ? h('div', { class: 'faixa f-aviso' }, [ico('alert', 16), 'O funil "No-show" ainda não existe em Pipelines, então o mapa fica sem números. As etapas e os modais funcionam normalmente.']) : S.NSerro ? h('div', { class: 'faixa f-aviso' }, [ico('alert', 16), 'Não consegui carregar os números do No-show: ' + S.NSerro]) : null;
   return h('div', { class: 'tela' }, [
-    cabecalhoTela('Fluxo do No-show', 'Orçamentos de pacientes que faltaram ao agendamento. Clique em qualquer card para ver tudo sobre a etapa. O número no canto é quantos cards do funil No-show estão ali agora.', alternaFluxo()),
+    cabecalhoTela('Fluxo do No-show', 'Orçamentos de pacientes que faltaram ao agendamento. Clique em qualquer card para ver tudo sobre a etapa. O número no canto é quantos cards do funil No-show estão ali agora, somando todos os dias.', alternaFluxo()),
     abasFluxo(),
     h('div', { class: 'prior' }, [ico('bolt', 16), h('b', { text: 'PRIORIDADE DO DIA' }), h('span', { text: 'No-show primeiro, nas primeiras horas do dia' })]),
     sem,
+    faltasOntemNS(),
     h('div', { class: 'cartao fluxo-cartao' }, corpo),
     h('div', { class: 'cartao' }, [h('h3', { class: 'h3', text: 'O que fazer em cada dia' }), h('p', { class: 'mut peq', text: 'A cadência do D0 ao D8, a partir do dia em que o paciente faltou. Clique em qualquer card ou resposta para ver a etapa.' }), calendarioNS()]),
     h('div', { class: 'cartao' }, [h('h3', { class: 'h3', text: 'Regras de ouro' }), regrasGrade(regrasNS())])

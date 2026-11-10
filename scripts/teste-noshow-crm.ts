@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { GRADE_NOSHOW, ITENS_NOSHOW, MAPA_NOSHOW, REGRAS_NOSHOW, ETAPA_DO_ITEM } from '../src/crm/modelo-noshow.js';
 import { MENSAGENS, MODELO } from '../src/crm/modelo.js';
-import { analisarNoShow, chaveDaEtapa, dadosNoShow, funilNoShow } from '../src/crm/noshow.js';
+import { analisarNoShow, chaveDaEtapa, dadosNoShow, faltasDoDia, funilNoShow } from '../src/crm/noshow.js';
 import { funisPadrao } from '../src/crm/pipeline/regras.js';
 import type { Atribuicao, CardSnap, EstadoFunis } from '../src/crm/pipeline/tipos.js';
 
@@ -129,6 +129,16 @@ teste('período maior vira semanas e item desconhecido devolve nulo', () => {
   const r = analisarNoShow(est, AGORA, 'ns-noshow', 90)!;
   assert.equal(r.semanal, true); assert.equal(r.rotulos.length, 13);
   assert.equal(analisarNoShow(est, AGORA, 'ns-inexistente', 30), null);
+});
+
+teste('faltas do dia: por paciente e por agendamento, separadas por unidade', () => {
+  const e2 = { funis: funisPadrao(AGORA), atribuicoes: [], extras: {}, followups: [], contatos: [], rotina: {} } as unknown as EstadoFunis;
+  const fn = funilNoShow(e2)!;
+  const card = (id: string, nome: string, quando: string, unidade: string) => { const sn = { id, paciente: nome, valor: 0, itens: [], criadoEm: quando, status: 'faltou', unidade } as CardSnap; return { funilId: fn.id, cardId: id, stageId: fn.stages[0].id, enteredAt: AGORA.toISOString(), manual: false, historico: [{ stageId: fn.stages[0].id, em: AGORA.toISOString(), manual: false }], originSnapshot: sn, ultimoSnapshot: sn, originStatus: 'faltou', caseStatus: 'aberto' } as Atribuicao; };
+  e2.atribuicoes.push(card('a', 'Maria Souza', '2026-03-19T07:00:00-03:00', 'CLINEX GUAMÁ'), card('b', 'maria  souza', '2026-03-19T09:30:00-03:00', 'CLINEX GUAMÁ'), card('c', 'João', '2026-03-19T08:00:00-03:00', 'CLINEX GUAMÁ'), card('d', 'Ana', '2026-03-19T15:00:00-03:00', 'CLINEX TELEGRAFO'), card('e', 'Outro dia', '2026-03-18T15:00:00-03:00', 'CLINEX GUAMÁ'));
+  const r = dadosNoShow(e2, AGORA).faltas as ReturnType<typeof faltasDoDia>;
+  assert.equal(r.dia, '2026-03-19'); assert.equal(r.agendamentos, 4, 'um por horário'); assert.equal(r.pacientes, 3, 'Maria conta uma vez (nome sem acento/caixa/espaço duplo)');
+  assert.deepEqual(r.porUnidade.map((u) => [u.unidade, u.agendamentos, u.pacientes]), [['CLINEX GUAMÁ', 3, 2], ['CLINEX TELEGRAFO', 1, 1]]);
 });
 
 console.log(`${ok} testes passaram.`);
