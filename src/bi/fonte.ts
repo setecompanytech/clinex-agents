@@ -2,6 +2,7 @@ import { buscarEventos, logsConfigurado, type Evento } from '../logs/vercel.js';
 import { estadoArmazem, eventosDaMemoria } from './armazem.js';
 import { analisar, construirConversas } from './analise.js';
 import { gerarDemo } from './demo.js';
+import { lerContatos } from '../lib/estado.js';
 
 const HORA = 3_600_000;
 export const PERIODOS = { '24h': 24 * HORA, '7d': 7 * 24 * HORA, '30d': 30 * 24 * HORA } as const;
@@ -62,9 +63,12 @@ export async function montarMonitor(periodo: Periodo, id?: string, agora = Date.
     const c = convs.find((x) => x.id === id);
     return { turnos: (c?.turnos ?? []).slice(0, 80).map((t) => ({ t: t.t, paciente: t.paciente.slice(0, 600), amanda: t.amanda.slice(0, 900), etapa: t.etapa, transferiu: t.transferiu, motivo: t.motivo?.slice(0, 240) })) };
   }
+  const lista = convs.slice(0, 500);
+  const contatos = await lerContatos(lista.map((c) => c.id));
   return {
     geradoEm: agora, periodo, origens: r.origens, avisos: r.avisos, total: convs.length,
-    conversas: convs.slice(0, 500).map((c) => ({
+    conversas: lista.map((c) => ({
+      contato: contatos[c.id]?.contato, telefone: contatos[c.id]?.telefone, paciente: contatos[c.id]?.paciente,
       id: c.id, curto: c.id.slice(-6), inicio: c.inicio, fim: c.fim, status: c.status, mensagens: c.turnos.length, etapa: c.etapaFinal,
       motivo: c.motivo?.slice(0, 200), problemas: c.problemas, estagio: c.estagio, motor: c.motor, simulada: c.simulada, primeira: (c.turnos.find((t) => t.paciente)?.paciente ?? '').slice(0, 140),
     })),

@@ -97,3 +97,34 @@ export async function lerMemoriaIA<T>(attendanceId: string): Promise<T | null> {
 export async function guardarMemoriaIA(attendanceId: string, m: unknown): Promise<void> {
   await comando(['SET', chaveIA(attendanceId), JSON.stringify(m), 'EX', TTL_SEGUNDOS]);
 }
+
+// ------------------------------------------------------------------------------------------------ contato do atendimento (para o painel)
+/**
+ * Nome do contato no WhatsApp, telefone e nome do paciente (quando a Amanda identifica) de cada atendimento, para o monitor de conversas.
+ * Fica no Redis por 30 dias, NUNCA nos logs (que são mascarados); só o painel, com login, lê.
+ */
+const chaveContato = (attendanceId: string) => `amanda:contato:${attendanceId}`;
+export async function guardarContato(attendanceId: string, c: { contato?: string; telefone?: string; paciente?: string }): Promise<void> {
+  const campos = Object.entries(c).filter(([, v]) => typeof v === 'string' && v.trim()).flatMap(([k, v]) => [k, String(v).trim().slice(0, 120)]);
+  if (!campos.length || !estadoAtivo()) return;
+  await comando(['HSET', chaveContato(attendanceId), ...campos]);
+  await comando(['EXPIRE', chaveContato(attendanceId), 30 * 24 * 3600]);
+}
+export async function lerContatos(ids: string[]): Promise<Record<string, { contato?: string; telefone?: string; paciente?: string }>> {
+  const out: Record<string, { contato?: string; telefone?: string; paciente?: string }> = {};
+  if (!ids.length || !estadoAtivo()) return out;
+  try {
+    const res = await fetch(`${env.redisUrl.replace(/\/$/, '')}/pipeline`, {
+      method: 'POST', headers: { Authorization: `Bearer ${env.redisToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify(ids.map((id) => ['HGETALL', chaveContato(id)])), signal: AbortSignal.timeout(5000),
+    });
+    const j = (await res.json().catch(() => null)) as { result?: unknown }[] | null;
+    if (!res.ok || !Array.isArray(j)) return out;
+    j.forEach((r, i) => {
+      const v = r?.result;
+      if (Array.isArray(v) && v.length) { const o: Record<string, string> = {}; for (let k = 0; k < v.length; k += 2) o[String(v[k])] = String(v[k + 1]); out[ids[i]] = o; }
+      else if (v && typeof v === 'object' && !Array.isArray(v)) out[ids[i]] = v as Record<string, string>;
+    });
+  } catch (e) { evt('erro', { mensagem: `contatos do painel: ${(e as Error).message.slice(0, 100)}` }); }
+  return out;
+}

@@ -37,6 +37,11 @@ const css = `${cssBi}
 .fx-alerta div{border-left:3px solid var(--warn);padding:6px 10px;background:color-mix(in srgb,var(--warn) 9%,transparent);border-radius:0 10px 10px 0;font-size:13px}
 .fx-alerta div.ok{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 9%,transparent)}
 .fx-dica{position:absolute;pointer-events:none;background:var(--solid,#111);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:7px 10px;font-size:12.5px;box-shadow:0 6px 18px rgba(0,0,0,.18);max-width:260px;z-index:5}
+.fx-fita,.fx-no{cursor:pointer}
+.fx-sel{margin-top:12px;border-top:1px solid var(--line);padding-top:12px}
+.fx-sel-cab{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+.fx-sel-cab h3{margin:0;font:800 14px "Segoe UI",system-ui}
+.mon-tel{color:var(--mut);font-size:12px;display:block}
 .fx details{margin-top:10px}.fx summary{cursor:pointer;color:var(--mut);font-size:12.5px}
 `;
 
@@ -89,6 +94,9 @@ function svgEl(tag, at, filhos) {
   (filhos || []).forEach(function (f) { if (f) e.appendChild(typeof f === 'string' ? document.createTextNode(f) : f); });
   return e;
 }
+function estDe(c) { return c.status === 'agendada' ? 4 : Math.max(0, Math.min(3, c.estagio || 0)); }
+function fmtTel(t) { var d = String(t || '').replace(/\D/g, ''); return d.length === 11 ? '(' + d.slice(0, 2) + ') ' + d.slice(2, 7) + '-' + d.slice(7) : d.length === 10 ? '(' + d.slice(0, 2) + ') ' + d.slice(2, 6) + '-' + d.slice(6) : (t || ''); }
+function quemE(c) { return c.paciente || c.contato || ''; }
 function pctDe(a, b) { return b ? Math.round(a / b * 100) + '%' : '0%'; }
 function calcFluxo(cs) {
   var chegou = [0, 0, 0, 0, 0];
@@ -142,47 +150,48 @@ function desenharFluxo(cs) {
     dica.style.left = x + 'px'; dica.style.top = y + 'px';
   }
   function esconder() { dica.hidden = true; }
-  function comDica(el, txt) {
-    el.setAttribute('tabindex', '0'); el.setAttribute('aria-label', txt);
+  function comDica(el, txt, sel) {
+    el.setAttribute('tabindex', '0'); el.setAttribute('aria-label', txt + (sel ? '. Clique para ver as conversas' : ''));
+    if (sel) { el.setAttribute('role', 'button'); el.addEventListener('click', function () { esconder(); selecionar(sel); }); el.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selecionar(sel); } }); }
     el.addEventListener('mousemove', function (e) { mostrar(e, txt); });
     el.addEventListener('mouseleave', esconder);
     el.addEventListener('focus', function () { var b = el.getBoundingClientRect(); mostrar({ clientX: b.left + b.width / 2, clientY: b.top }, txt); });
     el.addEventListener('blur', esconder);
-    el.appendChild(svgEl('title', {}, [txt]));
     return el;
   }
 
   var svg = svgEl('svg', { viewBox: '0 0 ' + W + ' ' + Math.ceil(Hmax), role: 'img', 'aria-label': 'Fluxo: ' + ESTAGIOS.map(function (e, i) { return e + ' ' + f.chegou[i]; }).join(', ') });
   // faixas (atrás dos nós)
-  for (var i = 0; i < 4; i++) {
+  [0, 1, 2, 3].forEach(function (i) {
     var x1 = xs[i] + NW, x2 = xs[i + 1], cur = Y0;
     var cont = f.chegou[i + 1];
     if (cont) {
       var t = Math.max(1.5, cont * k);
       svg.appendChild(comDica(svgEl('path', { class: 'fx-fita', d: faixa(x1, cur, x2, Y0, t), fill: i === 3 ? 'var(--ok)' : 'var(--cy)' }),
-        ESTAGIOS[i] + ' → ' + ESTAGIOS[i + 1] + ': ' + cont + ' de ' + f.chegou[i] + ' (' + pctDe(cont, f.chegou[i]) + ') seguiram'));
+        ESTAGIOS[i] + ' → ' + ESTAGIOS[i + 1] + ': ' + cont + ' de ' + f.chegou[i] + ' (' + pctDe(cont, f.chegou[i]) + ') seguiram',
+        { rot: 'Chegaram a "' + ESTAGIOS[i + 1] + '"', fn: function (c) { return estDe(c) >= i + 1; } }));
       cur += t;
     }
     saidas[i].forEach(function (s) {
       var t2 = Math.max(1.5, s.n * k);
       svg.appendChild(comDica(svgEl('path', { class: 'fx-fita', d: faixa(x1, cur, x2, s.y, t2), fill: s.cor }),
-        'Em "' + ESTAGIOS[i] + '": ' + s.n + ' ' + s.rot + ' (' + pctDe(s.n, f.chegou[i]) + ' de quem chegou aqui)'));
+        'Em "' + ESTAGIOS[i] + '": ' + s.n + ' ' + s.rot + ' (' + pctDe(s.n, f.chegou[i]) + ' de quem chegou aqui)', selSaida(i, s)));
       cur += t2;
     });
-  }
+  });
   // nós e rótulos das etapas
   ESTAGIOS.forEach(function (nome, i) {
     var n = f.chegou[i];
     svg.appendChild(svgEl('text', { x: xs[i], y: Y0 - 28, class: 'fx-m' }, [nome]));
     svg.appendChild(svgEl('text', { x: xs[i], y: Y0 - 10, class: 'fx-n' }, [String(n) + (i ? '  ·  ' + pctDe(n, total) : '')]));
     if (n) svg.appendChild(comDica(svgEl('rect', { class: 'fx-no', x: xs[i], y: Y0, width: NW, height: hN[i], rx: 4, fill: i === 4 ? 'var(--ok)' : 'var(--cy)' }),
-      nome + ': ' + n + ' conversa(s), ' + pctDe(n, total) + ' do total'));
+      nome + ': ' + n + ' conversa(s), ' + pctDe(n, total) + ' do total', { rot: i === 4 ? 'Agendaram' : (i ? 'Chegaram a "' + nome + '"' : 'Todas as conversas'), fn: function (c) { return estDe(c) >= i; } }));
   });
   // saídas: quem parou em cada etapa
   saidas.forEach(function (lista, i) {
     lista.forEach(function (s) {
       svg.appendChild(comDica(svgEl('rect', { class: 'fx-no', x: xs[i + 1], y: s.y, width: NW, height: s.h, rx: 3, fill: s.cor }),
-        'Saíram em "' + ESTAGIOS[i] + '": ' + s.n + ' ' + s.rot));
+        'Saíram em "' + ESTAGIOS[i] + '": ' + s.n + ' ' + s.rot, selSaida(i, s)));
       svg.appendChild(svgEl('text', { x: xs[i + 1] + NW + 6, y: s.ly, class: 'fx-m' }, [s.n + ' ' + s.rot]));
     });
   });
@@ -211,6 +220,26 @@ function desenharFluxo(cs) {
     alertas.push(h('div', { text: 'Transbordo para a equipe: ' + eq + ' conversa(s) (' + pctDe(eq, total) + '), a maioria em "' + ESTAGIOS[onde] + '". Os motivos aparecem logo abaixo.' }));
   }
   caixa.appendChild(h('div', { class: 'fx-alerta' }, alertas));
+  var selBox = h('div', { class: 'fx-sel', hidden: true, 'aria-live': 'polite' });
+  caixa.appendChild(selBox);
+  function selSaida(i, s) { return { rot: 'Em "' + ESTAGIOS[i] + '": ' + s.rot, fn: function (c) { return c.status !== 'agendada' && estDe(c) === i && saidaDe(c) === s.tipo; } }; }
+  function selecionar(sel) {
+    var lista = cs.filter(sel.fn).sort(function (a, b) { return b.fim - a.fim; });
+    selBox.textContent = ''; selBox.hidden = false;
+    selBox.appendChild(h('div', { class: 'fx-sel-cab' }, [h('h3', { text: sel.rot + ' (' + lista.length + ')' }), h('button', { class: 'mini', type: 'button', text: 'Fechar lista', onclick: function () { selBox.hidden = true; selBox.textContent = ''; } })]));
+    if (!lista.length) { selBox.appendChild(vazio('Nenhuma conversa neste trecho.')); return; }
+    selBox.appendChild(h('div', { class: 'tbl-w' }, h('table', { class: 'tbl' }, [
+      h('thead', null, h('tr', null, ['Contato', 'Paciente', 'Telefone', 'Resultado', 'Última atividade', 'Onde parou', 'Por quê'].map(function (t3) { return h('th', { scope: 'col', text: t3 }); }))),
+      h('tbody', null, lista.map(function (c) {
+        var tr = h('tr', { class: 'clic', tabindex: '0', title: 'Abrir a conversa', onclick: function () { abrirConversa(c, tr); }, onkeydown: function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrirConversa(c, tr); } } }, [
+          h('td', { text: c.contato || '–' }), h('td', { text: c.paciente || '–' }), h('td', { text: fmtTel(c.telefone) || '–' }),
+          h('td', null, chipStatus(c.status)), h('td', { text: haQuanto(c.fim) }), h('td', { text: ESTAGIOS[estDe(c)] }), h('td', { class: 'obs', text: porque(c) })
+        ]);
+        return tr;
+      }))
+    ])));
+    selBox.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
 
   // a mesma informação em tabela
   var linhas = ESTAGIOS.map(function (nome, i2) {
@@ -233,7 +262,7 @@ function abrirConversa(c, origem) {
   gavetaMon = h('div', { class: 'gaveta-fundo', onclick: function (e) { if (e.target === gavetaMon) fecharGavetaMon(); } },
     h('aside', { class: 'gaveta', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Conversa' }, [
       h('header', null, [
-        h('div', null, [h('h3', { text: 'Atendimento #' + c.curto }), h('p', { text: fmtDiaHora(c.inicio) + ' · ' + c.mensagens + ' mensagens · id ' + c.id })]),
+        h('div', null, [h('h3', { text: (quemE(c) ? quemE(c) + ' · ' : '') + 'Atendimento #' + c.curto }), h('p', { text: fmtDiaHora(c.inicio) + ' · ' + c.mensagens + ' mensagens · id ' + c.id })]),
         chipStatus(c.status), fechar
       ]),
       porque(c) ? h('div', { class: 'aviso-i', text: porque(c) }) : null,
@@ -286,19 +315,19 @@ function desenharMon() {
   if (motivos.length && MON.filtro !== 'exito' && MON.filtro !== 'andamento') {
     raiz.appendChild(h('div', { class: 'mon-mot', 'aria-label': 'Por que não deram certo' }, motivos.map(function (k) { return h('span', null, [h('b', { text: String(mot[k]) }), k]); })));
   }
-  var busca = h('input', { class: 'mon-busca', type: 'search', placeholder: 'Procurar por id, etapa ou o que o paciente disse', value: MON.busca, 'aria-label': 'Procurar conversa' });
+  var busca = h('input', { class: 'mon-busca', type: 'search', placeholder: 'Procurar por nome, telefone, etapa ou o que o paciente disse', value: MON.busca, 'aria-label': 'Procurar conversa' });
   busca.addEventListener('input', function () { MON.busca = busca.value; desenharTabela(); });
   raiz.appendChild(h('div', { style: 'margin-bottom:12px' }, busca));
   var lugar = h('div'); raiz.appendChild(lugar);
   function desenharTabela() {
     lugar.textContent = '';
     var q = MON.busca.trim().toLowerCase();
-    var lista = cs.filter(function (c) { return (MON.filtro === 'todas' || grupoDe(c.status) === MON.filtro) && (!q || (c.id + ' ' + c.etapa + ' ' + c.primeira + ' ' + porque(c)).toLowerCase().indexOf(q) >= 0); });
+    var lista = cs.filter(function (c) { return (MON.filtro === 'todas' || grupoDe(c.status) === MON.filtro) && (!q || (c.id + ' ' + c.etapa + ' ' + c.primeira + ' ' + porque(c) + ' ' + (c.contato || '') + ' ' + (c.paciente || '') + ' ' + (c.telefone || '')).toLowerCase().indexOf(q) >= 0); });
     if (!lista.length) { lugar.appendChild(vazio(cs.length ? 'Nenhuma conversa com esse filtro.' : 'Nenhuma conversa no período. Assim que a Amanda atender alguém, aparece aqui.')); return; }
     var linhas = lista.map(function (c) {
       var tr = h('tr', { class: 'clic', tabindex: '0', onclick: function () { abrirConversa(c, tr); }, onkeydown: function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrirConversa(c, tr); } } }, [
         h('td', null, chipStatus(c.status)),
-        h('td', { text: '#' + c.curto }),
+        h('td', null, [h('span', { text: quemE(c) || '#' + c.curto }), c.telefone ? h('span', { class: 'mon-tel', text: fmtTel(c.telefone) }) : null]),
         h('td', { class: 'mon-1a', text: c.primeira || '–' }),
         h('td', { text: fmtDiaHora(c.inicio) }),
         h('td', { text: haQuanto(c.fim) }),
@@ -309,7 +338,7 @@ function desenharMon() {
       return tr;
     });
     lugar.appendChild(h('div', { class: 'tbl-w' }, h('table', { class: 'tbl' }, [
-      h('thead', null, h('tr', null, ['Resultado', 'Atendimento', 'Primeira mensagem', 'Começou', 'Última atividade', 'Onde está / parou', 'Msgs', 'Por quê'].map(function (t) { return h('th', { scope: 'col', text: t }); }))),
+      h('thead', null, h('tr', null, ['Resultado', 'Contato', 'Primeira mensagem', 'Começou', 'Última atividade', 'Onde está / parou', 'Msgs', 'Por quê'].map(function (t) { return h('th', { scope: 'col', text: t }); }))),
       h('tbody', null, linhas)
     ])));
   }

@@ -1,11 +1,12 @@
 import { env } from '../../lib/env.js';
-import { describe, getHistory, ilegivel, sendText, textoRoteiro, transcribeMessage, transferToSector, type InovstarMessage, type MessageReceivedEvent } from '../../integrations/inovstar.js';
+import { closeAttendance, describe, getHistory, ilegivel, sendText, textoRoteiro, transcribeMessage, transferToSector, type InovstarMessage, type MessageReceivedEvent } from '../../integrations/inovstar.js';
 import { analisarComprovante, type Comprovante } from '../../lib/comprovante.js';
 import { analisarPedidoMedico, type PedidoLido } from '../../lib/pedidoMedico.js';
 import { escolherExames } from '../../lib/interpretarExames.js';
 import { buildSystemPrompt } from './prompt.js';
+import { soTelefone } from './script/engine.js';
 import { MARCAS_FIM, MARCA_ADEUS, MARCA_AGENDADO, MARCA_DUP, MARCA_MAIS, SEM_GPT, ehUrgencia, estadoDepoisDaResposta, etapa, handoffDuro, responder, type Pos, type Result, type State } from './script/engine.js';
-import { apagarEstado, estadoAtivo, guardarEstado, guardarMemoriaIA, lerEstado, lerMemoriaIA, travarAtendimento } from '../../lib/estado.js';
+import { apagarEstado, estadoAtivo, guardarContato, guardarEstado, guardarMemoriaIA, lerEstado, lerMemoriaIA, travarAtendimento } from '../../lib/estado.js';
 import { atenderComIA } from './ia/atender.js';
 import { memoriaNova, type MemoriaIA } from './ia/ferramentas.js';
 import { fonteSimulada } from './script/catalog.js';
@@ -301,6 +302,9 @@ async function processar(ev: MessageReceivedEvent) {
   const nome = firstName(ev.contactName);
 
   // Amanda IA: o modelo conduz a conversa com as ferramentas do Clinilink (AGENT_MODE=ia: todos; AGENTE_IA_NUMEROS: só o piloto)
+  // contato do atendimento para o monitor de conversas (Redis, nunca nos logs)
+  void guardarContato(ev.attendanceId, { contato: ev.contactName, telefone: soTelefone(ev.to) }).catch(() => {});
+
   if (usaIA(ev.to)) return await responderComIA(ev, history, inicio, naFilaDaEquipe, nome, titulosAmanda);
 
   // Roteiro fixo (sem IA): reprocessa as mensagens do paciente da jornada atual e responde a última.
@@ -548,16 +552,23 @@ async function responderComIA(ev: MessageReceivedEvent, history: InovstarMessage
   // voltou da fila da equipe (a IA não tinha transferido): a conversa volta para o setor da IA
   if (naFilaDaEquipe && !a.handoff && env.agentSectorId) await transferir(env.agentSectorId, 'A Amanda retomou o atendimento porque o paciente voltou a escrever.');
   const baloes = dividirEmBaloes(texto);
+  let enviouTudo = true;
   for (let i = 0; i < baloes.length; i++) {
     await pareceDigitando(inicio, urgente, baloes[i], i === 0);
     // o paciente escreveu de novo enquanto ela "digitava": essa resposta nasceu velha (a agendada já foi gravada e segue na memória)
     const nova = urgente || a.agendou ? undefined : await mensagemMaisNova();
-    if (nova) { evt('ignorado', { motivo: `IA: chegou mensagem nova (${nova}) enquanto a resposta era enviada: ${i} de ${baloes.length} balões` }); break; }
+    if (nova) { enviouTudo = false; evt('ignorado', { motivo: `IA: chegou mensagem nova (${nova}) enquanto a resposta era enviada: ${i} de ${baloes.length} balões` }); break; }
     await sendText({ channelId: ev.channelId, to: ev.to, attendanceId: ev.attendanceId, text: i === 0 ? withTitle(baloes[i]) : baloes[i], clientMessageId: i === 0 ? `agente-receptivo-${ev.messageId}` : `agente-receptivo-${ev.messageId}-${i + 1}` });
   }
   if (a.handoff && env.humanSectorId && !naFilaDaEquipe) await transferir(env.humanSectorId, a.handoff.motivo);
+  // o paciente encerrou ("só isso", "obrigado, tchau"): depois da despedida, o atendimento é finalizado na Inovstar (como o botão Finalizar)
+  if (a.encerrar && !a.handoff && enviouTudo) {
+    try { await closeAttendance(ev.attendanceId); evt('ignorado', { motivo: 'IA: paciente encerrou; atendimento finalizado na Inovstar' }); }
+    catch (e) { evt('erro', { mensagem: `IA: não consegui finalizar o atendimento: ${(e as Error).message.slice(0, 160)}` }); }
+  }
   if (estadoAtivo()) {
     const m = a.encerrar ? memoriaNova() : a.mem;
     await guardarMemoriaIA(ev.attendanceId, { ...m, ate: ev.messageId, transferiu: Boolean(a.handoff) });
+    if (a.mem.paciente?.nome) await guardarContato(ev.attendanceId, { paciente: a.mem.paciente.nome });
   }
 }

@@ -103,6 +103,11 @@ export function sendText(params: { channelId: string; to: string; attendanceId: 
   return request('POST', '/whatsapp/send/text', params);
 }
 
+/** Finaliza o atendimento (o mesmo que o botão "Finalizar" da Inovstar). */
+export function closeAttendance(attendanceId: string) {
+  return request('PUT', `/attendance/${attendanceId}/close`, {});
+}
+
 /** Devolve o atendimento a um setor (fila humana), já avisando o paciente na mesma chamada. */
 export function transferToSector(attendanceId: string, sectorId: string, reason: string, message?: string) {
   return request('PUT', `/attendance/${attendanceId}/transfer`, {
