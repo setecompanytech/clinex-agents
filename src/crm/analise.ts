@@ -50,8 +50,10 @@ export function analisarHoje(leads: Lead[], agora: Date, tarefas: Tarefa[], vist
   const dias14 = Array.from({ length: 14 }, (_, i) => d(13 - i));
   const idx14 = new Map(dias14.map((x, i) => [x, i]));
   const zero = () => Array<number>(14).fill(0);
+  // "novo" = dia em que o lead ENTROU no CRM (criadoEm), não a data do orçamento (D0): a sincronização roda de madrugada e só traz orçamentos de dias anteriores
+  const entrouEm = (l: { criadoEm: string; d0: string }) => (Number.isNaN(Date.parse(l.criadoEm)) ? l.d0 : hojeDe(new Date(l.criadoEm)));
   const ativ = { contatos: zero(), respostas: zero(), novos: zero(), agendamentos: zero(), convertidos: zero(), descartes: zero() };
-  for (const l of leads) { const i = idx14.get(l.d0); if (i !== undefined) ativ.novos[i]++; }
+  for (const l of leads) { const i = idx14.get(entrouEm(l)); if (i !== undefined) ativ.novos[i]++; }
   for (const { e, dia } of eventosTodos) {
     const i = idx14.get(dia); if (i === undefined) continue;
     if (e.tipo === 'contato') ativ.contatos[i]++;
@@ -105,7 +107,7 @@ export function analisarHoje(leads: Lead[], agora: Date, tarefas: Tarefa[], vist
   const risco = ativosL.filter((l) => atrasadosIds.has(l.id) || vistas.get(l.id)?.limite?.excedido);
 
   const kpis = {
-    novosHoje: leads.filter((l) => l.d0 === hoje).length, novos7, novos7Ant: novos7p, serieNovos: ativ.novos,
+    novosHoje: leads.filter((l) => entrouEm(l) === hoje).length, novos7, novos7Ant: novos7p, serieNovos: ativ.novos,
     contatosHoje: ativ.contatos[13], serieContatos: ativ.contatos,
     respostaTaxa: r14.taxa, respostaTaxaAnt: r14p.taxa, respostaN: r14.n, serieRespostas: ativ.respostas,
     agendTaxa: a30.taxa, agendTaxaAnt: a30p.taxa, agendN: a30.n, serieAgend: ativ.agendamentos,
