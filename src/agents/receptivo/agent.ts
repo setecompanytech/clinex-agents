@@ -505,7 +505,8 @@ async function responderComIA(ev: MessageReceivedEvent, history: InovstarMessage
     a = await atenderComIA({
       history, titulos, telefone: ev.to, nomeContato: nome, fonte, memoria: mem,
       lerComprovante: ultimaImagem ? () => lerComprovanteDe(history)(ultimaImagem._id) : undefined,
-      lerPedido: ultimaImagem ? () => lerPedidoDe(history)(ultimaImagem._id) : undefined,
+      // todas as fotos do paciente nas últimas 12 h (até 10), lidas em paralelo: o álbum do pedido médico chega uma foto por mensagem
+      lerPedidos: () => Promise.all(history.filter((m) => m.direction === 'in' && (m.type === 'image' || m.type === 'document') && Date.now() - +new Date(m.createdAt) < 12 * 3600_000).slice(-10).map((m) => lerPedidoDe(history)(m._id))),
     });
   } catch (e) {
     console.error(`${tag} IA falhou:`, (e as Error).message);

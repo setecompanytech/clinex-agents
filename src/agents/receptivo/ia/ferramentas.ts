@@ -35,7 +35,7 @@ export type Contexto = {
   telefone: string; // WhatsApp do paciente
   agora: Date;
   lerComprovante?: () => Promise<Comprovante | null>; // a última imagem da conversa, lida como comprovante
-  lerPedido?: () => Promise<PedidoLido | null>; // a última imagem da conversa, lida como pedido médico
+  lerPedidos?: () => Promise<(PedidoLido | null)[]>; // TODAS as imagens recentes do paciente, cada uma lida como pedido médico (álbum de fotos)
   /** preenchidos pelas ferramentas: o que o código faz depois da resposta */
   saida: { confirmacoes: string[]; handoff?: { motivo: string; urgente?: boolean }; encerrar?: boolean; usadas: string[] };
 };
@@ -316,9 +316,13 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
         };
       }
       case 'ler_pedido_medico': {
-        const p = await c.lerPedido?.();
-        if (!p || p.tipo !== 'pedido' || !p.exames.length) return { erro: 'não consegui ler o pedido: peça uma foto mais nítida ou os nomes dos exames' };
-        return { exames: p.exames, incerto: Boolean(p.incerto), orientacao: 'Agora chame orcar_exames com esses nomes.' };
+        // o paciente pode mandar várias fotos (álbum: cada página do pedido numa foto): lê todas e junta os exames, sem repetir
+        const lidos = (await c.lerPedidos?.()) ?? [];
+        const pedidos = lidos.filter((p): p is PedidoLido => Boolean(p && p.tipo === 'pedido' && p.exames.length));
+        const vistos = new Set<string>(); const exames: string[] = [];
+        for (const p of pedidos) for (const e of p.exames) { const k = norm(e); if (!vistos.has(k)) { vistos.add(k); exames.push(e); } }
+        if (!exames.length) return { erro: lidos.length ? `não consegui ler ${lidos.length > 1 ? 'as fotos' : 'a foto'} do pedido: peça uma foto mais nítida ou os nomes dos exames` : 'não há foto de pedido na conversa' };
+        return { fotos_lidas: pedidos.length, fotos_recebidas: lidos.length, exames, incerto: pedidos.some((p) => p.incerto) || pedidos.length < lidos.length, orientacao: `Li ${pedidos.length} de ${lidos.length} foto(s). Agora chame orcar_exames com TODOS esses nomes.` + (pedidos.length < lidos.length ? ' Avise que alguma foto não deu para ler e peça para reenviar essa.' : '') };
       }
       case 'agendar_coleta': {
         const itens = c.mem.orcamento?.itens ?? [];

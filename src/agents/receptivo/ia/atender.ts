@@ -74,7 +74,7 @@ export async function atenderComIA(p: {
   fonte: Fonte;
   memoria: MemoriaIA | null;
   lerComprovante?: () => Promise<Comprovante | null>;
-  lerPedido?: () => Promise<PedidoLido | null>;
+  lerPedidos?: () => Promise<(PedidoLido | null)[]>;
   agora?: Date;
 }): Promise<Atendimento | null> {
   const agora = p.agora ?? new Date();
@@ -85,7 +85,7 @@ export async function atenderComIA(p: {
   const primeiraResposta = !p.history.some((m) => m.direction === 'out' && p.titulos.some((t) => m.text?.includes(t)));
   const hoje = new Intl.DateTimeFormat('en-CA', { timeZone: env.timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(agora);
   const system = promptAmanda({ agora, nomeContato: p.nomeContato, primeiraResposta, mem, unidades: await unidades(), hoje });
-  const c: Contexto = { fonte: p.fonte, mem, telefone: p.telefone, agora, lerComprovante: p.lerComprovante, lerPedido: p.lerPedido, saida: { confirmacoes: [], usadas: [] } };
+  const c: Contexto = { fonte: p.fonte, mem, telefone: p.telefone, agora, lerComprovante: p.lerComprovante, lerPedidos: p.lerPedidos, saida: { confirmacoes: [], usadas: [] } };
   const resposta = await pensar(system, conversa, c);
   let texto = acabamento(resposta.texto);
   // agendou: a confirmação oficial já traz tudo; do texto do modelo só fica o que for do pix (chave/comprovante), nunca o resumo repetido
