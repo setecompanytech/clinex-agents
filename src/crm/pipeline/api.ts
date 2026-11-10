@@ -5,6 +5,7 @@ import { clinilinkConfigurado } from '../clinilink.js';
 import { aplicarAutomacoes, atrasado, diaBRT, diasNaEtapa, diffDia, estrelas, funisPadrao, moverCard, recortar, somaDia, validarAutomacoes, validarConfig, valorExibido, visiveis, type FiltroPor, type Recorte } from './regras.js';
 import { sincronizar } from './ingestao.js';
 import { leadsDosOrcamentos } from '../leadsOrcamento.js';
+import { alinharCardsELeads } from '../sincroniaCardLead.js';
 import { logMovimentacoes, painelExecutivo, relatorio } from './metricas.js';
 import { FunilError, type Atribuicao, type Dimensao, type Funil } from './tipos.js';
 import { responsaveis } from '../../lib/usuarios.js';
@@ -25,7 +26,7 @@ let sincronizando = false;
 export async function rodarSincronizacao(pedido?: unknown) {
   if (sincronizando) throw new FunilError('ocupado', 'Já existe uma sincronização em andamento.');
   sincronizando = true;
-  try { const agora = new Date(); const r = await sincronizar(P(), agora, pedido); leadsDosOrcamentos(estado, agora); salvar(); return r; } finally { sincronizando = false; }
+  try { const agora = new Date(); const r = await sincronizar(P(), agora, pedido); leadsDosOrcamentos(estado, agora); alinharCardsELeads(estado, agora); salvar(); return r; } finally { sincronizando = false; }
 }
 export function rodarAutomacoesDosFunis(agora: Date) {
   let n = 0;
@@ -117,6 +118,7 @@ pipelines.get('/:id/cards', (req, res) => {
 pipelines.post('/:id/cards/:cardId/mover', (req, res) => {
   const f = achar(req.params.id); const a = atrib(f.id, req.params.cardId);
   moverCard(a, f, String(req.body?.stageId ?? ''), new Date(), { por: txt(req.body?.por, 60) || undefined, manual: true });
+  alinharCardsELeads(estado, new Date()); // o lead desse orçamento acompanha o card
   salvar(); res.json(dto(a, f, new Date()));
 });
 pipelines.post('/:id/cards/:cardId/remover', (req, res) => {

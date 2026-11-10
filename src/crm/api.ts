@@ -3,6 +3,7 @@ import { bancoFora, estado, infoArmazenamento, pronto, salvar } from './banco.js
 import { diagnosticarSupabase } from '../lib/supabase.js';
 import { exigirAdmin } from '../lib/painel-auth.js';
 import { erroDoBanco, TABELAS_CRM } from './persistencia.js';
+import { alinharCardsELeads } from './sincroniaCardLead.js';
 import { aplicar, automatizar, criarLead, hojeDe, RegraError, resumo, soDigitos, tarefasDoDia, vistaDoLead, type Acao, type Lead, type NovoLead } from './motor.js';
 import { gerarExemplos } from './exemplos.js';
 import { leadsDosOrcamentos } from './leadsOrcamento.js';
@@ -35,6 +36,7 @@ function automatizarTodos(agora: Date) {
   const antes = new Map(estado.leads.map((l) => [l.id, l.status as string]));
   const cfg = cfgDeRegras(estado.automacoes);
   for (const l of estado.leads) mudou += automatizar(l, agora, cfg);
+  { const s = alinharCardsELeads(estado, agora); mudou += s.leads + s.cards; } // card e lead sempre dizendo a mesma coisa
   const log = [...logDoGuia(antes, estado.leads, estado.automacoes, agora), ...rodarRegras(estado.leads, estado.automacoes, agora)];
   if (log.length) { estado.logAuto = [...log.reverse(), ...estado.logAuto].slice(0, 300); mudou += log.length; }
   if (mudou) salvar();
