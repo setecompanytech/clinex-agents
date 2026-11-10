@@ -113,6 +113,12 @@ export const TABELAS_CRM = COLECOES.map((c) => c.tabela);
 
 /** O que já está no banco, por tabela: chave -> JSON da linha. */
 const noBanco = new Map<string, Map<string, string>>();
+/**
+ * Verdadeiro depois da primeira leitura completa do banco. Antes disso a memória só tem os funis padrão (com ids novos
+ * a cada subida): gravar nessa hora cria um conjunto de funis duplicado e cards repetidos dentro deles.
+ */
+let baseLida = false;
+export const baseJaLida = () => baseLida;
 const chaveDe = (c: ColAny, l: Linha) => c.chave.map((k) => String(l[k])).join('|');
 
 /** Lê tudo do banco para dentro de `estado`. Devolve quantas linhas vieram (0 = banco vazio). */
@@ -125,6 +131,7 @@ export async function carregarDoBanco(estado: Estado): Promise<number> {
   }
   // crm_config tem uma linha fixa só depois da 1ª gravação: banco "vazio" = nenhum funil, lead nem card
   const sinais = ['pipelines', 'pipeline_card_assignments', 'crm_leads', 'crm_automacoes'].reduce((s, t) => s + (lidas.get(t)?.length ?? 0), 0);
+  baseLida = true; // só a partir daqui é seguro gravar: o que está na memória já parte do que o banco tem
   if (!sinais) return 0;
   for (const c of COLECOES) {
     const linhas = lidas.get(c.tabela)!;
@@ -150,6 +157,7 @@ export const erroDoBanco = () => ultimoErro;
 /** Grava no banco o que mudou desde a última vez. Uma gravação por vez; se falhar, tenta de novo na próxima. */
 export function gravarMudancas(estado: Estado): Promise<unknown> {
   fila = fila.then(async () => {
+    if (!baseLida) { console.error('[crm] gravação adiada: o banco ainda não foi lido (evita criar funis duplicados).'); return; }
     try {
       for (const c of COLECOES) {
         if (ausentes.has(c.tabela)) continue;

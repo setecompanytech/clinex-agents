@@ -89,6 +89,7 @@ est.pipelines.extras[uuid(1)] = { responsavel: 'Amanda', valorNegociado: 0, valo
 est.pipelines.followups.push({ id: uuid(901), cardId: uuid(1), data: '2026-11-05', descricao: 'Ligar' });
 est.pipelines.contatos.push({ id: uuid(902), cardId: uuid(1), data: '2026-11-02T12:00:00.000Z', tipo: 'Mandou WhatsApp' });
 
+await teste('antes de ler o banco, nada é gravado (senão nascem funis duplicados)', async () => { pedidos.length = 0; await gravarMudancas(est); assert.equal(reqs().length, 0); assert.equal(tab('pipelines').size, 0); });
 await teste('banco vazio é reconhecido (nada carregado)', async () => { assert.equal(await carregarDoBanco(novo()), 0); });
 await teste('primeira gravação envia tudo, em lotes, e cria as linhas certas', async () => {
   pedidos.length = 0;
