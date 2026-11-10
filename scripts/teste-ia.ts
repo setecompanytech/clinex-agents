@@ -11,7 +11,7 @@ import type { Fonte } from '../src/agents/receptivo/script/catalog.js';
 const TITULO = '*Amanda S. (Clinex):*';
 const fonte: Fonte = {
   ...fonteClinilink,
-  async reservar(p) { return { ok: true, hora: p.slot.inicio, cadastrou: !p.pacienteId, pacienteId: p.pacienteId ?? 'novo-123', profissional: p.slot.profissional, profissionalBruto: p.slot.profissionalBruto }; },
+  async reservar(p) { console.log(`   [reservar] paciente=${p.pacienteId ?? "novo"} cadastro=${JSON.stringify(p.cadastro ?? null)}`); return { ok: true, hora: p.slot.inicio, cadastrou: !p.pacienteId, pacienteId: p.pacienteId ?? 'novo-123', profissional: p.slot.profissional, profissionalBruto: p.slot.profissionalBruto }; },
 };
 
 const CASOS: Record<string, string[]> = {
@@ -21,6 +21,7 @@ const CASOS: Record<string, string[]> = {
   sangue: ['quero fazer exame de sangue', 'hemograma, glicose e colesterol total', 'quero agendar a coleta'],
   preco: ['quanto custa a consulta com cardiologista?', 'e qual o endereço do guamá?'],
   resultado: ['quero saber o resultado do meu exame de ontem'],
+  mae: ['quero marcar clinico geral pra minha mãe amanhã', 'guamá', 'o primeiro', 'Rosa Maria Lima 03/04/1960 feminino', 'o número dela é 91 98123-4567', 'na recepção'],
   dados: ['quero marcar consulta com clinico geral amanhã', 'qualquer unidade', 'pode ser', 'Nome: Aline Ferreira Costa\nData de nascimento: 05/07/1988\nsexo feminino', 'vou pagar na recepção'],
 };
 
