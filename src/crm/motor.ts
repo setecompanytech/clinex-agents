@@ -493,3 +493,21 @@ export function resumo(leads: Lead[], agora: Date) {
     valorConvertido: leads.filter((l) => l.status === 'convertido_ativo').reduce((s, l) => s + l.valor, 0),
   };
 }
+
+/**
+ * Leva o lead para um status porque o card do funil de Orçamentos foi para a etapa correspondente (e vice-versa).
+ * Não confere as regras do guia (compareceu só depois de agendado etc.): o card já foi movido por uma pessoa, então o lead só acompanha.
+ */
+export function acompanharCard(lead: Lead, alvo: Status, agora: Date, etapa: string): boolean {
+  if (lead.status === alvo) return false;
+  const hoje = hojeDe(agora);
+  const de = lead.status;
+  const nota = `Acompanhou o funil de Orçamentos: o card foi para "${etapa}".`;
+  entrar(lead, alvo, hoje);
+  if (alvo === 'agendado') lead.agendamento = { data: hoje, exame: lead.exame || undefined };
+  if (alvo === 'descarte') lead.descarte = { motivo: /sem retorno/i.test(etapa) ? 'Sem retorno' : 'Outro', quando: hoje, de, auto: true };
+  else lead.descarte = undefined;
+  const tipo: TipoEvento = alvo === 'convertido_ativo' ? 'comparecimento' : alvo === 'convertido_organico' ? 'recepcao' : alvo === 'descarte' ? 'descarte' : alvo === 'agendado' ? 'agendamento' : 'etapa';
+  evento(lead, agora, { tipo, texto: nota, auto: true });
+  return true;
+}

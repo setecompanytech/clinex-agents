@@ -103,7 +103,10 @@ teste('taxas dentro de 0-100, insights ordenados por gravidade e fila coerente',
   for (const t of [ad.kpis.respostaTaxa, ad.kpis.agendTaxa, ad.kpis.conversao]) assert.ok(t === null || (t >= 0 && t <= 100));
   const ordem = { critico: 0, atencao: 1, info: 2, bom: 3 } as const;
   for (let i = 1; i < ad.insights.length; i++) assert.ok(ordem[ad.insights[i].nivel] >= ordem[ad.insights[i - 1].nivel]);
-  assert.equal(ad.progresso.pendentes, tarefasDoDia(demo, AGORA).length);
+  const fila = tarefasDoDia(demo, AGORA);
+  assert.equal(ad.progresso.pendentes, fila.filter((x) => x.situacao === 'hoje').length, 'pendentes = só o que vence hoje');
+  assert.equal(ad.progresso.atrasadas, fila.filter((x) => x.situacao === 'atrasada').length);
+  assert.equal(ad.progresso.pendentes + ad.progresso.atrasadas, fila.length, 'hoje + atrasadas = a fila toda');
   assert.ok(ad.mensagens.every((m) => m.respostas <= m.enviadas));
 });
 teste('exemplos respeitam as regras de ouro: nenhum contato fora de 8h-19h nem 3 no mesmo dia', () => {
