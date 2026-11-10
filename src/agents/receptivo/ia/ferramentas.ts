@@ -265,7 +265,7 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
           if (r.incerto) { c.saida.handoff = { motivo: `ATENÇÃO: a reserva pode ou não ter sido gravada (${r.codigo}). Conferir no Clinilink: ${sv.frase} no ${un.nome}, ${g.slot.ymd} ${g.slot.turno}, paciente ${nomeCompleto}.` }; return { erro: 'não deu para confirmar a gravação; a equipe vai conferir. Avise o paciente.' }; }
           if (r.codigo === 'SERVICO_DUPLICADO_NO_DIA') return { erro: 'o paciente já tem este serviço agendado neste dia. Explique e pergunte se quer outro dia.' };
           if (r.codigo === 'SEM_VAGA_AGORA' || r.codigo === 'HORARIO_OCUPADO') return { erro: 'a vaga acabou de ser preenchida: ofereça outro horário (ver_horarios).' };
-          return { erro: `o sistema recusou (${r.codigo}). Passe para a equipe.` };
+          return { erro: `o sistema recusou (${r.codigo}: ${r.motivo.slice(0, 120)}). Se for um dado do paciente, peça para conferir; senão, passe para a equipe.` };
         }
         const quem = pac?.nome ?? nomeCompleto;
         c.mem.paciente = { id: r.pacienteId ?? pac?.id, nome: quem, nascimento: nasc || pac?.nascimento };
