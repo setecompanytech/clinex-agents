@@ -55,6 +55,24 @@ const horaFalada = (hm: string) => { const [h, m] = hm.slice(0, 5).split(':'); r
 const reais = (v: number) => `R$ ${v.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`;
 const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 
+/**
+ * Data de nascimento no formato do Clinilink (AAAA-MM-DD). Aceita 08/07/1999, 8/7/1999, 08-07-1999, 08.07.99 e 1999-07-08.
+ * Caso real: a IA mandava "08/07/1999" e o Clinilink recusava o cadastro (DATA_INVALIDA); a busca por nome + nascimento nunca achava ninguém.
+ */
+export function isoNascimento(v: unknown): string | undefined {
+  const t = String(v ?? '').trim();
+  let d: number, m: number, a: number;
+  const iso = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  const br = t.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2}|\d{4})$/);
+  if (iso) { a = +iso[1]; m = +iso[2]; d = +iso[3]; }
+  else if (br) { d = +br[1]; m = +br[2]; a = +br[3]; if (br[3].length === 2) a += a > (new Date().getFullYear() % 100) ? 1900 : 2000; }
+  else return undefined;
+  const dt = new Date(Date.UTC(a, m - 1, d));
+  if (dt.getUTCFullYear() !== a || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) return undefined;
+  if (a < 1900 || dt.getTime() > Date.now()) return undefined;
+  return `${a}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
 /** Horário que já passou (ou cujo período já está no fim) nunca é oferecido nem agendado. */
 function jaPassou(sl: Slot, agora: Date): boolean {
   const hoje = ymdDe(agora);
@@ -205,8 +223,10 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
           return { encontrado: false, orientacao: 'Sem cadastro com esse CPF: siga com nome completo, nascimento e sexo para cadastrar.' };
         }
         if (args.nome_completo && args.nascimento && f.pacientePorDados) {
-          const p = await f.pacientePorDados({ nome: String(args.nome_completo), nascimento: String(args.nascimento), telefones: [soTelefone(c.telefone)] });
-          if (p) { c.mem.paciente = { id: p.id, nome: p.nome, nascimento: String(args.nascimento) }; return { encontrado: true, nome: p.nome }; }
+          const nascIso = isoNascimento(args.nascimento);
+          if (!nascIso) return { erro: 'data de nascimento inválida: peça para conferir (dia/mês/ano)' };
+          const p = await f.pacientePorDados({ nome: String(args.nome_completo), nascimento: nascIso, telefones: [soTelefone(c.telefone)] });
+          if (p) { c.mem.paciente = { id: p.id, nome: p.nome, nascimento: nascIso }; return { encontrado: true, nome: p.nome }; }
           return { encontrado: false, orientacao: 'Paciente novo: o cadastro é feito no agendamento (precisa do sexo).' };
         }
         return { erro: 'mande o CPF, ou nome completo e nascimento' };
@@ -221,11 +241,11 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
         if (c.mem.agendados.some((a) => a.servicoId === sv.id && a.ymd === g.slot.ymd)) return { erro: 'já agendado nesta conversa (não agende de novo)' };
         if (!f.reservar) return { erro: 'agendamento indisponível: transfira para a equipe' };
         const nomeCompleto = String(args.nome_completo ?? '').trim().replace(/\s+/g, ' ');
-        const nasc = String(args.nascimento ?? '').trim();
+        const nasc = isoNascimento(args.nascimento) ?? '';
         const conhecido = c.mem.paciente?.id && norm(c.mem.paciente.nome) === norm(nomeCompleto) ? c.mem.paciente : undefined;
         if (!conhecido) {
           if (nomeCompleto.split(' ').length < 2) return { erro: 'preciso do nome completo (nome e sobrenome)' };
-          if (!/^\d{2}\/\d{2}\/\d{4}$/.test(nasc)) return { erro: 'data de nascimento no formato DD/MM/AAAA' };
+          if (!nasc) return { erro: 'data de nascimento inválida: peça para o paciente conferir (dia/mês/ano)' };
           if (!args.sexo) return { erro: 'preciso do sexo do paciente (feminino ou masculino) para o cadastro: pergunte com respeito' };
           // paciente pode já existir pelo telefone + nome + nascimento
           const achado = f.pacientePorDados ? await f.pacientePorDados({ nome: nomeCompleto, nascimento: nasc, telefones: [soTelefone(c.telefone)] }).catch(() => null) : null;
