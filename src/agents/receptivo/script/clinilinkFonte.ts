@@ -1053,6 +1053,17 @@ export const fonteClinilink: Fonte = {
     return agrupar(sv.tipo === 'exame' ? soManha(h) : h).slice(0, max);
   },
 
+  async horariosPorProfissional(sv, un, de, ate) {
+    if (!un.id) return [];
+    if (sv.combo) return horariosDoCombo(sv, un, de, ate);
+    const h = await listAgenda({ unidadeId: un.id, dataInicial: de, dataFinal: ate, procedimentoId: sv.id, profissionalId: sv.profissional?.id });
+    const lista = sv.tipo === 'exame' ? soManha(h) : h;
+    const ordenados = [...lista].sort((a, b) => (a.data + (a.agendaHoraInicio ?? a.hora) + a.hora).localeCompare(b.data + (b.agendaHoraInicio ?? b.hora) + b.hora));
+    const vistos = new Set<string>(); const out: Slot[] = [];
+    for (const x of ordenados) { const sl = slotDe(x); const k = `${sl.ymd}|${sl.turno}|${sl.profissionalId ?? ''}`; if (!vistos.has(k)) { vistos.add(k); out.push(sl); } }
+    return out;
+  },
+
   async reservar(p: PedidoReserva): Promise<ResultadoReserva> {
     if (p.servico.combo) return reservarCombo(p);
     const { unidade, slot, servico } = p;
@@ -1111,3 +1122,8 @@ export const fonteClinilink: Fonte = {
     return p ? { id: p.id, nome: titulo(p.nome) } : null;
   },
 };
+
+/** Amanda IA: as unidades com endereço e telefone, para o prompt. */
+export async function unidadesDaClinica(): Promise<{ nome: string; endereco?: string; telefone?: string }[]> {
+  return (await listClinicas()).map((c) => ({ nome: nomeUnidade(c), endereco: c.endereco, telefone: c.telefone }));
+}

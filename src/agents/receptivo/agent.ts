@@ -5,7 +5,9 @@ import { analisarPedidoMedico, type PedidoLido } from '../../lib/pedidoMedico.js
 import { escolherExames } from '../../lib/interpretarExames.js';
 import { buildSystemPrompt } from './prompt.js';
 import { MARCAS_FIM, MARCA_ADEUS, MARCA_AGENDADO, MARCA_DUP, MARCA_MAIS, SEM_GPT, ehUrgencia, estadoDepoisDaResposta, etapa, handoffDuro, responder, type Pos, type Result, type State } from './script/engine.js';
-import { apagarEstado, estadoAtivo, guardarEstado, lerEstado, travarAtendimento } from '../../lib/estado.js';
+import { apagarEstado, estadoAtivo, guardarEstado, guardarMemoriaIA, lerEstado, lerMemoriaIA, travarAtendimento } from '../../lib/estado.js';
+import { atenderComIA } from './ia/atender.js';
+import { memoriaNova, type MemoriaIA } from './ia/ferramentas.js';
 import { fonteSimulada } from './script/catalog.js';
 import { fonteClinilink } from './script/clinilinkFonte.js';
 import { amigavelDetalhado, temPrecoZero } from '../../lib/humanizer.js';
@@ -243,7 +245,7 @@ async function processar(ev: MessageReceivedEvent) {
     const foiPraIA = history.some((m, i) => i > iMsg && m.type === 'system' && TRANSF_PARA_IA.test(m.text ?? ''));
     // conversa nova = atendimento recém-aberto: ninguém respondeu, ninguém da equipe transferiu e todas as mensagens do paciente são dos últimos 3 minutos
     const conversaNova = !history.some((m) => m.direction === 'out' && m.status !== 'whisper' && !m.isWhisper)
-      && !history.some((m) => m.type === 'system' && /transferid[oa].*por/i.test(m.text ?? '') && !/assistente|api/i.test(m.text ?? ''))
+      && !history.some((m) => m.type === 'system' && /transferid[oa]\b.*\bpor\b/i.test(m.text ?? '') && !/assistente|\bapi\b/i.test(m.text ?? ''))
       && history.filter((m) => m.direction === 'in' && m.type !== 'system').every((m) => Date.now() - +new Date(m.createdAt) < 3 * 60_000);
     if (foiPraIA || conversaNova) {
       if (!foiPraIA && env.autoReply) {
@@ -297,6 +299,9 @@ async function processar(ev: MessageReceivedEvent) {
   // A Amanda já respondeu nesta conversa? (mensagem de saída que carrega o título da Amanda)
   const jaRespondeu = history.some(eDaAmanda);
   const nome = firstName(ev.contactName);
+
+  // Amanda IA: o modelo conduz a conversa com as ferramentas do Clinilink (AGENT_MODE=ia: todos; AGENTE_IA_NUMEROS: só o piloto)
+  if (usaIA(ev.to)) return await responderComIA(ev, history, inicio, naFilaDaEquipe, nome, titulosAmanda);
 
   // Roteiro fixo (sem IA): reprocessa as mensagens do paciente da jornada atual e responde a última.
   // A jornada recomeça depois da última mensagem de confirmação (MARCA_FIM) e é limitada a 12 horas.
@@ -476,5 +481,83 @@ async function processar(ev: MessageReceivedEvent) {
   }
   } finally {
     await trava.soltar();
+  }
+}
+
+// ================================================================================================ Amanda IA
+/** A conversa deste telefone é atendida pela Amanda IA? (modo ia para todos, ou o número está no piloto) */
+export const usaIA = (phone: string) => Boolean(env.anthropicKey || env.openaiKey) && (env.mode === 'ia' || env.iaNumeros.some((n) => phoneKey(n) === phoneKey(phone)));
+
+async function responderComIA(ev: MessageReceivedEvent, history: InovstarMessage[], inicio: number, naFilaDaEquipe: boolean, nome: string, titulos: string[]) {
+  const tag = `[${ev.attendanceId}]`;
+  const mem = estadoAtivo() ? await lerMemoriaIA<MemoriaIA>(ev.attendanceId) : null;
+  // a própria IA passou a conversa para a equipe: a equipe segue, a IA não retoma sozinha
+  if (naFilaDaEquipe && mem?.transferiu) { console.log(`${tag} ignorado: conversa passada para a equipe pela Amanda IA`); evt('ignorado', { motivo: 'IA: conversa já passada para a equipe' }); return; }
+  const fonte = env.clinilinkKey ? fonteClinilink : fonteSimulada;
+  const ultimaImagem = [...history].reverse().find((m) => m.direction === 'in' && (m.type === 'image' || m.type === 'document'));
+  const pacienteDisse = [...history].reverse().find((m) => m.direction === 'in' && m.type !== 'system');
+  let a: Awaited<ReturnType<typeof atenderComIA>>;
+  try {
+    a = await atenderComIA({
+      history, titulos, telefone: ev.to, nomeContato: nome, fonte, memoria: mem,
+      lerComprovante: ultimaImagem ? () => lerComprovanteDe(history)(ultimaImagem._id) : undefined,
+      lerPedido: ultimaImagem ? () => lerPedidoDe(history)(ultimaImagem._id) : undefined,
+    });
+  } catch (e) {
+    console.error(`${tag} IA falhou:`, (e as Error).message);
+    evt('erro', { mensagem: `IA falhou: ${(e as Error).message}`.slice(0, 300) });
+    a = { texto: 'Tô com uma instabilidade aqui agora. Vou chamar alguém da equipe pra te ajudar. Só um instante.', handoff: { motivo: `Falha da Amanda IA: ${(e as Error).message.slice(0, 160)}` }, encerrar: false, agendou: false, mem: mem ?? memoriaNova(), resposta: { texto: '', rodadas: 0, ferramentas: [], modelo: 'erro' } };
+  }
+  if (!a) { console.log(`${tag} ignorado: IA sem resposta`); evt('ignorado', { motivo: 'IA sem resposta' }); return; }
+  let texto = a.texto;
+  if (temPrecoZero(texto)) {
+    evt('erro', { mensagem: 'preço zero bloqueado antes do envio (IA)', reescrito: texto.slice(0, 300) });
+    texto = 'Preciso conferir uma informação antes de continuar. Vou chamar alguém da equipe pra te ajudar. Só um instante.';
+    a = { ...a, handoff: { motivo: 'BLOQUEIO DE SEGURANÇA: a resposta continha preço "R$ 0,00". Conferir o preço no Clinilink e responder ao paciente.' } };
+  }
+  const msg = withTitle(texto);
+  evt('resposta', {
+    fonte: fonte.tipo,
+    etapa: a.agendou ? 'IA: agendado' : a.handoff ? 'IA: passou para a equipe' : a.encerrar ? 'IA: encerrou' : 'IA: conversando',
+    paciente_disse: pacienteDisse ? (textoRoteiro(pacienteDisse) ?? '').slice(0, 400) : '',
+    roteiro: texto,
+    enviado: msg,
+    gpt: 'ia',
+    gpt_motivo: `${a.resposta.modelo}: ${a.resposta.ferramentas.map((f) => `${f.nome}(${f.ms}ms)`).join(', ') || 'sem ferramenta'}`,
+    ferramentas: a.resposta.ferramentas.map((f) => ({ nome: f.nome, args: f.args, res: f.res, ms: f.ms })),
+    retomou_da_fila: naFilaDaEquipe,
+    transferiu: Boolean(a.handoff),
+    motivo_transferencia: a.handoff?.motivo,
+    enviou_de_verdade: env.autoReply,
+    motor: 'ia',
+  });
+  console.log(`${tag} IA (${a.resposta.modelo}, ${a.resposta.ferramentas.length} ferramentas, ${Date.now() - inicio} ms) -> ${texto.slice(0, 200).replace(/\n/g, ' | ')}`);
+  if (!env.autoReply) return;
+  const urgente = Boolean(a.handoff?.urgente);
+  const mensagemMaisNova = async (): Promise<string | undefined> => {
+    try {
+      const { messages } = await getHistory(ev.attendanceId, 15);
+      const l = [...messages].reverse().find((m) => m.direction === 'in' && m.type !== 'system');
+      return l && l._id !== ev.messageId ? l._id : undefined;
+    } catch { return undefined; }
+  };
+  const transferir = async (setor: string, motivo: string) => {
+    try { await transferToSector(ev.attendanceId, setor, motivo); }
+    catch (e) { if (!/já está neste setor|Informe um setor diferente/i.test((e as Error).message)) throw e; }
+  };
+  // voltou da fila da equipe (a IA não tinha transferido): a conversa volta para o setor da IA
+  if (naFilaDaEquipe && !a.handoff && env.agentSectorId) await transferir(env.agentSectorId, 'A Amanda retomou o atendimento porque o paciente voltou a escrever.');
+  const baloes = dividirEmBaloes(texto);
+  for (let i = 0; i < baloes.length; i++) {
+    await pareceDigitando(inicio, urgente, baloes[i], i === 0);
+    // o paciente escreveu de novo enquanto ela "digitava": essa resposta nasceu velha (a agendada já foi gravada e segue na memória)
+    const nova = urgente || a.agendou ? undefined : await mensagemMaisNova();
+    if (nova) { evt('ignorado', { motivo: `IA: chegou mensagem nova (${nova}) enquanto a resposta era enviada: ${i} de ${baloes.length} balões` }); break; }
+    await sendText({ channelId: ev.channelId, to: ev.to, attendanceId: ev.attendanceId, text: i === 0 ? withTitle(baloes[i]) : baloes[i], clientMessageId: i === 0 ? `agente-receptivo-${ev.messageId}` : `agente-receptivo-${ev.messageId}-${i + 1}` });
+  }
+  if (a.handoff && env.humanSectorId && !naFilaDaEquipe) await transferir(env.humanSectorId, a.handoff.motivo);
+  if (estadoAtivo()) {
+    const m = a.encerrar ? memoriaNova() : a.mem;
+    await guardarMemoriaIA(ev.attendanceId, { ...m, ate: ev.messageId, transferiu: Boolean(a.handoff) });
   }
 }

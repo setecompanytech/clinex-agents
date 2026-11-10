@@ -85,3 +85,15 @@ export async function travarAtendimento(attendanceId: string, esperaMs = 55_000)
   }
   return null;
 }
+
+// ------------------------------------------------------------------------------------------------ memória da Amanda IA
+/** Memória da Amanda IA por atendimento (serviços consultados, horários oferecidos, paciente identificado). 24 h; apagada ao encerrar. */
+const chaveIA = (attendanceId: string) => `amanda:ia:${attendanceId}`;
+export async function lerMemoriaIA<T>(attendanceId: string): Promise<T | null> {
+  const bruto = await comando<string>(['GET', chaveIA(attendanceId)]);
+  if (!bruto) return null;
+  try { return JSON.parse(bruto) as T; } catch { return null; }
+}
+export async function guardarMemoriaIA(attendanceId: string, m: unknown): Promise<void> {
+  await comando(['SET', chaveIA(attendanceId), JSON.stringify(m), 'EX', TTL_SEGUNDOS]);
+}

@@ -31,7 +31,12 @@ export const env = {
   agentTitlesAntigos: ['*Amanda (IA) - Nova*'],
   timezone: process.env.CLINIC_TZ ?? 'America/Sao_Paulo',
   // 'scripted' = roteiro fixo, sem IA (padrão) | 'claude' = modelo de linguagem (precisa de ANTHROPIC_API_KEY)
-  mode: (process.env.AGENT_MODE ?? 'scripted') as 'scripted' | 'claude',
+  mode: (process.env.AGENT_MODE ?? 'scripted') as 'scripted' | 'claude' | 'ia',
+  // Amanda IA (o modelo conduz a conversa e usa as ferramentas do Clinilink). AGENT_MODE=ia liga para todos; AGENTE_IA_NUMEROS liga so
+  // para esses telefones (piloto), os demais seguem no roteiro.
+  iaNumeros: (process.env.AGENTE_IA_NUMEROS ?? '').split(',').map((n) => n.trim()).filter(Boolean),
+  // modelo da Amanda IA: com ANTHROPIC_API_KEY usa o Claude (AGENT_MODEL); sem ela, a OpenAI com este modelo
+  iaModeloOpenai: process.env.IA_MODEL_OPENAI ?? 'gpt-4.1',
   // Consulta de agenda no Clinilink (somente leitura). Sem chave => catálogo simulado.
   clinilinkBase: process.env.CLINILINK_BASE_URL ?? 'https://lista-unilab-clinex.onrender.com',
   clinilinkKey: process.env.CLINILINK_API_KEY ?? '',

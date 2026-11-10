@@ -82,6 +82,8 @@ export interface Fonte {
   resolver(id: string): Promise<Descoberta>;
   /** Períodos com vaga em uma data. */
   periodos(sv: Servico, un: Unidade, ymd: string): Promise<Slot[]>;
+  /** Amanda IA: períodos com vaga entre duas datas, um por (data, período, profissional): dois médicos na mesma manhã aparecem separados. */
+  horariosPorProfissional?(sv: Servico, un: Unidade, deYmd: string, ateYmd: string): Promise<Slot[]>;
   /** Próximos períodos com vaga a partir de uma data (inclusive). */
   proximas(sv: Servico, un: Unidade, deYmd: string, max: number): Promise<Slot[]>;
   /** O paciente já tem este serviço marcado neste dia (o Clinilink recusa duplicado no dia)? Devolve os dados do agendamento que já existe, ou null. */
