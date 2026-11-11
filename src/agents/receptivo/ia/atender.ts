@@ -69,6 +69,8 @@ export function acabamento(t: string): string {
 
 /** Palavras que podem vir com maiúscula logo depois do nome do médico e não são sobrenome ("Dra. Camila Atende no Guamá"). */
 const DEPOIS_DO_NOME = new Set('atende atendem faz fazem no na nos nas em e ou tambem esta tem que para pra pelo pela com hoje amanha segunda terca quarta quinta sexta sabado domingo de da do as os a o tudo ok sim nao pode'.split(' '));
+/** O paciente pediu orçamento (regra da clínica: vai para o atendimento principal). Pergunta de preço de UM serviço não conta. */
+const PEDIU_ORCAMENTO = /\borcament\w*|\borcar\b|quanto (fica|ficam|sai|saem|da|dao|custa|custam) (esses|estes|os|todos os|meus) exames|valor(es)? (dos|desses|destes|de todos os) exames/;
 const semAcento = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
 /**
@@ -116,7 +118,7 @@ export async function atenderComIA(p: {
   const primeiraResposta = !p.history.some((m) => m.direction === 'out' && p.titulos.some((t) => m.text?.includes(t)));
   const hoje = new Intl.DateTimeFormat('en-CA', { timeZone: env.timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(agora);
   const system = promptAmanda({ agora, nomeContato: p.nomeContato, primeiraResposta, mem, unidades: await unidades(), hoje });
-  const c: Contexto = { fonte: p.fonte, mem, telefone: p.telefone, agora, lerComprovante: p.lerComprovante, lerPedidos: p.lerPedidos, saida: { confirmacoes: [], usadas: [] } };
+  const c: Contexto = { fonte: p.fonte, mem, telefone: p.telefone, agora, lerComprovante: p.lerComprovante, lerPedidos: p.lerPedidos, pedidoOrcamento: PEDIU_ORCAMENTO.test(conversa.filter((m) => m.role === 'user').slice(-4).map((m) => semAcento(m.content)).join(' \n ')), saida: { confirmacoes: [], usadas: [] } };
   let resposta = await pensar(system, conversa, c);
   // conferência: médico ou valor que não veio do Clinilink -> refaz UMA vez, obrigando a consultar; se insistir, não envia o inventado
   const doPaciente = conversa.filter((m) => m.role === 'user').map((m) => m.content).join('\n');

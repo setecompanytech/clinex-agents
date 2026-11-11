@@ -36,6 +36,7 @@ export type Contexto = {
   telefone: string; // WhatsApp do paciente
   agora: Date;
   lerComprovante?: () => Promise<Comprovante | null>; // a última imagem da conversa, lida como comprovante
+  pedidoOrcamento?: boolean; // o paciente pediu ORÇAMENTO: regra da clínica, vai para o atendimento principal (a IA não monta)
   lerPedidos?: () => Promise<(PedidoLido | null)[]>; // TODAS as imagens recentes do paciente, cada uma lida como pedido médico (álbum de fotos)
   /** preenchidos pelas ferramentas: o que o código faz depois da resposta */
   saida: { confirmacoes: string[]; handoff?: { motivo: string; urgente?: boolean }; encerrar?: boolean; usadas: string[]; dados?: string[] /* resultados das ferramentas nesta resposta */ };
@@ -306,6 +307,8 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
       case 'orcar_exames': {
         const nomes: string[] = Array.isArray(args.exames) ? args.exames.map(String).filter(Boolean) : [];
         if (!nomes.length || !f.casarExames) return { erro: 'sem exames' };
+        // REGRA DA CLÍNICA: pedido de orçamento é com o atendimento principal (a IA não monta nem passa os valores)
+        if (c.pedidoOrcamento) return { erro: 'PEDIDO DE ORÇAMENTO: regra da clínica, quem faz é o atendimento principal. NÃO passe valores. Chame transferir_para_humano com o motivo "Orçamento: ' + nomes.join(', ') + '" e avise o paciente numa frase curta que a equipe já vai passar o orçamento.' };
         const r = await f.casarExames(nomes, escolherExames);
         const ant = c.mem.orcamento?.itens ?? [];
         const itens = [...ant, ...r.itens.filter((i) => !ant.some((a) => a.id === i.id))];
