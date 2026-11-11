@@ -104,7 +104,7 @@ await teste('o canal é descoberto uma vez e reaproveitado', async () => {
   const e = novo(); const l = lead(e, 'ANA', '91977776666');
   await enviarModelo(e, l, { modelo: 'follow_up', parametros: ['Ana', 'Ultrassom'] }, AGORA);
   assert.equal(pedidos.filter((p) => p.caminho === '/api/company').length, 0, 'cache de 10 minutos');
-  assert.equal(envios()[0].corpo.template.language, 'pt_BR');
+  assert.equal(envios()[0].corpo.template.language, 'en', 'follow_up foi cadastrado como English na Meta');
 });
 
 await teste('o mesmo modelo não volta ao mesmo lead em 24 h (nem mesmo se a tela mandar de novo)', async () => {
@@ -156,6 +156,39 @@ await teste('respeita as regras de contato do guia (fora do horário, não envia
   const e = novo(); const l = lead(e, 'MARIA SILVA', '91988887777');
   await rejeita(() => enviarModelo(e, l, { modelo: 'follow_up', parametros: ['M', 'x'] }, new Date('2026-11-09T04:00:00Z')), 'regra'); // 1h em Belém
   assert.equal(pedidos.length, 0);
+});
+
+await teste('modelos do guia: nomes e idiomas do WhatsApp Manager, variáveis padrão e o modelo do passo', () => {
+  const e = novo(); const l = lead(e, 'MARIA SILVA', '91988887777'); l.atendente = 'CARLA';
+  const m = modelosParaLead(e, l); const de = (id: string) => m.find((x) => x.id === id)!;
+  assert.deepEqual(m.map((x) => [x.id, x.idioma]), [
+    ['primeiro_contato', 'pt_BR'], ['nova_tentativa_d3', 'pt_BR'], ['desconto_d4', 'pt_BR'], ['encerramento_d7', 'pt_BR'], ['retorno_personalizado', 'pt_BR'],
+    ['faltoso_no_show', 'en'], ['reativacao', 'en'], ['follow_up', 'en'], ['recuperacao_2', 'en'],
+  ]);
+  assert.deepEqual(m.filter((x) => x.msg).map((x) => [x.msg, x.id]), [[1, 'primeiro_contato'], [2, 'nova_tentativa_d3'], [3, 'desconto_d4'], [4, 'encerramento_d7'], [9, 'retorno_personalizado'], [10, 'faltoso_no_show'], [11, 'reativacao']]);
+  assert.deepEqual(de('primeiro_contato').variaveis.map((v) => v.valor), ['Maria Silva', 'Carla', 'Ultrassom']);
+  assert.deepEqual(de('nova_tentativa_d3').variaveis.map((v) => v.valor), ['Maria Silva', 'Ultrassom', 'esta semana']);
+  assert.equal(de('desconto_d4').variaveis.length, 5); assert.equal(de('desconto_d4').variaveis[1].valor, '10%');
+  assert.equal(de('desconto_d4').variaveis[4].valor, 'R$ 342,00', '10% sobre R$ 380,00');
+  assert.equal(de('encerramento_d7').variaveis.length, 2);
+  assert.equal(de('retorno_personalizado').variaveis.length, 6);
+  assert.equal(de('faltoso_no_show').variaveis[2].valor, '', 'sem card não há data da falta: a tela pede para preencher');
+  assert.equal(de('reativacao').variaveis[2].valor, '', 'a condição da campanha é digitada na hora');
+});
+await teste('data da falta vem do card (dia do agendamento, em dd/mm/aaaa)', () => {
+  const e = novo(); const l = lead(e, 'MARIA SILVA', '91988887777'); l.cardId = 'c1';
+  const sn = { id: 'c1', paciente: 'Maria Silva', valor: 0, itens: ['Ultrassom'], criadoEm: '2026-11-09T07:30:00-03:00', status: 'faltou', unidade: 'CLINEX GUAMÁ' } as never;
+  e.pipelines.atribuicoes.push({ funilId: 'f', cardId: 'c1', stageId: 's', enteredAt: AGORA.toISOString(), manual: false, historico: [], originSnapshot: sn, ultimoSnapshot: sn, originStatus: 'faltou', caseStatus: 'aberto' } as never);
+  assert.equal(modelosParaLead(e, l).find((x) => x.id === 'faltoso_no_show')!.variaveis[2].valor, '09/11/2026');
+});
+await teste('envio de modelo do guia: nome e idioma certos e número exato de variáveis', async () => {
+  pedidos.length = 0;
+  const e = novo(); const l = lead(e, 'ANA', '91977776666');
+  await rejeita(() => enviarModelo(e, l, { modelo: 'nova_tentativa_d3', parametros: ['Ana', 'Ultrassom'] }, AGORA), 'parametros');
+  await enviarModelo(e, l, { modelo: 'nova_tentativa_d3', parametros: ['Ana', 'Ultrassom', 'hoje'] }, AGORA);
+  assert.deepEqual(envios()[0].corpo.template, { name: 'nova_tentativa_d3', language: 'pt_BR', components: [{ type: 'BODY', parameters: ['Ana', 'Ultrassom', 'hoje'].map((text) => ({ type: 'text', text })) }] });
+  await enviarModelo(e, l, { modelo: 'faltoso_no_show', parametros: ['Ana', 'Ultrassom', '09/11/2026'] }, AGORA);
+  assert.equal(envios()[1].corpo.template.name, 'faltoso_no_show'); assert.equal(envios()[1].corpo.template.language, 'en');
 });
 
 console.log(`${ok} testes passaram.`);

@@ -21,13 +21,18 @@ export class DisparoError extends Error {
 }
 
 type Variavel = { id: string; rotulo: string; padrao: (l: Lead, card?: CardSnap) => string };
-export type Modelo = { id: string; idioma: string; titulo: string; variaveis: Variavel[] };
+/** `msg` = número da mensagem do guia que o modelo leva (a tela já escolhe o modelo do passo do lead). */
+export type Modelo = { id: string; idioma: string; titulo: string; msg?: number; variaveis: Variavel[] };
 
 const NOME_MINUSCULO = new Set(['de', 'da', 'do', 'das', 'dos', 'e']);
 export const nomeBonito = (n: string) => n.toLowerCase().split(/\s+/).filter(Boolean).map((p, i) => (i > 0 && NOME_MINUSCULO.has(p) ? p : p[0].toUpperCase() + p.slice(1))).join(' ');
 const empresa = (l: Lead) => (l.unidade ? `Clinex ${nomeBonito(l.unidade.replace(/^clinex\s+/i, ''))}` : 'Clinex');
 const reais = (v: number) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const itens = (l: Lead, c?: CardSnap) => (c?.itens.length ? c.itens.join(', ') : l.exame || '—');
+/** dia da falta (data do agendamento do card, no fuso de Belém) como dd/mm/aaaa; vazio se o lead não veio de um card */
+const dataDaFalta = (_l: Lead, c?: CardSnap) => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(c?.criadoEm ?? ''); return m ? `${m[3]}/${m[2]}/${m[1]}` : ''; };
+/** guia, mensagem 3: 10% ou 5% conforme o orçamento. O padrão é 10%; a tela deixa trocar antes de enviar. */
+const comDesconto = (l: Lead) => reais(Math.round(l.valor * 0.9 * 100) / 100);
 
 const V = {
   nome: { id: 'nome', rotulo: 'Nome do paciente', padrao: (l: Lead) => nomeBonito(l.nome) },
@@ -35,14 +40,34 @@ const V = {
   valor: { id: 'valor', rotulo: 'Valor', padrao: (l: Lead) => reais(l.valor) },
   itens: { id: 'itens', rotulo: 'Itens do orçamento', padrao: itens },
   solicitante: { id: 'solicitante', rotulo: 'Solicitante', padrao: (l: Lead, c?: CardSnap) => c?.subtitulo || '—' },
+  exame: { id: 'exame', rotulo: 'Exame ou consulta', padrao: itens },
+  atendente: { id: 'atendente', rotulo: 'Atendente', padrao: (l: Lead) => (l.atendente ? nomeBonito(l.atendente) : '') },
+  prazo: { id: 'prazo', rotulo: 'Prazo (hoje / esta semana / este mês)', padrao: () => 'esta semana' },
+  desconto: { id: 'desconto', rotulo: 'Desconto (10% ou 5%)', padrao: () => '10%' },
+  valorComDesconto: { id: 'valorComDesconto', rotulo: 'Valor com desconto', padrao: comDesconto },
+  dataFalta: { id: 'dataFalta', rotulo: 'Data da falta', padrao: dataDaFalta },
+  dia1: { id: 'dia1', rotulo: '1º dia oferecido', padrao: () => '' }, hora1: { id: 'hora1', rotulo: '1º horário', padrao: () => '' },
+  dia2: { id: 'dia2', rotulo: '2º dia oferecido', padrao: () => '' }, hora2: { id: 'hora2', rotulo: '2º horário', padrao: () => '' },
+  campanha: { id: 'campanha', rotulo: 'Condição da campanha do mês', padrao: () => '' },
 } satisfies Record<string, Variavel>;
 
 /** A ordem das variáveis TEM que bater com {{1}}, {{2}}... do modelo aprovado na Meta. */
+/**
+ * Modelos que existem no WhatsApp Manager da Clinex (conferido em 10/11/2026). O idioma é o do cadastro na Meta, que não
+ * precisa ser o do texto: faltoso_no_show, reativacao, follow_up e recuperacao_2 foram cadastrados como "English" (en).
+ * As variáveis dos modelos do guia seguem a ordem dos campos [entre colchetes] de cada mensagem do guia; a tela mostra
+ * cada uma antes do envio e o envio só vai para os números de teste até a liberação.
+ */
 export const MODELOS: Modelo[] = [
+  { id: 'primeiro_contato', idioma: 'pt_BR', titulo: 'Primeiro contato', msg: 1, variaveis: [V.nome, V.atendente, V.exame] },
+  { id: 'nova_tentativa_d3', idioma: 'pt_BR', titulo: 'Nova tentativa (D3)', msg: 2, variaveis: [V.nome, V.exame, V.prazo] },
+  { id: 'desconto_d4', idioma: 'pt_BR', titulo: 'Desconto (D4)', msg: 3, variaveis: [V.nome, V.desconto, V.exame, V.valor, V.valorComDesconto] },
+  { id: 'encerramento_d7', idioma: 'pt_BR', titulo: 'Encerramento (D7)', msg: 4, variaveis: [V.nome, V.exame] },
+  { id: 'retorno_personalizado', idioma: 'pt_BR', titulo: 'Retorno personalizado', msg: 9, variaveis: [V.nome, V.exame, V.dia1, V.hora1, V.dia2, V.hora2] },
+  { id: 'faltoso_no_show', idioma: 'en', titulo: 'No show', msg: 10, variaveis: [V.nome, V.exame, V.dataFalta] },
+  { id: 'reativacao', idioma: 'en', titulo: 'Reativação', msg: 11, variaveis: [V.nome, V.exame, V.campanha] },
+  { id: 'follow_up', idioma: 'en', titulo: 'Follow-up', variaveis: [V.nome, V.itens] },
   { id: 'recuperacao_2', idioma: 'en', titulo: 'Recuperação 2', variaveis: [V.nome, V.empresa, V.valor] },
-  { id: 'follow_up_d1', idioma: 'pt_BR', titulo: 'Follow-up D1', variaveis: [V.nome, V.solicitante, V.itens] },
-  { id: 'follow_up', idioma: 'pt_BR', titulo: 'Follow-up', variaveis: [V.nome, V.itens] },
-  { id: 'recuperacao_orcamento', idioma: 'pt_BR', titulo: 'Recuperação de orçamento', variaveis: [V.nome, V.itens] },
 ];
 
 // ------------------------------------------------------------------------------------------------ configuração e travas
@@ -69,7 +94,7 @@ const cardDoLead = (estado: Estado, l: Lead) => (l.cardId ? estado.pipelines.atr
 /** Variáveis já preenchidas com os dados do lead (a tela deixa editar antes de enviar). */
 export function modelosParaLead(estado: Estado, l: Lead) {
   const card = cardDoLead(estado, l);
-  return MODELOS.map((m) => ({ id: m.id, idioma: m.idioma, titulo: m.titulo, variaveis: m.variaveis.map((v) => ({ id: v.id, rotulo: v.rotulo, valor: v.padrao(l, card) })) }));
+  return MODELOS.map((m) => ({ id: m.id, idioma: m.idioma, titulo: m.titulo, msg: m.msg, variaveis: m.variaveis.map((v) => ({ id: v.id, rotulo: v.rotulo, valor: v.padrao(l, card) })) }));
 }
 
 const mascarar = (e164: string) => `${e164.slice(0, 3)}${'*'.repeat(Math.max(0, e164.length - 7))}${e164.slice(-4)}`;

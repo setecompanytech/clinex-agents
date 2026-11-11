@@ -297,8 +297,9 @@ function dialogoModeloWA(l, px) {
     limpar(m.corpo);
     var st = r.status;
     if (!st.ativo) { kids(m.corpo, [h('p', { class: 'callout aviso', text: 'O disparo pelo WhatsApp está desligado neste ambiente. Peça ao administrador para ativar (variável DISPARO_WHATSAPP).' }), h('div', { class: 'linha-b' }, [botao('Fechar', '', function () { m.fechar(); })])]); return; }
-    var atual = r.modelos[0], campos = [];
-    var sel = h('select', { class: 'in', 'aria-label': 'Modelo' }, r.modelos.map(function (x) { return h('option', { value: x.id, text: x.titulo + ' (' + x.id + ')' }); }));
+    var doPasso = px && px.passo && px.passo.msg ? r.modelos.filter(function (x) { return x.msg === px.passo.msg; })[0] : null;
+    var atual = doPasso || r.modelos[0], campos = [];
+    var sel = h('select', { class: 'in', 'aria-label': 'Modelo' }, r.modelos.map(function (x) { return h('option', { value: x.id, selected: x.id === atual.id, text: (x.msg ? 'Msg ' + x.msg + ' · ' : '') + x.titulo + ' (' + x.id + ')' }); }));
     var area = h('div', { class: 'wa-vars' });
     var erro = h('div');
     var ok = h('input', { type: 'checkbox', id: 'wa-ok' });
