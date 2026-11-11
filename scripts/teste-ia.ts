@@ -21,6 +21,8 @@ const CASOS: Record<string, string[]> = {
   sangue: ['quero fazer exame de sangue', 'hemograma, glicose e colesterol total', 'quero agendar a coleta'],
   preco: ['quanto custa a consulta com cardiologista?', 'e qual o endereço do guamá?'],
   resultado: ['quero saber o resultado do meu exame de ontem'],
+  pix: ['quero marcar clinico geral', 'guamá', 'o primeiro', 'Joana Teste Souza 10/05/1990, pode ser esse número', 'feminino', 'vou pagar no pix', '[imagem]'],
+  semddd: ['quero marcar clinico geral pro meu filho', 'guamá', 'o primeiro', 'Marcos Silva Lima 05/05/2005, o número dele é 98596-3941', 'masculino', 'vai ser dinheiro'],
   orcamento: ['boa tarde, queria um orçamento desses exames: hemograma, glicose, TSH e colesterol total'],
   preco1: ['quanto custa a consulta com dermatologista?'],
   rubens: ['quero marcar cardiologista', 'guamá', 'o primeiro', 'Rubens Eduardo Teste 10/10/1980', 'masculino'],
@@ -36,10 +38,10 @@ async function rodar(nome: string, falas: string[]) {
   let mem: MemoriaIA | null = null;
   let t = Date.now() - falas.length * 60_000;
   for (const fala of falas) {
-    history.push({ _id: `in${history.length}`, direction: 'in', type: 'text', text: fala, createdAt: new Date(t += 20_000).toISOString() } as any);
+    history.push({ _id: `in${history.length}`, direction: 'in', type: fala === '[imagem]' ? 'image' : 'text', text: fala === '[imagem]' ? null : fala, createdAt: new Date(t += 20_000).toISOString() } as any);
     console.log(`\n👤 ${fala.replace(/\n/g, ' | ')}`);
     const t0 = Date.now();
-    const r = await atenderComIA({ history, titulos: ['Amanda S. (Clinex):'], telefone: '5591988887777', nomeContato: 'Teste', fonte, memoria: mem });
+    const r = await atenderComIA({ history, titulos: ['Amanda S. (Clinex):'], telefone: '5591988887777', nomeContato: 'Teste', fonte, memoria: mem, lerComprovante: async () => ({ tipo: 'comprovante', valor: 90, destinatario: 'CLINICA CLINEX', chave: 'clinicaclinex@gmail.com', status: 'concluido' }) as any });
     if (!r) { console.log('   (sem resposta)'); continue; }
     mem = r.mem;
     console.log(`🤖 [${((Date.now() - t0) / 1000).toFixed(1)}s | ${r.resposta.ferramentas.map((f) => `${f.nome}(${f.ms}ms)`).join(', ') || 'sem ferramenta'}]${r.handoff ? ` [TRANSFERE: ${r.handoff.motivo}]` : ''}${r.encerrar ? ' [ENCERRA]' : ''}`);
