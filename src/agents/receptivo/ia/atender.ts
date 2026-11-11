@@ -81,7 +81,7 @@ export function inventados(texto: string, fontes: string[], doPaciente: string):
   const pac = semAcento(doPaciente);
   const ruins: string[] = [];
   const tem = (alvo: string, txt: string) => new RegExp('(^|[^a-z])' + alvo + '([^a-z]|$)').test(txt);
-  for (const m of texto.matchAll(/\b(?:Dra?\.?|Doutora?)\s+([A-ZÁÉÍÓÚÂÊÔÃÕÇ][a-záéíóúâêôãõçü]+)(?:\s+([A-ZÁÉÍÓÚÂÊÔÃÕÇ][a-záéíóúâêôãõçü]+))?/g)) {
+  for (const m of texto.matchAll(/\b(?:Dra?\.?|Doutora?)[ \t]+([A-ZÁÉÍÓÚÂÊÔÃÕÇ][a-záéíóúâêôãõçü]+)(?:[ \t]+([A-ZÁÉÍÓÚÂÊÔÃÕÇ][a-záéíóúâêôãõçü]+))?/g)) {
     const n1 = semAcento(m[1]); const n2 = m[2] && !DEPOIS_DO_NOME.has(semAcento(m[2])) ? semAcento(m[2]) : '';
     // nome composto ("Ana Carolina"): os dois nomes juntos têm de existir ("Ana Clara" não autoriza "Ana Carolina")
     const ok = n2 ? tem(n1 + ' ' + n2, base) || tem(n1 + ' ' + n2, pac) : tem(n1, base) || tem(n1, pac);
