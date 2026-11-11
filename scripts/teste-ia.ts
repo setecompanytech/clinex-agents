@@ -21,6 +21,8 @@ const CASOS: Record<string, string[]> = {
   sangue: ['quero fazer exame de sangue', 'hemograma, glicose e colesterol total', 'quero agendar a coleta'],
   preco: ['quanto custa a consulta com cardiologista?', 'e qual o endereço do guamá?'],
   resultado: ['quero saber o resultado do meu exame de ontem'],
+  risco: ['quero fazer o risco cirúrgico', 'quero o combo', 'guamá'],
+  obst: ['quero uma ultrassom pra minha esposa', 'acho que é obstétrica, ela está com 20 semanas', 'quais médicos fazem?'],
   mae: ['quero marcar clinico geral pra minha mãe amanhã', 'guamá', 'o primeiro', 'Rosa Maria Lima 03/04/1960 feminino', 'o número dela é 91 98123-4567', 'na recepção'],
   dados: ['quero marcar consulta com clinico geral amanhã', 'qualquer unidade', 'pode ser', 'Nome: Aline Ferreira Costa\nData de nascimento: 05/07/1988\nsexo feminino', 'vou pagar na recepção'],
 };
