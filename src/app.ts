@@ -6,6 +6,7 @@ import hub from './hub/router.js';
 import geral from './geral/router.js';
 import crm from './crm/router.js';
 import { cron } from './crm/cron.js';
+import { lembretes } from './agents/receptivo/lembretes.js';
 import { bancoFora, gravarAntesDeResponder, pronto, tentarVoltarAoBanco } from './crm/banco.js';
 import bi from './bi/router.js';
 
@@ -28,6 +29,7 @@ function gravarNaResposta(res: express.Response) {
   res.end = ((...a: unknown[]) => { gravarAntesDeResponder().catch(() => undefined).finally(() => fim(...a)); return res; }) as typeof res.end;
 }
 app.use('/webhooks', webhooks);
+app.use('/cron', lembretes); // lembrete de inatividade da Amanda IA (a cada 5 min)
 app.use('/cron', cron);
 // módulos independentes: o mais específico vem primeiro; a tela inicial (/painel) por último
 app.use('/painel/receptivo/logs', logsRouter); // antes do /painel/receptivo para ter prioridade

@@ -128,3 +128,32 @@ export async function lerContatos(ids: string[]): Promise<Record<string, { conta
   } catch (e) { evt('erro', { mensagem: `contatos do painel: ${(e as Error).message.slice(0, 100)}` }); }
   return out;
 }
+
+// ------------------------------------------------------------------------------------------------ lembrete de inatividade (Amanda IA)
+/**
+ * Paciente que entrou no fluxo de agendamento e parou de responder: depois de 15 a 20 min a Amanda pergunta UMA vez se ele quer seguir.
+ * Fila no Redis (sorted set: quando vence) + os dados do envio (canal, telefone, mensagem respondida). A rotina /cron/lembretes envia.
+ */
+export type Lembrete = { attendanceId: string; channelId: string; to: string; ate: string; nome?: string; servico?: string };
+const FILA_LEMBRETES = 'amanda:ia:lembretes';
+const chaveLembrete = (id: string) => `amanda:ia:lembrete:${id}`;
+export async function agendarLembrete(l: Lembrete, venceEm: number): Promise<void> {
+  if (!estadoAtivo()) return;
+  await comando(['SET', chaveLembrete(l.attendanceId), JSON.stringify(l), 'EX', 24 * 3600]);
+  await comando(['ZADD', FILA_LEMBRETES, venceEm, l.attendanceId]);
+}
+export async function cancelarLembrete(attendanceId: string): Promise<void> {
+  if (!estadoAtivo()) return;
+  await comando(['ZREM', FILA_LEMBRETES, attendanceId]);
+  await comando(['DEL', chaveLembrete(attendanceId)]);
+}
+export async function lembretesVencidos(agora = Date.now()): Promise<Lembrete[]> {
+  const ids = (await comando<string[]>(['ZRANGEBYSCORE', FILA_LEMBRETES, 0, agora, 'LIMIT', 0, 30])) ?? [];
+  const out: Lembrete[] = [];
+  for (const id of ids) {
+    const bruto = await comando<string>(['GET', chaveLembrete(id)]);
+    if (bruto) { try { out.push(JSON.parse(bruto) as Lembrete); continue; } catch { /* corrompido: descarta */ } }
+    await comando(['ZREM', FILA_LEMBRETES, id]);
+  }
+  return out;
+}

@@ -6,7 +6,7 @@ import { escolherExames } from '../../lib/interpretarExames.js';
 import { buildSystemPrompt } from './prompt.js';
 import { soTelefone } from './script/engine.js';
 import { MARCAS_FIM, MARCA_ADEUS, MARCA_AGENDADO, MARCA_DUP, MARCA_MAIS, SEM_GPT, ehUrgencia, estadoDepoisDaResposta, etapa, handoffDuro, responder, type Pos, type Result, type State } from './script/engine.js';
-import { apagarEstado, estadoAtivo, guardarContato, guardarEstado, guardarMemoriaIA, lerEstado, lerMemoriaIA, travarAtendimento } from '../../lib/estado.js';
+import { agendarLembrete, apagarEstado, cancelarLembrete, estadoAtivo, guardarContato, guardarEstado, guardarMemoriaIA, lerEstado, lerMemoriaIA, travarAtendimento } from '../../lib/estado.js';
 import { atenderComIA } from './ia/atender.js';
 import { memoriaNova, type MemoriaIA } from './ia/ferramentas.js';
 import { fonteSimulada } from './script/catalog.js';
@@ -571,5 +571,12 @@ async function responderComIA(ev: MessageReceivedEvent, history: InovstarMessage
     const m = a.encerrar ? memoriaNova() : a.mem;
     await guardarMemoriaIA(ev.attendanceId, { ...m, ate: ev.messageId, transferiu: Boolean(a.handoff) });
     if (a.mem.paciente?.nome) await guardarContato(ev.attendanceId, { paciente: a.mem.paciente.nome });
+    // lembrete de inatividade: entrou no fluxo de agendamento (serviço aberto ou horários mostrados) e não concluiu -> em 15 min ela pergunta se quer seguir
+    const noFluxo = Object.keys(a.mem.servicos).length > 0 || Object.keys(a.mem.slots).length > 0;
+    if (a.agendou || a.handoff || a.encerrar || !noFluxo || !enviouTudo) await cancelarLembrete(ev.attendanceId);
+    else {
+      const ultimoServico = Object.values(a.mem.servicos).slice(-1)[0]?.frase;
+      await agendarLembrete({ attendanceId: ev.attendanceId, channelId: ev.channelId, to: ev.to, ate: ev.messageId, nome, servico: ultimoServico }, Date.now() + 15 * 60_000);
+    }
   }
 }
