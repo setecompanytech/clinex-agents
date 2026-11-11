@@ -144,18 +144,20 @@ export async function atenderComIA(p: {
   const primeiraResposta = !p.history.some((m) => m.direction === 'out' && p.titulos.some((t) => m.text?.includes(t)));
   const hoje = new Intl.DateTimeFormat('en-CA', { timeZone: env.timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(agora);
   const listaUnidades = await unidades();
-  const system = promptAmanda({ agora, nomeContato: p.nomeContato, primeiraResposta, mem, unidades: listaUnidades, hoje });
-  const c: Contexto = { fonte: p.fonte, mem, telefone: p.telefone, agora, lerComprovante: p.lerComprovante, lerPedidos: p.lerPedidos, pedidoOrcamento: PEDIU_ORCAMENTO.test(conversa.filter((m) => m.role === 'user').slice(-4).map((m) => semAcento(m.content)).join(' \n ')), saida: { confirmacoes: [], usadas: [] } };
+  const telWa = p.telefone.replace(/\D/g, '').replace(/^55(?=\d{10,11}$)/, '');
+  const system = promptAmanda({ agora, nomeContato: p.nomeContato, telefone: telWa.length === 11 ? `(${telWa.slice(0, 2)}) ${telWa.slice(2, 7)}-${telWa.slice(7)}` : telWa, primeiraResposta, mem, unidades: listaUnidades, hoje });
+  const c: Contexto = { fonte: p.fonte, mem, telefone: p.telefone, agora, lerComprovante: p.lerComprovante, lerPedidos: p.lerPedidos, ultimaDoPaciente: semAcento(conversa.filter((m) => m.role === 'user').slice(-1)[0]?.content ?? ''), pedidoOrcamento: PEDIU_ORCAMENTO.test(conversa.filter((m) => m.role === 'user').slice(-4).map((m) => semAcento(m.content)).join(' \n ')), saida: { confirmacoes: [], usadas: [] } };
   let resposta = await pensar(system, conversa, c);
   // conferência: médico ou valor que não veio do Clinilink -> refaz UMA vez, obrigando a consultar; se insistir, não envia o inventado
   const doPaciente = conversa.filter((m) => m.role === 'user').map((m) => m.content).join('\n');
   const fontesDe = () => [...(c.saida.dados ?? []), JSON.stringify(listaUnidades), env.clinicHorario, env.clinicName, 'Clinex', JSON.stringify({ servicos: mem.servicos, slots: mem.slots, orcamento: mem.orcamento, combos: mem.combosOferecidos, paciente: mem.paciente })];
-  let ruins = c.saida.confirmacoes.length ? [] : inventados(resposta.texto, fontesDe(), doPaciente);
+  const agendouSemAgendar = (t: string) => !c.saida.confirmacoes.length && !mem.agendados.length && /\b(ficou|esta|está|foi|ja esta|já está) (agendad|marcad|confirmad|reservad)\w*|\bagendamento (feito|confirmado|realizado)\b/i.test(t);
+  let ruins = c.saida.confirmacoes.length ? [] : [...inventados(resposta.texto, fontesDe(), doPaciente), ...(agendouSemAgendar(resposta.texto) ? ['"agendado" sem ter agendado (o agendamento só existe depois da ferramenta agendar dar certo; diga que vai reservar e peça o que falta)'] : [])];
   if (ruins.length) {
     evt('erro', { mensagem: 'IA: resposta com dado que não veio do Clinilink (refazendo)', itens: ruins, rascunho: resposta.texto.slice(0, 400) });
     const correcao: Msg[] = [...conversa, { role: 'assistant', content: resposta.texto }, { role: 'user', content: '[CHECAGEM INTERNA DO SISTEMA, não é o paciente] Sua última resposta citou ' + ruins.join(', ') + ', que NÃO veio das ferramentas. Isso é proibido. Consulte agora as ferramentas (buscar_servico, servico_com_profissional, ver_horarios, orcar_exames) e reescreva a resposta ao paciente usando SOMENTE os profissionais e valores que elas devolverem. Não mencione esta checagem.' }];
     resposta = await pensar(system, correcao, c);
-    ruins = inventados(resposta.texto, fontesDe(), doPaciente);
+    ruins = [...inventados(resposta.texto, fontesDe(), doPaciente), ...(agendouSemAgendar(resposta.texto) ? ['"agendado" sem ter agendado'] : [])];
     if (ruins.length) {
       evt('erro', { mensagem: 'IA: insistiu em dado que não veio do Clinilink; resposta bloqueada', itens: ruins, rascunho: resposta.texto.slice(0, 400) });
       resposta = { ...resposta, texto: 'Deixa eu confirmar essa informação certinho no sistema. Vou chamar alguém da equipe pra te passar os dados corretos, só um instante.' };

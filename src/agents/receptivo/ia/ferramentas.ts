@@ -36,6 +36,7 @@ export type Contexto = {
   telefone: string; // WhatsApp do paciente
   agora: Date;
   lerComprovante?: () => Promise<Comprovante | null>; // a última imagem da conversa, lida como comprovante
+  ultimaDoPaciente?: string; // a última mensagem do paciente (sem acento, minúscula)
   pedidoOrcamento?: boolean; // o paciente pediu ORÇAMENTO: regra da clínica, vai para o atendimento principal (a IA não monta)
   lerPedidos?: () => Promise<(PedidoLido | null)[]>; // TODAS as imagens recentes do paciente, cada uma lida como pedido médico (álbum de fotos)
   /** preenchidos pelas ferramentas: o que o código faz depois da resposta */
@@ -151,6 +152,9 @@ async function comCombos(r: any, c: Contexto): Promise<unknown> {
   };
 }
 
+/** Despedida ou "não preciso de mais nada" (o atendimento só é finalizado com isso). */
+export const DESPEDIDA = /\b(so isso|era (so )?isso|e (so )?isso|mais nada|nada mais|nao (preciso|precisa|quero) (de )?mais|tchau|ate (mais|logo|amanha|breve)|valeu|obrigad[oa]|brigad[oa]|agradec\w*|grat[oa]|tenha um bom|bom dia pra voce|flw|falou)\b/;
+
 const acharServico = async (id: string, c: Contexto): Promise<Servico | undefined> => {
   if (c.mem.servicos[id]) return c.mem.servicos[id];
   const d = await c.fonte.resolver(id).catch(() => undefined);
@@ -174,7 +178,7 @@ export const DEFINICOES: Def[] = [
   { name: 'servico_com_profissional', description: 'Quando o paciente escolhe um profissional de um serviço já aberto: devolve o mesmo serviço só com a agenda dele.', parameters: obj({ servico_id: str('servico_id'), profissional: str('nome do profissional como aparece na lista') }, ['servico_id', 'profissional']) },
   { name: 'ver_horarios', description: 'Horários com vaga de um serviço numa unidade. Cada horário vem com horario_id. O atendimento é por ordem de chegada: o horário é a hora em que o atendimento começa naquele período. Sem data: os próximos dias. Com data: só aquele dia.', parameters: obj({ servico_id: str('servico_id'), unidade: str('nome da unidade'), data: str('AAAA-MM-DD (opcional)'), a_partir_de: str('AAAA-MM-DD (opcional)'), turno: { type: 'string', enum: ['manhã', 'tarde'], description: 'opcional' }, profissional: str('opcional: só os horários deste profissional') }, ['servico_id', 'unidade']) },
   { name: 'buscar_paciente', description: 'Procura o cadastro do paciente: pelo CPF (se ele mandou) ou por nome completo + data de nascimento (procura pelo telefone desta conversa). Só mostre ao paciente o NOME encontrado, nunca outros dados.', parameters: obj({ cpf: str('11 dígitos (opcional)'), nome_completo: str('opcional'), nascimento: str('DD/MM/AAAA (opcional)') }) },
-  { name: 'agendar', description: 'Grava o agendamento de um horario_id oferecido. Paciente já encontrado: só confirme que é ele. Paciente novo: precisa de nome completo, data de nascimento e sexo (CPF é opcional). O telefone de contato é o WhatsApp desta conversa, a não ser que o paciente informe outro (use o parâmetro telefone). Só chame depois de o paciente confirmar o horário E dizer como vai pagar (na recepção ou pix).', parameters: obj({ horario_id: str('horario_id escolhido'), nome_completo: str('nome completo do paciente'), nascimento: str('DD/MM/AAAA'), sexo: { type: 'string', enum: ['feminino', 'masculino'] }, cpf: str('opcional'), telefone: str('opcional: telefone de contato do paciente, só se for diferente do WhatsApp desta conversa (ex.: agendamento para outra pessoa com outro número)'), pagamento: { type: 'string', enum: ['recepcao', 'pix'], description: 'como o PACIENTE disse que vai pagar (pergunte antes; nunca presuma)' } }, ['horario_id', 'nome_completo', 'nascimento', 'pagamento']) },
+  { name: 'agendar', description: 'Grava o agendamento de um horario_id oferecido. Paciente já encontrado: só confirme que é ele. Paciente novo: precisa de nome completo, data de nascimento e sexo (CPF é opcional). O telefone de contato do paciente é obrigatório: peça (para o próprio paciente, ofereça este WhatsApp; para outra pessoa, o telefone dela). Só chame depois de o paciente confirmar o horário E dizer como vai pagar (na recepção ou pix).', parameters: obj({ horario_id: str('horario_id escolhido'), nome_completo: str('nome completo do paciente'), nascimento: str('DD/MM/AAAA'), sexo: { type: 'string', enum: ['feminino', 'masculino'] }, cpf: str('opcional'), telefone: str('telefone de contato do PACIENTE, com DDD, que ele informou ou confirmou na conversa (se disse que pode ser este WhatsApp, use o número do WhatsApp desta conversa)'), pagamento: { type: 'string', enum: ['recepcao', 'pix'], description: 'como o PACIENTE disse que vai pagar (pergunte antes; nunca presuma)' } }, ['horario_id', 'nome_completo', 'nascimento', 'telefone', 'pagamento']) },
   { name: 'orcar_exames', description: 'Monta o orçamento de exames (de laboratório ou outros) a partir dos nomes que o paciente escreveu ou que vieram do pedido médico. Devolve cada exame com o valor por unidade.', parameters: obj({ exames: { type: 'array', items: { type: 'string' }, description: 'nomes dos exames' } }, ['exames']) },
   { name: 'ler_pedido_medico', description: 'Lê a última foto que o paciente mandou como pedido médico e devolve os exames escritos nela.', parameters: obj({}) },
   { name: 'agendar_coleta', description: 'Depois do orçamento de exames, prepara o agendamento da coleta de todos os exames do orçamento juntos (devolve um servico_id para ver_horarios).', parameters: obj({}) },
@@ -183,7 +187,7 @@ export const DEFINICOES: Def[] = [
   { name: 'etapa_do_combo', description: 'Prepara uma etapa de um combo escolhido para agendar (devolve um servico_id para ver_horarios). Agende uma etapa de cada vez.', parameters: obj({ servico_id: str('servico_id do combo'), etapa: { type: 'integer', description: 'número da etapa (1, 2, ...)' } }, ['servico_id', 'etapa']) },
   { name: 'conferir_comprovante', description: 'Confere a última imagem enviada como comprovante de pix (valor e recebedor).', parameters: obj({}) },
   { name: 'transferir_para_humano', description: 'Passa a conversa para a equipe. Use para: resultado de exame, remarcar, cancelar, documentos, reclamação, convênio, serviço externo, pedido de falar com atendente, urgência, ou quando você não conseguir resolver. Escreva antes, na sua resposta, uma frase curta avisando o paciente.', parameters: obj({ motivo: str('resumo para a equipe: quem é, o que quer, o que já foi feito'), urgente: { type: 'boolean' } }, ['motivo']) },
-  { name: 'encerrar_atendimento', description: 'O paciente se despediu ou disse que não precisa de mais nada: encerra o atendimento (escreva a despedida na resposta).', parameters: obj({}) },
+  { name: 'encerrar_atendimento', description: 'SÓ quando o paciente se despedir ou disser que não precisa de mais nada ("só isso", "obrigado, tchau"). Nunca por conta própria, nunca logo depois de um agendamento sem o paciente se despedir. Encerra e finaliza o atendimento (escreva a despedida na resposta).', parameters: obj({}) },
 ];
 
 // ------------------------------------------------------------------------------------------------ execução
@@ -280,9 +284,11 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
         const pac = conhecido ?? (c.mem.paciente && norm(c.mem.paciente.nome) === norm(nomeCompleto) ? c.mem.paciente : undefined);
         const cpf = String(args.cpf ?? '').replace(/\D/g, '');
         // telefone de contato: o informado (agendamento para outra pessoa) ou o WhatsApp desta conversa; sempre DDD + número, sem o 55
+        // telefone de contato do paciente: obrigatório e confirmado na conversa (regra da clínica); sempre DDD + número, sem o 55
         const telInformado = args.telefone ? soTelefone(String(args.telefone)) : '';
-        if (telInformado && !/^\d{10,11}$/.test(telInformado)) return { erro: 'telefone inválido: peça com DDD (ex.: 91 98888-7777)' };
-        const telefone = telInformado || soTelefone(c.telefone);
+        if (!telInformado) return { erro: 'falta o telefone de contato do paciente: peça (para o próprio paciente, pergunte se pode ser este WhatsApp; para outra pessoa, o telefone dela). NÃO agende antes.' };
+        if (!/^\d{10,11}$/.test(telInformado)) return { erro: 'telefone inválido: peça com DDD (ex.: 91 98888-7777)' };
+        const telefone = telInformado;
         const r = await f.reservar({
           servico: sv, unidade: un, slot: g.slot, cpf: cpf && cpfValido(cpf) ? cpf : undefined,
           pacienteId: pac?.id,
@@ -374,6 +380,8 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
         return { ok: true, orientacao: 'A conversa vai para a equipe depois da sua resposta. Escreva uma frase curta avisando o paciente.' };
       }
       case 'encerrar_atendimento': {
+        // o atendimento é FINALIZADO na Inovstar: só com despedida clara do paciente (caso real: encerrou quando ele respondeu "na recepção")
+        if (!DESPEDIDA.test(c.ultimaDoPaciente ?? '')) return { erro: 'o paciente não se despediu: NÃO encerre. Responda normalmente o que ele disse.' };
         c.saida.encerrar = true;
         return { ok: true };
       }

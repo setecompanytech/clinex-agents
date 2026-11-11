@@ -15,7 +15,7 @@ const fonte: Fonte = {
 };
 
 const CASOS: Record<string, string[]> = {
-  gineco: ['oi', 'quero agendar ginecologista', 'guamá', 'o primeiro', 'Maria Clara Souza 12/03/1990', 'feminino', 'na recepção', 'obrigada, só isso'],
+  gineco: ['oi', 'quero agendar ginecologista', 'guamá', 'o primeiro', 'Maria Clara Souza 12/03/1990', 'pode ser esse número mesmo', 'feminino', 'na recepção', 'beleza', 'obrigada, só isso'],
   ultra: ['boa tarde, vocês fazem ultrassom?', 'obstétrica', 'tem pra essa semana?'],
   matheus: ['Oi, quero marcar USG obstétrico', 'telegrafo com a Ana Clara', 'pode ser o primeiro'],
   sangue: ['quero fazer exame de sangue', 'hemograma, glicose e colesterol total', 'quero agendar a coleta'],
