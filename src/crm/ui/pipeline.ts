@@ -276,7 +276,7 @@ function auEditor(regra, pre) {
       var g = E.gatilho;
       secG.appendChild(h('p', { class: 'mut', text: regra.descricao }));
       secG.appendChild(g.tipo === 'builtin_sem_resposta'
-        ? campo('Dia da nova tentativa (D)', auNum(g.dia, 1, 5, function (v) { g.dia = v; atualizar(); }, 'Dia da nova tentativa'), 'O guia usa D2: contatou em Em aberto, sem resposta até o D2, vai para Sem retorno.')
+        ? campo('Dia da nova tentativa (D)', auNum(g.dia, 1, 5, function (v) { g.dia = v; atualizar(); }, 'Dia da nova tentativa'), 'O guia usa D3: contatou em Em aberto, sem resposta até o D3, vai para Sem retorno (nova tentativa às 11:30).')
         : campo('Dias depois do encerramento', auNum(g.dias, 1, 5, function (v) { g.dias = v; atualizar(); }, 'Dias depois do encerramento'), 'O guia usa 1 dia: no D8, sem resposta ao aviso do D7, o lead é descartado.'));
       return;
     }

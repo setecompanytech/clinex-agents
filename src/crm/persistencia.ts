@@ -1,6 +1,6 @@
 import { sbApagar, sbGravar, sbLer } from '../lib/supabase.js';
 import type { Estado } from './banco.js';
-import type { Regra, LogAuto } from './automacoes.js';
+import { migrarGuia, type Regra, type LogAuto } from './automacoes.js';
 import type { Lead } from './motor.js';
 import type { Usuario } from '../lib/usuarios.js';
 import type { Atribuicao, CardSnap, Contato, Etapa, Extras, Followup, Funil, RegraAuto } from './pipeline/tipos.js';
@@ -140,6 +140,7 @@ export async function carregarDoBanco(estado: Estado): Promise<number> {
     const objs = linhas.map((r) => c.deLinha(r));
     // funis e automações do guia sempre existem: se o banco ainda não tem, mantém os padrões já em memória
     if (c.tabela === 'pipelines' && !objs.length) continue;
+    if (c.tabela === 'crm_automacoes') migrarGuia(objs as Regra[]);
     if (c.tabela === 'crm_automacoes') { const ids = new Set((objs as Regra[]).map((r) => r.id)); for (const r of estado.automacoes) if (r.builtin && !ids.has(r.id)) (objs as Regra[]).push(r); }
     (c.definir as (e: Estado, xs: unknown[]) => void)(estado, objs);
     const m = new Map<string, string>();

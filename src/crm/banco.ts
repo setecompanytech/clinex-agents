@@ -2,7 +2,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { Lead } from './motor.js';
 import type { Usuario } from '../lib/usuarios.js';
-import { regrasPadrao, type LogAuto, type Regra } from './automacoes.js';
+import { migrarGuia, regrasPadrao, type LogAuto, type Regra } from './automacoes.js';
 import { funisPadrao } from './pipeline/regras.js';
 import type { EstadoFunis } from './pipeline/tipos.js';
 import { supabaseConfigurado } from '../lib/supabase.js';
@@ -47,6 +47,7 @@ async function carregarArquivo() {
     const salvas = Array.isArray(dados.automacoes) ? dados.automacoes : [];
     const padrao = regrasPadrao(new Date());
     estado.automacoes = [...padrao.map((p) => salvas.find((s) => s.id === p.id) ?? p), ...salvas.filter((s) => !s.builtin)];
+    migrarGuia(estado.automacoes);
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
       ultimoErro = `Não consegui ler ${ARQUIVO}: ${(e as Error).message}`;

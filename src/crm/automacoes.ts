@@ -21,16 +21,33 @@ export type Regra = {
   id: string; nome: string; descricao?: string; ativa: boolean; builtin?: boolean;
   gatilho: Gatilho; filtros: Filtros; acoes: AcaoAuto[];
   criadaEm: string; execucoes: number; ultima?: string;
+  /** versão do guia em que a regra do guia foi criada/ajustada (ver migrarGuia) */
+  guia?: number;
 };
 export type LogAuto = { id: string; quando: string; regraId: string; regraNome: string; leadId: string; leadNome: string; resumo: string; alerta?: boolean };
 
 export const ID_SEM_RESPOSTA = 'builtin-sem-resposta';
 export const ID_D8 = 'builtin-d8';
 
+/** 2 = guia de 6 páginas: a nova tentativa passou do D2 para o D3 (11:30). */
+export const GUIA_VERSAO = 2;
+
+/**
+ * Regras do guia salvas antes da versão 2 guardam o prazo antigo (D2). Passam para o novo (D3), uma vez só.
+ * Quem escolheu outro dia (D1, D4, D5) mantém a escolha. Depois de editada e salva, a regra já leva a versão e não muda mais.
+ */
+export function migrarGuia(regras: Regra[]): void {
+  for (const r of regras) {
+    if (!r.builtin || r.id !== ID_SEM_RESPOSTA || (r.guia ?? 1) >= GUIA_VERSAO) continue;
+    if (r.gatilho.tipo === 'builtin_sem_resposta' && r.gatilho.dia === 2) r.gatilho = { tipo: 'builtin_sem_resposta', dia: 3 };
+    r.guia = GUIA_VERSAO;
+  }
+}
+
 export function regrasPadrao(agora: Date): Regra[] {
   const t = agora.toISOString();
   return [
-    { id: ID_SEM_RESPOSTA, nome: 'Sem resposta ao 1º contato → Sem retorno', descricao: 'Do guia. Contatou em Em aberto e o paciente não respondeu: o lead segue para Sem retorno, com a nova tentativa no dia escolhido.', ativa: true, builtin: true, gatilho: { tipo: 'builtin_sem_resposta', dia: CFG_PADRAO.semResposta.dia }, filtros: {}, acoes: [{ tipo: 'mover', para: 'sem_retorno' }], criadaEm: t, execucoes: 0 },
+    { id: ID_SEM_RESPOSTA, nome: 'Sem resposta ao 1º contato → Sem retorno', descricao: 'Do guia. Contatou em Em aberto e o paciente não respondeu: o lead segue para Sem retorno, com a nova tentativa no dia escolhido.', ativa: true, builtin: true, gatilho: { tipo: 'builtin_sem_resposta', dia: CFG_PADRAO.semResposta.dia }, filtros: {}, acoes: [{ tipo: 'mover', para: 'sem_retorno' }], criadaEm: t, execucoes: 0, guia: GUIA_VERSAO },
     { id: ID_D8, nome: 'Encerramento sem resposta → Descarte', descricao: 'Do guia. Depois do aviso de encerramento (D7) sem resposta, o lead é descartado com o motivo "Sem retorno".', ativa: true, builtin: true, gatilho: { tipo: 'builtin_descarte', dias: CFG_PADRAO.descarteD8.dias }, filtros: {}, acoes: [{ tipo: 'descartar', motivo: 'Sem retorno' }], criadaEm: t, execucoes: 0 },
   ];
 }
@@ -73,7 +90,7 @@ export function validarRegra(b: unknown, atual?: Regra): Omit<Regra, 'id' | 'cri
   if (atual?.builtin) {
     // do guia: só liga/desliga e o prazo
     const gat: Gatilho = atual.gatilho.tipo === 'builtin_sem_resposta' ? { tipo: 'builtin_sem_resposta', dia: inteiro(g.dia ?? atual.gatilho.dia, 1, 5, 'Dia da nova tentativa') } : { tipo: 'builtin_descarte', dias: inteiro(g.dias ?? (atual.gatilho as { dias: number }).dias, 1, 5, 'Dias após o encerramento') };
-    return { nome: atual.nome, descricao: atual.descricao, ativa, builtin: true, gatilho: gat, filtros: {}, acoes: atual.acoes };
+    return { nome: atual.nome, descricao: atual.descricao, ativa, builtin: true, gatilho: gat, filtros: {}, acoes: atual.acoes, ...(atual.guia ? { guia: atual.guia } : {}) };
   }
   let gatilho: Gatilho;
   switch (g.tipo) {

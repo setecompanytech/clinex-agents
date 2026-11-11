@@ -80,28 +80,30 @@ teste('orçamento de R$ 500 ou menos: basta um contato', () => {
   contato(l, dia(1), 'primeiro');
   assert.equal(prox(l, dia(1)), null);
 });
-teste('sem resposta ao primeiro contato, no D2 vai para Sem retorno com Nova tentativa', () => {
+teste('sem resposta ao primeiro contato, no D3 vai para Sem retorno com Nova tentativa (11:30)', () => {
   const l = novo();
   contato(l, dia(1), 'primeiro');
   assert.equal(roda(l, dia(1)), 0);
+  assert.equal(roda(l, dia(2)), 0, 'no D2 ainda aguarda');
   assert.equal(l.status, 'aberto');
-  assert.equal(roda(l, dia(2)), 1);
+  assert.equal(roda(l, dia(3)), 1);
   assert.equal(l.status, 'sem_retorno');
-  const p = prox(l, dia(2))!;
+  const p = prox(l, dia(3))!;
   assert.equal(p.passo.id, 'tentativa');
-  assert.equal(p.vence, dia(2));
+  assert.equal(p.passo.hora, '11:30');
+  assert.equal(p.vence, dia(3));
   assert.equal(p.situacao, 'hoje');
 });
-teste('Sem retorno: D2 nova tentativa, D3 desconto, D7 encerramento, D8 descarte automático com motivo "Sem retorno"', () => {
+teste('Sem retorno: D3 nova tentativa (11:30), D4 desconto (16:00), D7 encerramento (16:00), D8 descarte automático com motivo "Sem retorno"', () => {
   const l = novo();
-  contato(l, dia(1), 'primeiro'); roda(l, dia(2));
-  contato(l, dia(2), 'tentativa', 'ligacao');
-  assert.equal(prox(l, dia(2))!.passo.id, 'desconto');
-  assert.equal(prox(l, dia(2))!.situacao, 'futura'); // o desconto só vence no D3
-  const d3 = prox(l, dia(3))!; assert.equal(d3.passo.id, 'desconto'); assert.equal(d3.passo.msg, 3);
-  contato(l, dia(3), 'desconto');
-  assert.equal(prox(l, dia(4))!.passo.id, 'encerramento');
-  assert.equal(prox(l, dia(4))!.situacao, 'futura');
+  contato(l, dia(1), 'primeiro'); roda(l, dia(3));
+  contato(l, dia(3), 'tentativa', 'ligacao');
+  assert.equal(prox(l, dia(3))!.passo.id, 'desconto');
+  assert.equal(prox(l, dia(3))!.situacao, 'futura'); // o desconto só vence no D4
+  const d4 = prox(l, dia(4))!; assert.equal(d4.passo.id, 'desconto'); assert.equal(d4.passo.msg, 3); assert.equal(d4.passo.hora, '16:00');
+  contato(l, dia(4), 'desconto');
+  assert.equal(prox(l, dia(5))!.passo.id, 'encerramento');
+  assert.equal(prox(l, dia(5))!.situacao, 'futura');
   assert.equal(prox(l, dia(7))!.situacao, 'hoje');
   contato(l, dia(7), 'encerramento');
   assert.equal(roda(l, dia(7)), 0);
@@ -113,9 +115,9 @@ teste('Sem retorno: D2 nova tentativa, D3 desconto, D7 encerramento, D8 descarte
 });
 teste('idempotente: rodar as automações de novo não muda nada', () => {
   const l = novo();
-  contato(l, dia(1), 'primeiro'); roda(l, dia(2));
+  contato(l, dia(1), 'primeiro'); roda(l, dia(3));
   const antes = JSON.stringify(l);
-  assert.equal(roda(l, dia(2)), 0);
+  assert.equal(roda(l, dia(3)), 0);
   assert.equal(JSON.stringify(l), antes);
 });
 

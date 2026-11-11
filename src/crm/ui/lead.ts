@@ -64,7 +64,7 @@ function textoEstado(l) {
   var s = l.status;
   if (s === 'convertido_ativo') return 'Convertido ativo: compareceu e pagou. Nada mais a fazer.';
   if (s === 'convertido_organico') return 'Convertido orgânico: o paciente já foi à recepção. Não entrar em contato.';
-  if (s === 'aberto') return 'Primeiro contato já feito. Aguardando resposta: no D2, sem resposta, o lead vai para Sem retorno com a nova tentativa.';
+  if (s === 'aberto') return 'Primeiro contato já feito. Aguardando resposta: no D3, sem resposta, o lead vai para Sem retorno com a nova tentativa (11:30).';
   if (s === 'sem_retorno') return 'Sem passos pendentes. Se não houver resposta, no D8 o lead é descartado automaticamente (motivo: Sem retorno).';
   if (s === 'agendado') return 'Agendado. Confirmação automática registrada. No dia, registre se compareceu e pagou ou se faltou.';
   if (s === 'descarte') return l.v.reativacao && l.v.reativacao.situacao === 'encerrada' ? 'Descartado. A janela de reativação (30 a 60 dias) já encerrou.' : 'Descartado. A reativação (Msg 11) vale entre 30 e 60 dias depois do descarte.';

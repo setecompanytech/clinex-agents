@@ -183,9 +183,9 @@ function telaMensagens() {
 function telaRegras() {
   var L = M.LIMITES;
   var auto = [
-    'No D2, quem não respondeu ao primeiro contato vai sozinho para Sem retorno, com a nova tentativa (Msg 2).',
+    'No D3, quem não respondeu ao primeiro contato vai sozinho para Sem retorno, com a nova tentativa às 11:30 (Msg 2).',
     'No D8, quem não respondeu ao encerramento (D7) é descartado sozinho, com o motivo "Sem retorno".',
-    'Os passos (D1, D2, D3, D7...) viram tarefas na tela Hoje no dia certo, já na ordem de prioridade: 1º no show, 2º leads novos em aberto.',
+    'Os passos (D1, D3, D4, D7...) viram tarefas na tela Hoje no dia certo, já na ordem de prioridade: 1º no show, 2º leads novos em aberto.',
     'A confirmação do agendamento é registrada automaticamente.',
     'Passou a data do agendamento sem resultado: o lead sobe para a 1ª prioridade para conferir se compareceu.',
     'Entre 30 e 60 dias depois do descarte, a reativação (Msg 11) entra na fila.',

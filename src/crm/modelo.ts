@@ -1,5 +1,5 @@
 /**
- * O processo comercial da Clinex, transcrito do "Guia de Atendimento do Lead" (4 páginas).
+ * O processo comercial da Clinex, transcrito do "Guia de Atendimento do Lead" (6 páginas: fluxo do No-show, fluxo do Lead, mensagens e o que fazer em cada dia).
  * É a fonte ÚNICA: o motor de regras (motor.ts) lê os passos daqui e a tela lê tudo daqui (vai como JSON para o navegador).
  * Para mudar o processo (um dia, uma mensagem, um limite), é só mexer neste arquivo.
  */
@@ -32,6 +32,8 @@ export type PassoDef = {
   /** dia da cadência (D#) contado do D0 do lead (aberto/sem retorno) ou do D0 da negociação */
   dia?: number;
   msg?: number;
+  /** horário fixo do contato no dia (guia: D1 08:30 · D3 11:30 · D4 16:00 · D7 16:00) */
+  hora?: string;
   canais: Canal[];
   desc: string;
   /** id do item do guia (fluxo/calendário) que explica este passo */
@@ -41,17 +43,17 @@ export type PassoDef = {
 };
 
 export const PASSOS: PassoDef[] = [
-  { id: 'primeiro', fase: 'aberto', rotulo: 'Primeiro contato', dia: 1, msg: 1, canais: ['whatsapp', 'ligacao'], desc: '1º horário do dia · ligação se acima de R$ 500', item: 'primeiro' },
-  { id: 'tentativa', fase: 'sem_retorno', rotulo: 'Nova tentativa', dia: 2, msg: 2, canais: ['ligacao', 'whatsapp'], desc: 'outro horário', item: 'tentativa' },
-  { id: 'desconto', fase: 'sem_retorno', rotulo: 'Desconto', dia: 3, msg: 3, canais: ['whatsapp'], desc: '10% ou 5%, conforme o orçamento', item: 'desconto' },
-  { id: 'encerramento', fase: 'sem_retorno', rotulo: 'Encerramento', dia: 7, msg: 4, canais: ['whatsapp'], desc: 'avisa que vai encerrar', item: 'semretorno' },
+  { id: 'primeiro', fase: 'aberto', rotulo: 'Primeiro contato', dia: 1, hora: '08:30', msg: 1, canais: ['whatsapp', 'ligacao'], desc: '1º horário do dia · ligação se acima de R$ 500', item: 'primeiro' },
+  { id: 'tentativa', fase: 'sem_retorno', rotulo: 'Nova tentativa', dia: 3, hora: '11:30', msg: 2, canais: ['ligacao', 'whatsapp'], desc: 'outro horário', item: 'tentativa' },
+  { id: 'desconto', fase: 'sem_retorno', rotulo: 'Desconto', dia: 4, hora: '16:00', msg: 3, canais: ['whatsapp'], desc: '10% ou 5%, conforme o orçamento', item: 'desconto' },
+  { id: 'encerramento', fase: 'sem_retorno', rotulo: 'Encerramento', dia: 7, hora: '16:00', msg: 4, canais: ['whatsapp'], desc: 'avisa que vai encerrar', item: 'semretorno' },
   { id: 'orcamento', fase: 'negociacao', rotulo: 'Orçamento', dia: 0, msg: 5, canais: ['whatsapp'], desc: '+ 2 opções de horário', item: 'neg0' },
   { id: 'followup', fase: 'negociacao', rotulo: 'Follow-up', dia: 1, msg: 6, canais: ['whatsapp'], desc: 'viu o orçamento? oferecer horário', item: 'neg1' },
   { id: 'objecao', fase: 'negociacao', rotulo: 'Tratar a objeção', dia: 3, msg: 7, canais: ['whatsapp'], desc: 'preço · data · plano · preparo', item: 'neg3' },
   { id: 'ultima', fase: 'negociacao', rotulo: 'Última oferta', dia: 7, msg: 8, canais: ['whatsapp'], desc: 'validade + agenda', item: 'neg7' },
   { id: 'descarte_neg', fase: 'negociacao', rotulo: 'Descarte', dia: 8, canais: [], desc: 'sem resposta, com motivo', item: 'descarte', decisao: true },
   // passos de exceção (fora da cadência por dias)
-  { id: 'noshow', fase: 'especial', rotulo: 'No show', msg: 10, canais: ['whatsapp'], desc: 'reagendar quem faltou', item: 'agendado' },
+  { id: 'noshow', fase: 'especial', rotulo: 'No show', hora: '08:30', msg: 10, canais: ['whatsapp'], desc: 'reagendar quem faltou', item: 'agendado' },
   { id: 'retorno', fase: 'especial', rotulo: 'Retorno personalizado', msg: 9, canais: ['whatsapp'], desc: 'na data combinada', item: 'retorno' },
   { id: 'reativacao', fase: 'especial', rotulo: 'Reativação', msg: 11, canais: ['whatsapp'], desc: '30 a 60 dias depois do descarte', item: 'reativacao' },
   { id: 'comparecimento', fase: 'especial', rotulo: 'Conferir comparecimento', canais: [], desc: 'compareceu e pagou, ou faltou?', item: 'agendado', decisao: true },
@@ -60,19 +62,20 @@ export const PASSOS: PassoDef[] = [
 // ------------------------------------------------------------------------------------------------ mensagens (páginas 3 e 4)
 
 export type Variante = { rotulo: string; corpo: string; botoes: string[] };
-export type Mensagem = { n: number; titulo: string; quando: string; item: string; grupo: string; corpo: string; botoes: string[]; nota?: string; variantes?: Variante[] };
+/** Situação da mensagem no guia: aprovada (pode enviar) ou pendente (ainda em aprovação). Sem valor: o guia não traz a situação. */
+export type Mensagem = { n: number; titulo: string; quando: string; item: string; grupo: string; corpo: string; botoes: string[]; nota?: string; variantes?: Variante[]; situacao?: 'aprovada' | 'pendente' };
 
 export const MENSAGENS: Mensagem[] = [
-  { n: 1, titulo: 'Primeiro contato', quando: 'Em aberto · D1', item: 'primeiro', grupo: 'aberto',
+  { n: 1, titulo: 'Primeiro contato', quando: 'Em aberto · D1 às 08:30', item: 'primeiro', grupo: 'aberto', situacao: 'aprovada',
     corpo: 'Olá, [Nome]! Aqui é [Atendente], da Clinex 😊\n\nVi que você tem interesse em [exame ou consulta]. Gostaria de agendar com a gente?\n\nPosso te enviar as opções de valor e horário agora?',
     botoes: ['Agendar', 'Ver valor e horário', 'Não tenho interesse'] },
-  { n: 2, titulo: 'Nova tentativa', quando: 'Sem retorno · D2', item: 'tentativa', grupo: 'sem_retorno',
+  { n: 2, titulo: 'Nova tentativa', quando: 'Sem retorno · D3 às 11:30 · Lead e No-show', item: 'tentativa', grupo: 'sem_retorno', situacao: 'aprovada',
     corpo: 'Oi, [Nome]! Tentei entrar em contato com você, mas não consegui retorno.\n\n[Seu exame ou consulta] ainda pode ser feito [hoje / esta semana / este mês]. Quer que eu te envie valor e horários?',
     botoes: ['Agendar', 'Ver valor e horário', 'Não tenho interesse'] },
-  { n: 3, titulo: 'Desconto', quando: 'Sem retorno · D3', item: 'desconto', grupo: 'sem_retorno',
+  { n: 3, titulo: 'Desconto', quando: 'Sem retorno · D4 às 16:00 · Somente Lead', item: 'desconto', grupo: 'sem_retorno', situacao: 'aprovada',
     corpo: '[Nome], estamos com uma condição especial de [10% ou 5%] de desconto para [seu exame ou consulta].\n\nPagando via Pix, o seu orçamento de [valor] fica por apenas [valor]. Posso te ajudar a garantir seu agendamento com esse desconto?',
     botoes: ['Agendar', 'Esclarecer dúvida', 'Não tenho interesse'] },
-  { n: 4, titulo: 'Encerramento', quando: 'Sem retorno · D7', item: 'semretorno', grupo: 'sem_retorno',
+  { n: 4, titulo: 'Encerramento', quando: 'Sem retorno · D7 às 16:00 · Lead e No-show', item: 'semretorno', grupo: 'sem_retorno', situacao: 'aprovada',
     corpo: '[Nome], vou encerrar seu atendimento por aqui para não te incomodar.\n\nSe ainda precisar do [exame], é só responder esta mensagem que retomamos na hora. A Clinex fica à disposição 💙',
     botoes: ['Ainda quero o exame', 'Já fiz o exame', 'Não tenho interesse'] },
   { n: 5, titulo: 'Orçamento', quando: 'Em negociação · D0', item: 'neg0', grupo: 'negociacao',
@@ -93,13 +96,13 @@ export const MENSAGENS: Mensagem[] = [
   { n: 8, titulo: 'Última oferta', quando: 'Em negociação · D7', item: 'neg7', grupo: 'negociacao',
     corpo: '[Nome], seu orçamento [exame] vale até [data] e a agenda desta semana está fechando.\n\nAinda consigo te encaixar [dia] às [hora]. Posso confirmar?',
     botoes: ['Pode confirmar', 'Outro horário', 'Não tenho interesse'] },
-  { n: 9, titulo: 'Na data combinada', quando: 'Retorno personalizado', item: 'retorno', grupo: 'retorno',
+  { n: 9, titulo: 'Na data combinada', quando: 'Retorno personalizado · na data combinada', item: 'retorno', grupo: 'retorno', situacao: 'pendente',
     corpo: 'Oi, [Nome]! Como combinamos, estou passando hoje para retomar [seu orçamento de exames ou consultas].\n\nTenho [dia] às [hora] ou [dia] às [hora]. Qual fica melhor?',
     botoes: ['1º horário', '2º horário', 'Outro horário'] },
-  { n: 10, titulo: 'No show', quando: 'Agendado', item: 'agendado', grupo: 'agendado',
+  { n: 10, titulo: 'No show', quando: 'Retomada 1 · D1 às 08:30', item: 'agendado', grupo: 'agendado', situacao: 'aprovada',
     corpo: 'Olá, [Nome]! Aqui é da Clinex.\n\nNotamos que você não compareceu ao [exame] agendado para [data]. Sem problemas! Se quiser, podemos combinar uma nova data que funcione melhor para você.',
     botoes: ['Reagendar', 'Esclarecer dúvida', 'Não tenho interesse'] },
-  { n: 11, titulo: 'Reativação', quando: '30 a 60 dias após o descarte', item: 'reativacao', grupo: 'reativacao',
+  { n: 11, titulo: 'Reativação', quando: '30 a 60 dias após o descarte', item: 'reativacao', grupo: 'reativacao', situacao: 'pendente',
     corpo: 'Oi, [Nome]! Aqui é da Clinex.\n\nAinda precisa fazer o [exame]? Neste mês temos [condição da campanha].\n\nQuer que eu veja um horário para você?',
     botoes: ['Quero agendar', 'Saber mais', 'Agora não'] },
 ];
@@ -132,6 +135,8 @@ export const PRIORIDADE_DO_DIA = ['No show', 'Leads novos de orçamento em abert
 export type Saida = { rotulo: string; para: string; excecao?: boolean };
 export type Item = {
   id: string;
+  /** horário fixo do contato, quando o guia traz um (ex.: 08:30) */
+  hora?: string;
   tipo: 'entrada' | 'aberto' | 'sem_retorno' | 'negociacao' | 'agendado' | 'ativo' | 'retorno' | 'descarte' | 'reativacao' | 'regra' | 'organico' | 'passo';
   num?: string;
   titulo: string;
@@ -155,18 +160,18 @@ export type Item = {
 
 export const ITENS: Item[] = [
   { id: 'lead', tipo: 'entrada', titulo: 'Lead entra', sub: 'Início do caminho', dias: ['D0'],
-    resumo: 'É onde tudo começa. O dia em que o lead entra é o D0, e todos os prazos do guia (D1, D2, D3, D7 e D8) contam a partir dele.',
+    resumo: 'É onde tudo começa. O dia em que o lead entra é o D0, e todos os prazos do guia (D1, D3, D4, D7 e D8) contam a partir dele.',
     fazer: ['Cadastre o lead com nome, telefone, exame ou consulta de interesse e o valor do orçamento.', 'Antes de qualquer contato, confira se o paciente já foi à recepção.'],
     saidas: [{ rotulo: 'Entra em Em aberto', para: 'aberto' }], regras: [1] },
-  { id: 'aberto', tipo: 'aberto', num: '1.', titulo: 'Em aberto', sub: '2º Leads novos de orçamento em aberto', selo: '1º NO SHOW', limite: '1 dia', dias: ['D1'],
+  { id: 'aberto', tipo: 'aberto', num: '1.', titulo: 'Em aberto', sub: 'Leads novos de orçamento em aberto', selo: 'PRIORIDADE Nº 2', limite: '1 dia', dias: ['D1'],
     resumo: 'Primeira etapa do funil: os leads novos de orçamento em aberto. O limite nesta etapa é de 1 dia, então o primeiro contato acontece no D1.',
     fazer: ['Trate primeiro os no shows do dia, depois os leads novos de orçamento em aberto.', 'Faça o primeiro contato no D1, no 1º horário do dia.'],
     extra: [{ titulo: 'Prioridade do dia', texto: '1º No show · 2º Leads novos de orçamento em aberto.' }],
     saidas: [{ rotulo: 'Primeiro contato', para: 'primeiro' }], regras: [1, 2, 3] },
-  { id: 'primeiro', tipo: 'aberto', num: '2.', titulo: 'Primeiro contato', sub: '1º horário do dia · ligação se acima de R$ 500', dias: ['D1'], canais: ['WhatsApp', 'Ligação'], msgs: [1], limite: 'Em aberto: 1 dia',
-    resumo: 'O primeiro contato com o lead acontece no D1, no 1º horário do dia, pelo WhatsApp e pela ligação. A ligação é para orçamentos acima de R$ 500.',
-    fazer: ['Contate no 1º horário do dia.', 'Envie a mensagem 1 pelo WhatsApp com os botões de resposta rápida.', 'Ligue se o orçamento for acima de R$ 500.', 'Registre data, canal e resultado no card.'],
-    extra: [{ titulo: 'Depois do 1º contato', texto: 'Respondeu: o lead vai para Em negociação. Não respondeu: nova tentativa no D2 com a mensagem 2, e o lead segue para Sem retorno.' }],
+  { id: 'primeiro', tipo: 'aberto', num: '2.', titulo: 'Primeiro contato', sub: '1º horário do dia · ligação se acima de R$ 500', hora: '08:30', dias: ['D1'], canais: ['WhatsApp', 'Ligação'], msgs: [1], limite: 'Em aberto: 1 dia',
+    resumo: 'O primeiro contato com o lead acontece no D1, às 08:30 (o 1º horário do dia), pelo WhatsApp e pela ligação. A ligação é para orçamentos acima de R$ 500.',
+    fazer: ['Contate no 1º horário do dia (08:30).', 'Envie a mensagem 1 pelo WhatsApp com os botões de resposta rápida.', 'Ligue se o orçamento for acima de R$ 500.', 'Registre data, canal e resultado no card.'],
+    extra: [{ titulo: 'Depois do 1º contato', texto: 'Respondeu: o lead vai para Em negociação. Não respondeu: o lead segue para Sem retorno, com a nova tentativa no D3 às 11:30 (mensagem 2).' }],
     saidas: [{ rotulo: 'Respondeu', para: 'negociacao' }, { rotulo: 'Não respondeu', para: 'tentativa' }], regras: [1, 2, 3] },
   { id: 'negociacao', tipo: 'negociacao', num: '3.', titulo: 'Em negociação', sub: 'Respondeu, mas ainda não agendou', limite: '15 dias', msgs: [5, 6, 7, 8], dias: ['D0', 'D1', 'D3', 'D7', 'D8'],
     resumo: 'O lead respondeu, mas ainda não agendou. A cadência usa as mensagens 5 a 8, e o limite nesta etapa é de 15 dias.',
@@ -174,26 +179,29 @@ export const ITENS: Item[] = [
     extra: [{ titulo: 'No D8', texto: 'Sem resposta: descarte, sempre com motivo.' }],
     saidas: [{ rotulo: 'Agendou', para: 'agendado' }, { rotulo: 'Deu uma data', para: 'retorno', excecao: true }, { rotulo: 'Parou de responder', para: 'semretorno', excecao: true }, { rotulo: 'D8', para: 'descarte' }], regras: [1, 2, 3, 4] },
   { id: 'agendado', tipo: 'agendado', num: '4.', titulo: 'Agendado', sub: 'Confirmação automática', msgs: [10],
-    resumo: 'O lead agendou. A confirmação é automática. No dia, o paciente compareceu e pagou (vira Convertido ativo) ou faltou (no show, que volta para Em negociação com a mensagem 10).',
-    fazer: ['Confira o comparecimento no dia do agendamento.', 'Se compareceu e pagou: Convertido ativo.', 'Se faltou: no show, mensagem 10 e volta para Em negociação. É a 1ª prioridade do dia.'],
-    saidas: [{ rotulo: 'Compareceu e pagou', para: 'ativo' }, { rotulo: 'No show · Msg 10', para: 'negociacao', excecao: true }], regras: [2, 3] },
+    resumo: 'O lead agendou. A confirmação é automática. No dia, o paciente compareceu e pagou (vira Convertido ativo) ou faltou: nesse caso ele vai para o Fluxo do No-show, que começa com a mensagem 10 no D1, às 08:30.',
+    fazer: ['Confira o comparecimento no dia do agendamento.', 'Se compareceu e pagou: Convertido ativo.', 'Se faltou: vai para o Fluxo do No-show (mensagem 10 no D1, às 08:30). É a 1ª prioridade do dia.'],
+    saidas: [{ rotulo: 'Compareceu e pagou', para: 'ativo' }, { rotulo: 'No show · Msg 10', para: 'fluxo_noshow', excecao: true }], regras: [2, 3] },
+  { id: 'fluxo_noshow', tipo: 'regra', titulo: 'Fluxo do No-show', sub: 'Faltou? Vai para o No-show · Msg 10',
+    resumo: 'O paciente agendado que faltou deixa o fluxo do lead e entra no Fluxo do No-show, que é a prioridade nº 1 do dia. Lá, no D1 às 08:30, vai a mensagem 10 para remarcar.',
+    fazer: ['Veja o passo a passo na aba Fluxo, em No-show.', 'No D1, às 08:30, envie a mensagem 10 para remarcar a falta.'], regras: [1, 2, 3] },
   { id: 'ativo', tipo: 'ativo', titulo: 'Convertido ativo', sub: 'Compareceu e pagou', resumo: 'Fim do funil: o paciente compareceu e pagou.' },
   { id: 'retorno', tipo: 'retorno', titulo: 'Retorno personalizado', sub: 'Na data combinada · Msg 9', msgs: [9],
     resumo: 'Quando o lead dá uma data para retomar a conversa, o atendimento volta na data combinada com a mensagem 9, oferecendo dois horários.',
     fazer: ['Registre a data combinada no card.', 'Na data, envie a mensagem 9 com 2 horários.'],
     saidas: [{ rotulo: 'Na data', para: 'negociacao', excecao: true }], regras: [2, 3] },
-  { id: 'tentativa', tipo: 'sem_retorno', titulo: 'Nova tentativa', sub: 'Sem retorno · D2', dias: ['D2'], canais: ['Ligação', 'WhatsApp'], msgs: [2], limite: 'Sem retorno: 10 dias',
-    resumo: 'No D2, quem não respondeu ao primeiro contato recebe uma nova tentativa, em outro horário, por ligação e WhatsApp.',
+  { id: 'tentativa', tipo: 'sem_retorno', titulo: 'Nova tentativa', sub: 'Sem retorno · D3 às 11:30', hora: '11:30', dias: ['D3'], canais: ['Ligação', 'WhatsApp'], msgs: [2], limite: 'Sem retorno: 10 dias',
+    resumo: 'No D3, às 11:30, quem não respondeu ao primeiro contato recebe uma nova tentativa, em outro horário, por ligação e WhatsApp. O D3 é o mesmo do Fluxo do No-show.',
     fazer: ['Tente em outro horário.', 'Ligação e WhatsApp.', 'Envie a mensagem 2.'],
     saidas: [{ rotulo: 'Respondeu', para: 'negociacao' }, { rotulo: 'Não respondeu', para: 'desconto' }], regras: [1, 2, 3] },
-  { id: 'desconto', tipo: 'sem_retorno', titulo: 'Desconto', sub: 'Sem retorno · D3', dias: ['D3'], canais: ['WhatsApp'], msgs: [3], limite: 'Sem retorno: 10 dias',
-    resumo: 'No D3, o lead sem retorno recebe uma condição especial de desconto de 10% ou 5%, conforme o orçamento, pagando via Pix.',
+  { id: 'desconto', tipo: 'sem_retorno', titulo: 'Desconto', sub: 'Sem retorno · D4 às 16:00', hora: '16:00', dias: ['D4'], canais: ['WhatsApp'], msgs: [3], limite: 'Sem retorno: 10 dias',
+    resumo: 'No D4, às 16:00, o lead sem retorno recebe uma condição especial de desconto de 10% ou 5%, conforme o orçamento, pagando via Pix. O desconto é só do fluxo do Lead: o No-show não tem esta etapa.',
     fazer: ['Ofereça 10% ou 5% de desconto, conforme o orçamento.', 'Pagando via Pix, o orçamento fica com o desconto.', 'Envie a mensagem 3.'],
     saidas: [{ rotulo: 'Respondeu', para: 'negociacao' }, { rotulo: 'Não respondeu', para: 'semretorno' }], regras: [1, 2, 3] },
-  { id: 'semretorno', tipo: 'sem_retorno', titulo: 'Sem retorno', sub: 'Encerramento · D7', dias: ['D7'], limite: '10 dias', msgs: [4],
+  { id: 'semretorno', tipo: 'sem_retorno', titulo: 'Sem retorno', sub: 'Encerramento · D7 às 16:00', hora: '16:00', dias: ['D7'], limite: '10 dias', msgs: [4],
     resumo: 'No D7, o lead que continua sem responder recebe o aviso de encerramento. No D8 ele é descartado, com o motivo "sem retorno".',
     fazer: ['Avise que vai encerrar o atendimento.', 'Deixe claro que, se ainda precisar, é só responder a mensagem para retomar.', 'Envie a mensagem 4.'],
-    extra: [{ titulo: 'Como o lead chega aqui', texto: 'Não respondeu ao desconto (D3) ou parou de responder em Em negociação.' }],
+    extra: [{ titulo: 'Como o lead chega aqui', texto: 'Não respondeu ao desconto (D4) ou parou de responder em Em negociação.' }],
     saidas: [{ rotulo: 'D8', para: 'descarte' }, { rotulo: 'Respondeu', para: 'negociacao' }], regras: [1, 2, 3, 4] },
   { id: 'descarte', tipo: 'descarte', titulo: 'Descarte', sub: 'Sempre com motivo', dias: ['D8'], motivos: ['Preço', 'Outro lugar', 'Desistiu', 'Plano', 'Sem retorno', 'Outro'],
     resumo: 'No D8 o lead é descartado, e o descarte sempre tem um motivo. Depois de 30 a 60 dias, ele pode ser reativado.',
@@ -227,15 +235,16 @@ export const MAPA = {
   w: 1230, h: 620,
   nos: [
     { id: 'lead', x: 20, y: 170, w: 100, h: 75, estilo: 'outline', titulo: 'LEAD ENTRA' },
-    { id: 'aberto', x: 157, y: 133, w: 160, h: 147, estilo: 'dark', titulo: '1. EM ABERTO', selo: '1º NO SHOW', sub: '2º Leads novos de orçamento em aberto' },
-    { id: 'primeiro', x: 367, y: 133, w: 160, h: 147, estilo: 'dark', titulo: '2. PRIMEIRO CONTATO', sub: '1º horário do dia\nligação se acima de R$ 500', pill: 'Msg 1' },
+    { id: 'aberto', x: 157, y: 133, w: 160, h: 147, estilo: 'dark', titulo: '1. EM ABERTO', selo: '2ª PRIORIDADE', sub: 'Leads novos de\norçamento em aberto\nLimite: 1 dia' },
+    { id: 'primeiro', x: 367, y: 133, w: 160, h: 147, estilo: 'dark', titulo: '2. PRIMEIRO CONTATO', sub: 'DIA 01 ÀS 08:30\n1º horário do dia\nligação se acima de R$ 500', pill: 'Msg 1 · Primeiro contato' },
     { id: 'negociacao', x: 596, y: 133, w: 192, h: 147, estilo: 'hot', titulo: '3. EM NEGOCIAÇÃO', sub: 'Respondeu, mas\nainda não agendou', pill: 'Mensagens 5 a 8' },
     { id: 'agendado', x: 861, y: 133, w: 134, h: 147, estilo: 'deep', titulo: '4. AGENDADO', sub: 'Confirmação automática' },
     { id: 'ativo', x: 1071, y: 133, w: 138, h: 147, estilo: 'win', titulo: 'CONVERTIDO ATIVO', sub: 'Compareceu e pagou' },
     { id: 'retorno', x: 577, y: 14, w: 229, h: 74, estilo: 'soft', titulo: 'RETORNO PERSONALIZADO', sub: 'Na data combinada · Msg 9' },
-    { id: 'tentativa', x: 367, y: 372, w: 160, h: 105, estilo: 'slate', titulo: 'NOVA TENTATIVA', sub: 'Sem retorno · D2', pill: 'Msg 2' },
-    { id: 'desconto', x: 596, y: 372, w: 192, h: 105, estilo: 'slate', titulo: 'DESCONTO', sub: 'Sem retorno · D3\n10% ou 5%, conforme o orçamento', pill: 'Msg 3' },
-    { id: 'semretorno', x: 861, y: 372, w: 146, h: 105, estilo: 'slate', titulo: 'SEM RETORNO', sub: 'Encerramento · D7', pill: 'Msg 4' },
+    { id: 'tentativa', x: 367, y: 372, w: 160, h: 105, estilo: 'slate', titulo: 'NOVA TENTATIVA', sub: 'Sem retorno · D3\nDIA 03 ÀS 11:30', pill: 'Msg 2 · Nova tentativa' },
+    { id: 'desconto', x: 596, y: 372, w: 192, h: 105, estilo: 'slate', titulo: 'DESCONTO', sub: 'Sem retorno · D4\n10% ou 5%, conforme o orçamento\nDIA 04 ÀS 16:00', pill: 'Msg 3 · Desconto' },
+    { id: 'semretorno', x: 861, y: 372, w: 146, h: 105, estilo: 'slate', titulo: 'SEM RETORNO', sub: 'Encerramento · D7\nDIA 07 ÀS 16:00', pill: 'Msg 4 · Encerramento' },
+    { id: 'fluxo_noshow', x: 861, y: 14, w: 200, h: 74, estilo: 'dashed', titulo: 'FLUXO DO NO-SHOW', sub: 'Faltou? Vai para o No-show\n(aba Fluxo) · Msg 10' },
     { id: 'descarte', x: 1071, y: 372, w: 138, h: 105, estilo: 'ghost', titulo: 'DESCARTE', sub: 'Sempre com motivo' },
     { id: 'antes', x: 20, y: 532, w: 265, h: 73, estilo: 'dashed', titulo: 'ANTES DE CADA CONTATO', sub: 'O paciente já foi à recepção?' },
     { id: 'organico', x: 344, y: 532, w: 211, h: 73, estilo: 'outline-red', titulo: 'CONVERTIDO ORGÂNICO', sub: 'Não entrar em contato' },
@@ -247,7 +256,7 @@ export const MAPA = {
     { id: 'e3', de: 'primeiro', para: 'negociacao', d: 'M527 207 H596', rotulo: 'Respondeu', lx: 561, ly: 194, ancora: 'middle' },
     { id: 'e4', de: 'negociacao', para: 'agendado', d: 'M788 207 H861', rotulo: 'Agendou', lx: 825, ly: 194, ancora: 'middle' },
     { id: 'e5', de: 'agendado', para: 'ativo', d: 'M995 207 H1071', rotulo: 'Compareceu\ne pagou', lx: 1033, ly: 176, ancora: 'middle' },
-    { id: 'e6', de: 'agendado', para: 'negociacao', d: 'M861 255 H788', rotulo: 'No show\nMsg 10', lx: 825, ly: 273, ancora: 'middle', excecao: true },
+    { id: 'e6', de: 'agendado', para: 'fluxo_noshow', d: 'M928 133 V88', rotulo: 'No show', lx: 938, ly: 112, ancora: 'start', excecao: true },
     { id: 'e7', de: 'negociacao', para: 'retorno', d: 'M660 133 V88', rotulo: 'Deu uma data', lx: 650, ly: 112, ancora: 'end', excecao: true },
     { id: 'e8', de: 'retorno', para: 'negociacao', d: 'M724 88 V133', rotulo: 'Na data', lx: 734, ly: 112, ancora: 'start', excecao: true },
     { id: 'e9', de: 'primeiro', para: 'tentativa', d: 'M447 280 V372', rotulo: 'Não\nrespondeu', lx: 437, ly: 322, ancora: 'end' },
@@ -267,15 +276,15 @@ export const MAPA = {
 
 export type CelulaGrade = { id: string; sub?: string };
 export const GRADE = {
-  dias: ['D0', 'D1', 'D2', 'D3', 'D7', 'D8'],
+  dias: ['D0', 'D1', 'D3', 'D4', 'D7', 'D8'],
   linhas: [
     { id: 'aberto', rotulo: 'EM ABERTO', limite: 'Limite: 1 dia', item: 'aberto', celulas: { D1: { id: 'primeiro' } } as Record<string, CelulaGrade>,
-      depois: { de: 'D2', ate: 'D7', titulo: 'Depois do 1º contato', ramos: [
+      depois: { de: 'D3', ate: 'D7', titulo: 'Depois do 1º contato (D1)', ramos: [
         { rotulo: 'Respondeu', destino: 'EM NEGOCIAÇÃO', item: 'negociacao' },
-        { rotulo: 'Não respondeu', destino: 'SEM RETORNO', item: 'tentativa', nota: 'Nova tentativa no D2 · Msg 2' },
+        { rotulo: 'Não respondeu', destino: 'SEM RETORNO', item: 'tentativa', nota: 'Nova tentativa no D3 às 11:30 · Msg 2' },
       ] } },
     { id: 'sem_retorno', rotulo: 'SEM RETORNO', limite: 'Limite: 10 dias', item: 'semretorno',
-      celulas: { D2: { id: 'tentativa' }, D3: { id: 'desconto' }, D7: { id: 'semretorno' }, D8: { id: 'descarte', sub: 'motivo: sem retorno' } } as Record<string, CelulaGrade> },
+      celulas: { D3: { id: 'tentativa' }, D4: { id: 'desconto' }, D7: { id: 'semretorno' }, D8: { id: 'descarte', sub: 'motivo: sem retorno' } } as Record<string, CelulaGrade> },
     { id: 'negociacao', rotulo: 'EM NEGOCIAÇÃO', limite: 'Limite: 15 dias', item: 'negociacao',
       celulas: { D0: { id: 'neg0' }, D1: { id: 'neg1' }, D3: { id: 'neg3' }, D7: { id: 'neg7' }, D8: { id: 'descarte', sub: 'sem resposta, com motivo' } } as Record<string, CelulaGrade> },
   ],
