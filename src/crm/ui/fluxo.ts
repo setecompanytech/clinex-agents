@@ -1,7 +1,7 @@
 // JavaScript do CRM (navegador), parte 2: fluxo clicável, modal de cada etapa, calendário D0-D8 e cartão de mensagem.
 // Dentro dele não usar crases nem "dollar-chave".
 export const fluxo = String.raw`
-var DIAS_COL = ['D0', 'D1', 'D2', 'D3', 'D7', 'D8'];
+var DIAS_COL = ['D0', 'D1', 'D2', 'D3', 'D4', 'D7', 'D8'];
 var HIST_ITEM = [];
 var itemModal = null;
 
@@ -28,6 +28,7 @@ function msgCard(m, o) {
     h('header', null, [
       h('div', null, [h('b', null, [h('span', { class: 'msg-n', text: String(m.n) }), m.titulo.toUpperCase()]), h('small', { text: m.quando })]),
       h('div', { class: 'msg-acoes' }, [
+        m.situacao ? h('span', { class: 'pill ' + (m.situacao === 'aprovada' ? 'pl-ok' : 'pl-hoje'), title: m.situacao === 'aprovada' ? 'Mensagem aprovada: pode enviar.' : 'Mensagem ainda pendente de aprovação.', text: m.situacao === 'aprovada' ? 'Aprovada' : 'Pendente' }) : null,
         h('button', { class: 'mini', type: 'button', title: 'Copiar o texto com os campos [entre colchetes]', onclick: function () { copiar(m.variantes ? tudo : m.corpo); } }, [ico('copy', 14), 'Copiar']),
         o.verEtapa ? h('button', { class: 'mini', type: 'button', onclick: function () { abrirItem(m.item); } }, [ico('flow', 14), 'Ver etapa']) : null
       ])
@@ -370,6 +371,7 @@ function celulaNS(ln, dia, c, row, j) {
     (it.canais || []).length ? h('div', { class: 'cel-canais' }, it.canais.map(function (x) { return h('span', { class: 'canal-t', text: x }); })) : null,
     h('b', { text: dia === 'D8' ? 'PERDIDO' : it.titulo }),
     h('small', { text: c.sub || it.sub }),
+    it.hora ? h('span', { class: 'pill pl-hoje', text: 'Às ' + it.hora }) : null,
     (it.msgs && it.msgs.length === 1) ? h('span', { class: 'pill pl-msg', text: 'Msg ' + it.msgs[0] }) : null
   ]);
 }
@@ -425,7 +427,7 @@ function telaFluxoNS() {
   return h('div', { class: 'tela' }, [
     cabecalhoTela('Fluxo do No-show', 'Orçamentos de pacientes que faltaram ao agendamento. Clique em qualquer card para ver tudo sobre a etapa. O número no canto é quantos cards do funil No-show estão ali agora, somando todos os dias.', alternaFluxo()),
     abasFluxo(),
-    h('div', { class: 'prior' }, [ico('bolt', 16), h('b', { text: 'PRIORIDADE DO DIA' }), h('span', { text: 'No-show primeiro, nas primeiras horas do dia' })]),
+    h('div', { class: 'prior' }, [ico('bolt', 16), h('b', { text: 'PRIORIDADE DO DIA' }), h('span', { text: 'No-show primeiro, às 08:30 (primeiras horas do dia)' })]),
     sem,
     faltasOntemNS(),
     h('div', { class: 'cartao fluxo-cartao' }, corpo),
@@ -453,6 +455,7 @@ function celulaGrade(linha, dia) {
     (it.canais || []).length ? h('div', { class: 'cel-canais' }, it.canais.map(function (x) { return h('span', { class: 'canal-t', text: x }); })) : null,
     h('b', { text: dia === 'D8' ? 'DESCARTE' : it.titulo }),
     h('small', { text: c.sub || it.sub }),
+    it.hora ? h('span', { class: 'pill pl-hoje', text: 'Às ' + it.hora }) : null,
     (it.msgs && it.msgs.length === 1) ? h('span', { class: 'pill pl-msg', text: 'Msg ' + it.msgs[0] }) : null,
     n.n ? h('span', { class: 'cel-n' + (n.atraso ? ' at' : ''), title: n.n + ' ' + plural(n.n, 'lead', 'leads') + (n.atraso ? ' (' + n.atraso + ' atrasados)' : ''), text: String(n.n) }) : null
   ]);
@@ -473,7 +476,7 @@ function telaCalendario() {
       linhas.push(h('div', { class: 'cel depois', style: 'grid-row:' + (i + 2) + ';grid-column:4 / span 3' }, [
         h('small', { text: d.titulo }),
         h('div', { class: 'ramo' }, [h('button', { class: 'ramo-b r1', type: 'button', onclick: function () { abrirItem('negociacao'); }, text: 'Respondeu' }), h('span', { class: 'ramo-seta', 'aria-hidden': 'true' }, ico('arrow', 20)), h('button', { class: 'ramo-b neg', type: 'button', onclick: function () { abrirItem('negociacao'); }, text: 'EM NEGOCIAÇÃO' })]),
-        h('div', { class: 'ramo' }, [h('button', { class: 'ramo-b r2', type: 'button', onclick: function () { abrirItem('primeiro'); }, text: 'Não respondeu' }), h('span', { class: 'ramo-nota', text: 'Nova tentativa no D2 · Msg 2' }), h('span', { class: 'ramo-seta', 'aria-hidden': 'true' }, ico('arrow', 20)), h('button', { class: 'ramo-b sr', type: 'button', onclick: function () { abrirItem('tentativa'); }, text: 'SEM RETORNO' })])
+        h('div', { class: 'ramo' }, [h('button', { class: 'ramo-b r2', type: 'button', onclick: function () { abrirItem('primeiro'); }, text: 'Não respondeu' }), h('span', { class: 'ramo-nota', text: 'Nova tentativa no D3 às 11:30 · Msg 2' }), h('span', { class: 'ramo-seta', 'aria-hidden': 'true' }, ico('arrow', 20)), h('button', { class: 'ramo-b sr', type: 'button', onclick: function () { abrirItem('tentativa'); }, text: 'SEM RETORNO' })])
       ]));
     }
   });

@@ -20,7 +20,7 @@ const DEF: Record<string, Def> = {
   tentativa: { st: ['sem_retorno'], passo: 'tentativa' }, desconto: { st: ['sem_retorno'], passo: 'desconto' }, semretorno: { st: ['sem_retorno'], passo: 'encerramento' },
   negociacao: { st: ['negociacao'] }, retorno: { st: ['negociacao'], passo: 'retorno' },
   neg0: { st: ['negociacao'], passo: 'orcamento' }, neg1: { st: ['negociacao'], passo: 'followup' }, neg3: { st: ['negociacao'], passo: 'objecao' }, neg7: { st: ['negociacao'], passo: 'ultima' },
-  agendado: { st: ['agendado'] }, ativo: { st: ['convertido_ativo'] }, organico: { st: ['convertido_organico'] }, antes: { st: ['convertido_organico'] },
+  agendado: { st: ['agendado'] }, ativo: { st: ['convertido_ativo'] }, organico: { st: ['convertido_organico'] }, antes: { st: ['convertido_organico'] }, fluxo_noshow: { st: ['agendado'] },
   descarte: { st: ['descarte'] }, reativacao: { st: ['descarte'], passo: 'reativacao' },
 };
 

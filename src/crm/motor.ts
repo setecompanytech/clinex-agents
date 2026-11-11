@@ -329,12 +329,12 @@ export function aplicar(lead: Lead, a: Acao, agora: Date): void {
 /** Aplica o que o guia faz sozinho com o passar dos dias. Idempotente. Devolve quantas mudanças fez. */
 /** Parâmetros das duas automações do próprio guia (editáveis na tela de automações). Padrão = o guia. */
 export type CfgAuto = { semResposta: { ativa: boolean; dia: number }; descarteD8: { ativa: boolean; dias: number } };
-export const CFG_PADRAO: CfgAuto = { semResposta: { ativa: true, dia: 2 }, descarteD8: { ativa: true, dias: 1 } };
+export const CFG_PADRAO: CfgAuto = { semResposta: { ativa: true, dia: 3 }, descarteD8: { ativa: true, dias: 1 } };
 
 export function automatizar(lead: Lead, agora: Date, cfg: CfgAuto = CFG_PADRAO): number {
   const hoje = hojeDe(agora);
   let mudou = 0;
-  // Em aberto: contatou e não respondeu até o D2 -> segue para Sem retorno (nova tentativa no D2)
+  // Em aberto: contatou e não respondeu até o D3 -> segue para Sem retorno (nova tentativa no D3, às 11:30)
   if (cfg.semResposta.ativa && lead.status === 'aberto' && passoFeito(lead, passoPorId('primeiro'))) {
     const ultimo = contatosDoPasso(lead, 'primeiro').map((e) => diaDoInstante(e.quando)).sort().pop()!;
     const quando = maxDia(somaDias(lead.d0, cfg.semResposta.dia), somaDias(ultimo, 1));

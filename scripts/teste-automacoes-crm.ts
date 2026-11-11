@@ -2,7 +2,7 @@
  * Testa as automações do pipeline (src/crm/automacoes.ts + motor). Rodar: npx tsx scripts/teste-automacoes-crm.ts
  */
 import assert from 'node:assert/strict';
-import { casa, cfgDeRegras, logDoGuia, MODELOS, regrasPadrao, rodarRegras, simular, validarRegra, type Regra } from '../src/crm/automacoes.js';
+import { casa, cfgDeRegras, GUIA_VERSAO, logDoGuia, migrarGuia, MODELOS, regrasPadrao, rodarRegras, simular, validarRegra, type Regra } from '../src/crm/automacoes.js';
 import { aplicar, automatizar, criarLead, RegraError, somaDias, type Lead } from '../src/crm/motor.js';
 import { transicoes } from '../src/crm/tempo.js';
 
@@ -17,13 +17,24 @@ const mk = (b: object): Regra => ({ id: 'r1', criadaEm: AGORA.toISOString(), exe
 const erroDe = (fn: () => void) => { try { fn(); } catch (e) { return e instanceof RegraError ? e.message : `ERRO INESPERADO ${(e as Error).message}`; } return null; };
 const contatou = (l: Lead, d: string) => aplicar(l, { tipo: 'contato', canal: 'whatsapp', naoFoiRecepcao: true, passo: 'primeiro' }, em(d));
 
-teste('guia: sem resposta ao 1º contato vai para Sem retorno no D2 (padrão do guia)', () => {
+teste('guia: sem resposta ao 1º contato vai para Sem retorno no D3 (padrão do guia)', () => {
   const l = novo('A', dia(2)); contatou(l, dia(1));
-  assert.equal(automatizar(l, AGORA), 1); assert.equal(l.status, 'sem_retorno');
+  assert.equal(automatizar(l, AGORA), 0, 'no D2 ainda aguarda'); assert.equal(l.status, 'aberto');
+  const m = novo('B', dia(3)); contatou(m, dia(2));
+  assert.equal(automatizar(m, AGORA), 1); assert.equal(m.status, 'sem_retorno');
 });
-teste('guia editável: prazo da nova tentativa em 3 dias segura o lead mais um dia', () => {
-  const regras = regrasPadrao(AGORA); (regras[0].gatilho as { dia: number }).dia = 3;
-  const l = novo('A', dia(2)); contatou(l, dia(1));
+teste('guia: regra salva com o prazo antigo (D2) passa para D3 uma vez; a escolha de outro dia e a regra já migrada ficam como estão', () => {
+  const velha = regrasPadrao(AGORA); delete velha[0].guia; (velha[0].gatilho as { dia: number }).dia = 2;
+  migrarGuia(velha); assert.equal((velha[0].gatilho as { dia: number }).dia, 3); assert.equal(velha[0].guia, GUIA_VERSAO);
+  const escolheu = regrasPadrao(AGORA); delete escolheu[0].guia; (escolheu[0].gatilho as { dia: number }).dia = 4;
+  migrarGuia(escolheu); assert.equal((escolheu[0].gatilho as { dia: number }).dia, 4);
+  const jaMigrada = regrasPadrao(AGORA); (jaMigrada[0].gatilho as { dia: number }).dia = 2; // guia: GUIA_VERSAO, ou seja, escolha dela
+  migrarGuia(jaMigrada); assert.equal((jaMigrada[0].gatilho as { dia: number }).dia, 2);
+  assert.equal((cfgDeRegras(regrasPadrao(AGORA)).semResposta.dia), 3);
+});
+teste('guia editável: prazo da nova tentativa em 4 dias segura o lead mais um dia', () => {
+  const regras = regrasPadrao(AGORA); (regras[0].gatilho as { dia: number }).dia = 4;
+  const l = novo('A', dia(3)); contatou(l, dia(2));
   assert.equal(automatizar(l, AGORA, cfgDeRegras(regras)), 0); assert.equal(l.status, 'aberto');
   assert.equal(automatizar(l, em(somaDias(HOJE, 1)), cfgDeRegras(regras)), 1);
 });
@@ -34,7 +45,7 @@ teste('guia desligada: o lead não muda de etapa sozinho', () => {
 });
 teste('log do guia registra a movimentação e conta a execução', () => {
   const regras = regrasPadrao(AGORA);
-  const l = novo('A', dia(2)); contatou(l, dia(1));
+  const l = novo('A', dia(3)); contatou(l, dia(2));
   const antes = new Map([[l.id, l.status as string]]); automatizar(l, AGORA);
   const log = logDoGuia(antes, [l], regras, AGORA);
   assert.equal(log.length, 1); assert.equal(regras[0].execucoes, 1);
