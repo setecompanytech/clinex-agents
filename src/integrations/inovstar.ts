@@ -165,3 +165,42 @@ export async function transcribeMessage(messageId: string): Promise<{ text: stri
   }
   return { text: null, status: 'failed' };
 }
+
+// ------------------------------------------------------------------------------------------------ envio ativo por modelo (template)
+
+/** Telefone para a Inovstar: +55 e DDD. Aceita 10 ou 11 dígitos nacionais, com ou sem 55. Devolve null se não for um número brasileiro válido. */
+export function paraE164Brasil(bruto: string): string | null {
+  let n = String(bruto ?? '').replace(/\D/g, '');
+  // 12 ou 13 dígitos começando em 55 já têm o código do país; com 10 ou 11 é número nacional (inclusive DDD 55, do RS)
+  // (celular de 11 dígitos tem 9 depois do DDD; assim um número de outro país com 11 dígitos não passa por brasileiro)
+  if (n.length === 10 || (n.length === 11 && n[2] === '9')) n = `55${n}`;
+  return /^55(\d{2}9\d{8}|\d{10})$/.test(n) ? `+${n}` : null;
+}
+
+let canalCache: { id: string; ate: number } | null = null;
+/** O WhatsApp conectado da empresa. A Inovstar não tem canal fixo no nosso lado: acha o primeiro `whatsCloud` conectado e guarda por 10 minutos. */
+export async function canalWhatsApp(): Promise<string> {
+  if (canalCache && canalCache.ate > Date.now()) return canalCache.id;
+  const emp = await request<{ companies?: { _id: string }[]; data?: { companies?: { _id: string }[] } }>('GET', '/company');
+  const empresa = (emp.companies ?? emp.data?.companies ?? [])[0]?._id;
+  if (!empresa) throw new Error('A Inovstar não devolveu nenhuma empresa para este token.');
+  type Canal = { _id: string; type: string; status: string };
+  // resposta real: { success, count, data: [canais] }
+  const cs = await request<{ channels?: Canal[]; data?: Canal[] | { channels?: Canal[] } }>('GET', `/channels/company/${empresa}`);
+  const lista = Array.isArray(cs.data) ? cs.data : cs.channels ?? cs.data?.channels ?? [];
+  const canal = lista.find((c) => c.type === 'whatsCloud' && c.status === 'connected');
+  if (!canal) throw new Error('Nenhum canal de WhatsApp conectado na Inovstar.');
+  canalCache = { id: canal._id, ate: Date.now() + 10 * 60_000 };
+  return canal._id;
+}
+export const esquecerCanal = () => { canalCache = null; };
+
+/** Envia um modelo aprovado (só corpo, com variáveis posicionais {{1}}, {{2}}...). `parametros` na mesma ordem das variáveis do modelo na Meta. */
+export async function sendTemplate(p: { to: string; nome: string; idioma: string; parametros: string[]; clientMessageId: string }): Promise<{ messageId?: string; bruto: unknown }> {
+  const channelId = await canalWhatsApp();
+  const r = await request<{ data?: { whatsappMessageId?: string; messageId?: string }; whatsappMessageId?: string; messageId?: string }>('POST', '/whatsapp/send/template', {
+    channelId, to: p.to, clientMessageId: p.clientMessageId,
+    template: { name: p.nome, language: p.idioma, components: p.parametros.length ? [{ type: 'BODY', parameters: p.parametros.map((t) => ({ type: 'text', text: String(t).slice(0, 200) })) }] : [] },
+  });
+  return { messageId: r.data?.whatsappMessageId ?? r.data?.messageId ?? r.whatsappMessageId ?? r.messageId, bruto: r };
+}

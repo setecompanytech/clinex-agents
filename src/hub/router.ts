@@ -35,7 +35,7 @@ router.get('/status', painelAuth, (_req, res) => {
     sistema: [
       { nome: 'Banco de dados', ok: arm.destino === 'supabase' && !arm.erro, aviso: arm.destino !== 'supabase', detalhe: arm.destino === 'supabase' ? 'Supabase' : arm.destino === 'arquivo' ? 'arquivo local' : 'memória' },
       { nome: 'Clinilink (leitura)', ok: clinilinkConfigurado(), detalhe: clinilinkConfigurado() ? 'conectado' : 'sem chave' },
-      { nome: 'Inovstar (WhatsApp)', ok: Boolean(env.inovstarToken), detalhe: env.inovstarToken ? 'conectado' : 'sem token' },
+      { nome: 'WhatsApp', ok: Boolean(env.inovstarToken), detalhe: env.inovstarToken ? 'conectado' : 'sem token' },
       { nome: 'Amanda', ok: env.autoReply, aviso: !env.autoReply, detalhe: env.autoReply ? 'respondendo' : 'modo sombra (não envia)' },
       { nome: 'IA', ok: Boolean(env.anthropicKey || env.openaiKey), aviso: !(env.anthropicKey || env.openaiKey), detalhe: env.anthropicKey ? 'Claude' : env.openaiKey ? 'GPT (tom)' : 'sem chave' },
       { nome: 'Supabase', ok: supabaseConfigurado(), aviso: !supabaseConfigurado(), detalhe: supabaseConfigurado() ? 'configurado' : 'não configurado' },

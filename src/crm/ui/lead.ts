@@ -143,12 +143,14 @@ function composer(l, px) {
   else if (p.id === 'primeiro' && l.valor > M.LIMITES.ligacaoAcimaDe) avisos.push(h('p', { class: 'callout', text: 'Orçamento acima de ' + brl(M.LIMITES.ligacaoAcimaDe) + ': faça o WhatsApp e também a ligação.' }));
   if (desabilitado) avisos.push(h('p', { class: 'callout', text: 'Este passo vence em ' + dBRfull(px.vence) + '. Dá para ver a mensagem, mas o contato só pode ser registrado a partir desse dia.' }));
   if (p.id === 'noshow') avisos.push(h('p', { class: 'callout aviso', text: 'No show é a 1ª prioridade do dia. Envie a mensagem 10 para reagendar.' }));
+  var enviarWA = botao('Enviar WhatsApp', '', function () { dialogoModeloWA(l, px); }, 'bolt');
   var acoes = h('div', { class: 'linha-b' }, [
     botao('Copiar', '', function () { copiar(area.value); }, 'copy'),
     botao('Abrir no WhatsApp', '', function () { window.open(linkWA(l.telefone, area.value), '_blank', 'noopener'); }, 'message'),
+    enviarWA,
     botao('Registrar contato', 'pri', function () { dialogoContato(l, px, area.value); }, 'check')
   ]);
-  if (desabilitado) acoes.lastChild.setAttribute('disabled', 'true');
+  if (desabilitado) { acoes.lastChild.setAttribute('disabled', 'true'); enviarWA.setAttribute('disabled', 'true'); }
   return [
     h('div', { class: 'chips' }, [pill('Mensagem ' + p.msg + ' · ' + m.titulo, 'pl-msg')].concat(canais)),
     p.desc ? h('p', { class: 'mut peq', text: p.desc }) : null,
@@ -286,6 +288,50 @@ function dialogoContato(l, px, texto) {
     validar();
   }
   etapa1();
+}
+
+/* Envio pelo WhatsApp com modelo aprovado: o que vai para o paciente aparece e é conferido antes de enviar. */
+function dialogoModeloWA(l, px) {
+  var m = modal({ titulo: 'Enviar WhatsApp por modelo', sub: l.nome + ' · final ' + String(l.telefone).slice(-4), largura: 560, classe: 'peq', corpo: h('div', null, h('p', { class: 'mut', text: 'Carregando os modelos…' })) });
+  api('GET', '/whatsapp/modelos?lead=' + encodeURIComponent(l.id)).then(function (r) {
+    limpar(m.corpo);
+    var st = r.status;
+    if (!st.ativo) { kids(m.corpo, [h('p', { class: 'callout aviso', text: 'O disparo pelo WhatsApp está desligado neste ambiente. Peça ao administrador para ativar (variável DISPARO_WHATSAPP).' }), h('div', { class: 'linha-b' }, [botao('Fechar', '', function () { m.fechar(); })])]); return; }
+    var doPasso = px && px.passo && px.passo.msg ? r.modelos.filter(function (x) { return x.msg === px.passo.msg; })[0] : null;
+    var atual = doPasso || r.modelos[0], campos = [];
+    var sel = h('select', { class: 'in', 'aria-label': 'Modelo' }, r.modelos.map(function (x) { return h('option', { value: x.id, selected: x.id === atual.id, text: (x.msg ? 'Msg ' + x.msg + ' · ' : '') + x.titulo + ' (' + x.id + ')' }); }));
+    var area = h('div', { class: 'wa-vars' });
+    var erro = h('div');
+    var ok = h('input', { type: 'checkbox', id: 'wa-ok' });
+    var enviar = botao('Enviar agora', 'pri', enviarAgora, 'bolt');
+    enviar.setAttribute('disabled', 'true');
+    ok.addEventListener('change', function () { if (ok.checked) enviar.removeAttribute('disabled'); else enviar.setAttribute('disabled', 'true'); });
+    function desenhar() {
+      limpar(area); campos = [];
+      atual.variaveis.forEach(function (v, i) {
+        var inp = h('input', { class: 'in', type: 'text', maxlength: '200', 'aria-label': v.rotulo }); inp.value = v.valor; campos.push(inp);
+        kids(area, campo('{{' + (i + 1) + '}} ' + v.rotulo, inp));
+      });
+    }
+    sel.addEventListener('change', function () { atual = r.modelos.filter(function (x) { return x.id === sel.value; })[0]; desenhar(); });
+    function enviarAgora() {
+      limpar(erro); enviar.setAttribute('disabled', 'true');
+      api('POST', '/leads/' + l.id + '/whatsapp', { modelo: atual.id, parametros: campos.map(function (c) { return c.value; }), passo: px ? px.passo.id : undefined, msg: px ? px.passo.msg : undefined })
+        .then(function () { return carregar(); })
+        .then(function () { m.fechar(); aviso('Mensagem enviada pelo WhatsApp (modelo ' + atual.titulo + ') e contato registrado.', 'ok'); })
+        .catch(function (e) { kids(erro, h('p', { class: 'callout aviso', text: e.message })); enviar.removeAttribute('disabled'); });
+    }
+    desenhar();
+    kids(m.corpo, [
+      st.restrito ? h('p', { class: 'callout aviso', text: 'Fase de testes: só números liberados recebem. Os demais são recusados.' }) : null,
+      campo('Modelo aprovado no WhatsApp', sel, 'Idioma do envio: ' + r.modelos.map(function (x) { return x.id + ' = ' + x.idioma; }).join(', ')),
+      area,
+      h('p', { class: 'mut peq', text: 'As variáveis entram nesta ordem no texto do modelo ({{1}}, {{2}}…). Hoje: ' + st.enviadosHoje + ' de ' + st.limiteDia + ' envios. O mesmo modelo não volta ao mesmo lead em 24 h.' }),
+      h('label', { class: 'check-l' }, [ok, h('span', { text: 'Conferi o paciente e as variáveis. Este texto vai para o WhatsApp dele.' })]),
+      erro,
+      h('div', { class: 'linha-b' }, [botao('Cancelar', '', function () { m.fechar(); }), enviar])
+    ]);
+  }).catch(function (e) { limpar(m.corpo); kids(m.corpo, h('p', { class: 'callout aviso', text: e.message })); });
 }
 
 function dialogoDescartar(l, preset, motivoTexto) {
