@@ -96,6 +96,32 @@ export function inventados(texto: string, fontes: string[], doPaciente: string):
     const comoNumero = new RegExp('[:\\[,]\\s*' + String(num).replace('.', '\\.') + '(?![\\d.])');
     if (num > 0 && !comoTexto.test(base) && !comoNumero.test(base)) ruins.push(m[0]);
   }
+  // horários: "a partir das 8h30", "às 14h" -> a hora tem de estar num horário que o Clinilink devolveu (ou no horário de funcionamento da clínica)
+  const horaNaBase = (h: number, mi: string) => {
+    const hh = String(h).padStart(2, '0');
+    return base.includes(hh + ':' + mi) || base.includes('"' + h + 'h' + (mi === '00' ? '' : mi) + '"') || tem(h + 'h' + (mi === '00' ? '' : mi), base);
+  };
+  for (const m of texto.matchAll(/\b(\d{1,2})h(\d{2})?\b/g)) {
+    const h = Number(m[1]); const mi = m[2] ?? '00';
+    if (h > 23) continue;
+    if (!horaNaBase(h, mi) && !tem(m[0].toLowerCase(), pac)) ruins.push(m[0]);
+  }
+  // datas: "12 de novembro" -> o dia tem de estar num horário oferecido (ou ter sido dito pelo paciente)
+  const MESES = ['janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+  for (const m of semAcento(texto).matchAll(/\b(\d{1,2}) de (janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b/g)) {
+    const mes = String(MESES.indexOf(m[2]) + 1).padStart(2, '0'); const dia = m[1].padStart(2, '0');
+    if (!base.includes('-' + mes + '-' + dia) && !base.includes(m[0]) && !pac.includes(m[0]) && !tem(dia + '/' + mes, pac)) ruins.push(m[0]);
+  }
+  // unidade: "unidade X" / "no X" com nome que não é unidade da clínica
+  for (const m of texto.matchAll(/\bunidades?\s+(?:do |da |de )?\*?([A-ZÁÉÍÓÚÂÊÔÃÕÇ][a-záéíóúâêôãõçü]+)/g)) {
+    if (!tem(semAcento(m[1]), base)) ruins.push(m[0]);
+  }
+  // médico citado sem título: "com a Camila", "com o Jean"
+  for (const m of texto.matchAll(/\bcom (?:a|o) ([A-ZÁÉÍÓÚÂÊÔÃÕÇ][a-záéíóúâêôãõçü]+)/g)) {
+    const n = semAcento(m[1]);
+    if (/^(dra?|doutora?|clinex|equipe|unidade)$/.test(n)) continue;
+    if (!tem(n, base) && !tem(n, pac)) ruins.push(m[0]);
+  }
   return [...new Set(ruins)];
 }
 
@@ -117,12 +143,13 @@ export async function atenderComIA(p: {
   const mem = p.memoria?.v === 1 ? p.memoria : memoriaNova();
   const primeiraResposta = !p.history.some((m) => m.direction === 'out' && p.titulos.some((t) => m.text?.includes(t)));
   const hoje = new Intl.DateTimeFormat('en-CA', { timeZone: env.timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(agora);
-  const system = promptAmanda({ agora, nomeContato: p.nomeContato, primeiraResposta, mem, unidades: await unidades(), hoje });
+  const listaUnidades = await unidades();
+  const system = promptAmanda({ agora, nomeContato: p.nomeContato, primeiraResposta, mem, unidades: listaUnidades, hoje });
   const c: Contexto = { fonte: p.fonte, mem, telefone: p.telefone, agora, lerComprovante: p.lerComprovante, lerPedidos: p.lerPedidos, pedidoOrcamento: PEDIU_ORCAMENTO.test(conversa.filter((m) => m.role === 'user').slice(-4).map((m) => semAcento(m.content)).join(' \n ')), saida: { confirmacoes: [], usadas: [] } };
   let resposta = await pensar(system, conversa, c);
   // conferência: médico ou valor que não veio do Clinilink -> refaz UMA vez, obrigando a consultar; se insistir, não envia o inventado
   const doPaciente = conversa.filter((m) => m.role === 'user').map((m) => m.content).join('\n');
-  const fontesDe = () => [...(c.saida.dados ?? []), JSON.stringify({ servicos: mem.servicos, slots: mem.slots, orcamento: mem.orcamento, combos: mem.combosOferecidos, paciente: mem.paciente })];
+  const fontesDe = () => [...(c.saida.dados ?? []), JSON.stringify(listaUnidades), env.clinicHorario, env.clinicName, 'Clinex', JSON.stringify({ servicos: mem.servicos, slots: mem.slots, orcamento: mem.orcamento, combos: mem.combosOferecidos, paciente: mem.paciente })];
   let ruins = c.saida.confirmacoes.length ? [] : inventados(resposta.texto, fontesDe(), doPaciente);
   if (ruins.length) {
     evt('erro', { mensagem: 'IA: resposta com dado que não veio do Clinilink (refazendo)', itens: ruins, rascunho: resposta.texto.slice(0, 400) });
