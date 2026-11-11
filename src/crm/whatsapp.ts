@@ -11,7 +11,8 @@ import type { CardSnap } from './pipeline/tipos.js';
  *
  * Travas (o envio é para pacientes reais):
  *  - desligado por padrão: precisa de DISPARO_WHATSAPP=true;
- *  - só para os números de ALLOWED_NUMBERS enquanto DISPARO_LIBERADO não for "true";
+ *  - só para os números de DISPARO_NUMEROS enquanto DISPARO_LIBERADO não for "true" (lista própria: ALLOWED_NUMBERS é da Amanda
+ *    e nunca vale aqui, nem o contrário, para que um teste de disparo não restrinja o atendimento nem o inverso);
  *  - respeita as regras de contato do guia (janela de horário, tentativas por dia, "já foi à recepção?");
  *  - no máximo DISPARO_LIMITE_DIA envios por dia (padrão 100) e o mesmo modelo não volta ao mesmo lead em 24 h.
  */
@@ -76,7 +77,8 @@ const chaveFone = (v: string) => { let n = v.replace(/\D/g, ''); if (n.length >=
 export const disparoAtivo = () => process.env.DISPARO_WHATSAPP === 'true';
 export const disparoLiberado = () => process.env.DISPARO_LIBERADO === 'true';
 export const limiteDia = () => Number(process.env.DISPARO_LIMITE_DIA) || 100;
-const numeroPermitido = (tel: string) => disparoLiberado() || env.allowedNumbers.some((a) => chaveFone(a) === chaveFone(tel));
+const numerosDeTeste = () => (process.env.DISPARO_NUMEROS ?? '').split(',').map((n) => n.trim()).filter(Boolean);
+const numeroPermitido = (tel: string) => disparoLiberado() || numerosDeTeste().some((a) => chaveFone(a) === chaveFone(tel));
 const MARCA = 'WhatsApp · modelo ';
 const ehEnvio = (t: string) => t.startsWith(MARCA);
 
@@ -86,7 +88,7 @@ export function enviadosHoje(estado: Estado, agora: Date): number {
 }
 
 export function statusDisparo(estado: Estado, agora: Date) {
-  return { ativo: disparoAtivo(), restrito: !disparoLiberado(), numerosLiberados: env.allowedNumbers.length, limiteDia: limiteDia(), enviadosHoje: enviadosHoje(estado, agora) };
+  return { ativo: disparoAtivo(), restrito: !disparoLiberado(), numerosLiberados: numerosDeTeste().length, limiteDia: limiteDia(), enviadosHoje: enviadosHoje(estado, agora) };
 }
 
 const cardDoLead = (estado: Estado, l: Lead) => (l.cardId ? estado.pipelines.atribuicoes.find((a) => a.cardId === l.cardId)?.originSnapshot : undefined);
@@ -117,7 +119,7 @@ export async function enviarModelo(estado: Estado, l: Lead, p: PedidoEnvio, agor
 
   const to = paraE164Brasil(l.telefone);
   if (!to) throw new DisparoError('telefone', 'Telefone inválido: confira o número do lead (DDD + número).', 400);
-  if (!numeroPermitido(l.telefone)) throw new DisparoError('fora_da_lista', 'Este número não está liberado para disparo (fase de testes: só os números de ALLOWED_NUMBERS).', 403);
+  if (!numeroPermitido(l.telefone)) throw new DisparoError('fora_da_lista', 'Este número não está liberado para disparo (fase de testes: só os números de DISPARO_NUMEROS).', 403);
 
   const vista = vistaDoLead(l, agora).contato;
   if (!vista.ok) throw new DisparoError('regra', vista.motivo ?? 'Fora das regras de contato.', 409);

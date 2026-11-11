@@ -23,7 +23,8 @@ const servidor = createServer((req, res) => {
 await new Promise<void>((r) => servidor.listen(0, r));
 process.env.INOVSTAR_BASE_URL = `http://127.0.0.1:${(servidor.address() as { port: number }).port}`;
 process.env.INOVSTAR_TOKEN = 'token-de-teste';
-process.env.ALLOWED_NUMBERS = '+55 91 98888-7777, 91977776666';
+process.env.DISPARO_NUMEROS = '+55 91 98888-7777, 91977776666';
+process.env.ALLOWED_NUMBERS = '91955554444'; // lista da Amanda: NÃO vale para o disparo
 process.env.DISPARO_WHATSAPP = 'true';
 delete process.env.DISPARO_LIBERADO; delete process.env.DISPARO_LIMITE_DIA;
 
@@ -70,7 +71,7 @@ await teste('desligado por padrão: não envia e não chama a Inovstar', async (
   process.env.DISPARO_WHATSAPP = 'true';
 });
 
-await teste('fase de testes: número fora de ALLOWED_NUMBERS é recusado; com DISPARO_LIBERADO passa', async () => {
+await teste('fase de testes: número fora de DISPARO_NUMEROS é recusado (ALLOWED_NUMBERS, da Amanda, não conta); com DISPARO_LIBERADO passa', async () => {
   pedidos.length = 0;
   const e = novo(); const l = lead(e, 'JOANA', '91955554444');
   await rejeita(() => enviarModelo(e, l, { modelo: 'recuperacao_2', parametros: P3 }, AGORA), 'fora_da_lista');
