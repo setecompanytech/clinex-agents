@@ -3,6 +3,7 @@ import { waitUntil } from '@vercel/functions';
 import { env } from '../lib/env.js';
 import { parseMessageReceived, verifySignature } from '../integrations/inovstar.js';
 import { handleIncoming } from '../agents/receptivo/agent.js';
+import { rodarLembretes } from '../agents/receptivo/lembretes.js';
 
 const router = Router();
 
@@ -25,6 +26,8 @@ router.post('/inovstar', (req: Request & { rawBody?: Buffer }, res) => {
   if (!ev) return res.json({ ignored: true });
 
   waitUntil(handleIncoming(ev).catch((e) => console.error('agente falhou', e)));
+  // de carona: envia os lembretes de inatividade que já venceram (uma execução por vez, trava no Redis)
+  waitUntil(rodarLembretes().catch((e) => console.error('lembretes falharam', e)));
   res.json({ ok: true });
 });
 

@@ -2,7 +2,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { Router } from 'express';
 import { env } from '../../lib/env.js';
 import { evt } from '../../lib/log.js';
-import { cancelarLembrete, lembretesVencidos } from '../../lib/estado.js';
+import { cancelarLembrete, lembretesVencidos, travaCurta } from '../../lib/estado.js';
 import { getHistory, sendText } from '../../integrations/inovstar.js';
 
 /**
@@ -20,7 +20,16 @@ lembretes.get('/lembretes', (req, res, next) => {
   const segredo = process.env.CRON_SECRET;
   if (!segredo) return void res.status(503).json({ erro: 'cron', mensagem: 'CRON_SECRET não está configurado.' });
   if (!igual(String(req.headers.authorization ?? ''), `Bearer ${segredo}`)) return void res.status(401).json({ erro: 'auth' });
-  (async () => {
+  rodarLembretes().then((r) => res.json(r)).catch(next);
+});
+
+/**
+ * Envia os lembretes vencidos. Sem agendador (o plano da Vercel só tem rotina diária), roda de carona em cada mensagem que chega
+ * no webhook: uma trava de 60 s no Redis garante uma execução por vez. No horário comercial chegam mensagens o tempo todo.
+ */
+export async function rodarLembretes(): Promise<{ vencidos: number; enviados: number; pulados: string[] }> {
+  if (!(await travaCurta('amanda:ia:lembretes:trava', 60_000))) return { vencidos: 0, enviados: 0, pulados: ['outra execução em andamento'] };
+  {
     const vencidos = await lembretesVencidos();
     const titulos = [env.agentTitle, ...env.agentTitlesAntigos].map((t) => t.replace(/\*/g, '').trim()).filter(Boolean);
     let enviados = 0; const pulados: string[] = [];
@@ -44,6 +53,6 @@ lembretes.get('/lembretes', (req, res, next) => {
         evt('erro', { mensagem: `lembrete de inatividade falhou (${l.attendanceId}): ${(e as Error).message.slice(0, 160)}` });
       }
     }
-    res.json({ vencidos: vencidos.length, enviados, pulados });
-  })().catch(next);
-});
+    return { vencidos: vencidos.length, enviados, pulados };
+  }
+}

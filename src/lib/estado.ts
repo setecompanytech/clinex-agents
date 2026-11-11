@@ -157,3 +157,9 @@ export async function lembretesVencidos(agora = Date.now()): Promise<Lembrete[]>
   }
   return out;
 }
+
+/** Trava simples com prazo (SET NX PX): true se conseguiu. Sem Redis, false (não roda nada que dependa dela). */
+export async function travaCurta(chave: string, ms: number): Promise<boolean> {
+  if (!estadoAtivo()) return false;
+  return (await comando<string>(['SET', chave, '1', 'NX', 'PX', ms])) === 'OK';
+}
