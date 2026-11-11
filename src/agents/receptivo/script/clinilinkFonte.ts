@@ -1,5 +1,5 @@
 import { soTelefone } from './engine.js';
-import { criarAgendamento, criarPaciente, demandaPorProcedimento, getPacientePorCpf, getPacientesPorTelefone, listAgendamentosDoDia, listAgenda, listAgendaFresca, listClinicas, listCombos, listProcedimentos, listProfissionais, type Clinica, type Combo, type Horario, type Paciente, type Procedimento } from '../../../integrations/clinilink.js';
+import { criarAgendamento, criarOrdemServico, criarPaciente, demandaPorProcedimento, getPacientePorCpf, getPacientesPorTelefone, listAgendamentosDoDia, listAgenda, listAgendaFresca, listClinicas, listCombos, listProcedimentos, listProfissionais, type Clinica, type Combo, type Horario, type Paciente, type Procedimento } from '../../../integrations/clinilink.js';
 import { env } from '../../../lib/env.js';
 import { exibir, prepararGeneros } from '../../../lib/genero.js';
 import { evt } from '../../../lib/log.js';
@@ -1053,6 +1053,14 @@ export const fonteClinilink: Fonte = {
     return agrupar(sv.tipo === 'exame' ? soManha(h) : h).slice(0, max);
   },
 
+  async gerarOS(agendamentoId) {
+    const r = await criarOrdemServico(agendamentoId);
+    const pegaId = (o: any) => String(o?.osId ?? o?.os_id ?? o?.id ?? o?.ordemServicoId ?? o?.dados?.id ?? '') || undefined;
+    if (r.ok) return { ok: true, id: pegaId(r.dados) };
+    if (r.codigo === 'OS_JA_EXISTE') return { ok: true, id: pegaId(r.corpo) };
+    return { ok: false, erro: `${r.codigo}: ${r.mensagem}`.slice(0, 160) };
+  },
+
   async horariosPorProfissional(sv, un, de, ate) {
     if (!un.id) return [];
     if (sv.combo) return horariosDoCombo(sv, un, de, ate);
@@ -1084,7 +1092,7 @@ export const fonteClinilink: Fonte = {
     for (const h of livres.slice(0, 3)) {
       const dataHora = h.dataHora ?? `${h.data}T${h.hora}:00-03:00`;
       const r = await criarAgendamento({ pacienteId, unidadeId: unidade.id, agendaId: h.agendaId, profissionalId: h.profissional?.id ?? slot.profissionalId ?? '', dataHora, procedimentoId: servico.id, observacao: p.observacao, comboId: p.comboId });
-      if (r.ok) return { ok: true, profissional: nomeDePessoa(h.profissional?.nome) ?? slot.profissional, profissionalBruto: h.profissional?.nome ?? slot.profissionalBruto, hora: inicioMostrado(h), cadastrou, pacienteId };
+      if (r.ok) return { ok: true, profissional: nomeDePessoa(h.profissional?.nome) ?? slot.profissional, profissionalBruto: h.profissional?.nome ?? slot.profissionalBruto, hora: inicioMostrado(h), cadastrou, pacienteId, agendamentoId: r.dados.agendamentoId };
       ultimo = r.codigo;
       if (r.codigo !== 'HORARIO_OCUPADO') return { ok: false, codigo: r.codigo, motivo: r.mensagem || r.codigo, incerto: r.incerto, cadastrou };
     }

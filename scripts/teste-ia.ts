@@ -11,7 +11,8 @@ import type { Fonte } from '../src/agents/receptivo/script/catalog.js';
 const TITULO = '*Amanda S. (Clinex):*';
 const fonte: Fonte = {
   ...fonteClinilink,
-  async reservar(p) { console.log(`   [reservar] paciente=${p.pacienteId ?? "novo"} cadastro=${JSON.stringify(p.cadastro ?? null)}`); return { ok: true, hora: p.slot.inicio, cadastrou: !p.pacienteId, pacienteId: p.pacienteId ?? 'novo-123', profissional: p.slot.profissional, profissionalBruto: p.slot.profissionalBruto }; },
+  async gerarOS(id) { console.log(`   [gerarOS] agendamento=${id}`); return { ok: true, id: "os-teste-1" }; },
+  async reservar(p) { console.log(`   [reservar] paciente=${p.pacienteId ?? "novo"} cadastro=${JSON.stringify(p.cadastro ?? null)}`); return { ok: true, hora: p.slot.inicio, cadastrou: !p.pacienteId, pacienteId: p.pacienteId ?? 'novo-123', agendamentoId: 'ag-teste-1', profissional: p.slot.profissional, profissionalBruto: p.slot.profissionalBruto }; },
 };
 
 const CASOS: Record<string, string[]> = {
@@ -21,7 +22,8 @@ const CASOS: Record<string, string[]> = {
   sangue: ['quero fazer exame de sangue', 'hemograma, glicose e colesterol total', 'quero agendar a coleta'],
   preco: ['quanto custa a consulta com cardiologista?', 'e qual o endereço do guamá?'],
   resultado: ['quero saber o resultado do meu exame de ontem'],
-  pix: ['quero marcar clinico geral', 'guamá', 'o primeiro', 'Joana Teste Souza 10/05/1990, pode ser esse número', 'feminino', 'vou pagar no pix', '[imagem]'],
+  link: ['quero marcar clinico geral', 'guamá', 'o primeiro', 'Joana Teste Souza 10/05/1990, pode ser esse número', 'feminino', 'quero pagar no cartão de crédito pelo link'],
+  pix: ['quero marcar clinico geral', 'guamá', 'o primeiro', 'Joana Teste Souza 10/05/1990, pode ser esse número', 'feminino', 'vou pagar no pix', '529.982.247-25', '[imagem]'],
   semddd: ['quero marcar clinico geral pro meu filho', 'guamá', 'o primeiro', 'Marcos Silva Lima 05/05/2005, o número dele é 98596-3941', 'masculino', 'vai ser dinheiro'],
   orcamento: ['boa tarde, queria um orçamento desses exames: hemograma, glicose, TSH e colesterol total'],
   preco1: ['quanto custa a consulta com dermatologista?'],

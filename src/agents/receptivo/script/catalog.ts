@@ -66,7 +66,7 @@ export type PedidoReserva = {
   comboId?: string; // o serviço faz parte de um combo (o Clinilink liga o agendamento ao combo)
 };
 export type ResultadoReserva =
-  | { ok: true; profissional?: string; profissionalBruto?: string; hora: string; cadastrou: boolean; pacienteId?: string; linhas?: string[]; extra?: string }
+  | { ok: true; profissional?: string; profissionalBruto?: string; hora: string; cadastrou: boolean; pacienteId?: string; linhas?: string[]; extra?: string; agendamentoId?: string }
   | { ok: false; codigo: string; motivo: string; incerto?: boolean; cadastrou?: boolean };
 
 export interface Fonte {
@@ -88,6 +88,8 @@ export interface Fonte {
   proximas(sv: Servico, un: Unidade, deYmd: string, max: number): Promise<Slot[]>;
   /** O paciente já tem este serviço marcado neste dia (o Clinilink recusa duplicado no dia)? Devolve os dados do agendamento que já existe, ou null. */
   agendamentoExistente?(sv: Servico, ymd: string, pacienteId?: string): Promise<AgendamentoExistente | null>;
+  /** Só a fonte real: gera a O.S. (aberta) de um agendamento no Clinilink. */
+  gerarOS?(agendamentoId: string): Promise<{ ok: boolean; id?: string; erro?: string }>;
   /** Paciente por CPF (11 dígitos); null se não existir. */
   paciente(cpf: string): Promise<PacienteInfo | null>;
   /** Paciente sem CPF: procura pelos telefones e confere nome parecido e nascimento; null se não achar com segurança. */

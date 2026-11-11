@@ -200,6 +200,10 @@ export const criarAgendamento = (a: NovoAgendamento) =>
     procedimentos: a.procedimentoIds?.length ? a.procedimentoIds : [a.procedimentoId], ...(a.comboId ? { comboId: a.comboId } : {}), observacao: a.observacao ?? 'Agendado pela Amanda (IA) via WhatsApp', origem: 'whatsapp',
   });
 
+/** Gera a O.S. (aberta) do agendamento. Repetir não cria outra: devolve OS_JA_EXISTE com o id da que existe. */
+export const criarOrdemServico = (agendamentoId: string) =>
+  post<Record<string, unknown>>('/v1/agendamento/ordens-servico', { agendamentoId, origem: 'whatsapp' });
+
 /** Agenda SEM cache: usada no momento de reservar, para pegar o horário livre de verdade. */
 export async function listAgendaFresca(p: { unidadeId: string; dataInicial: string; dataFinal: string; procedimentoId?: string; profissionalId?: string }) {
   return (await get<{ horarios: Horario[] }>('/v1/agendamento/agenda', p)).horarios;
