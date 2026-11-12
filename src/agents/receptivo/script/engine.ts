@@ -715,11 +715,11 @@ export function mensagemConfirmacaoCombo(p: { paciente: string; primeiroNome?: s
   ].join('\n\n');
 }
 
-export function mensagemConfirmacao(p: { paciente: string; novoCadastro: boolean; servico: Servico; unidade: Unidade; ymd: string; hora?: string; profissionalBruto?: string; valor?: number; pagoPix?: number; primeiroNome?: string; linhas?: string[]; extra?: string }): string {
+export function mensagemConfirmacao(p: { paciente: string; novoCadastro: boolean; servico: Servico; unidade: Unidade; ymd: string; hora?: string; profissionalBruto?: string; valor?: number; pagoPix?: number; primeiroNome?: string; linhas?: string[]; extra?: string; rotuloValor?: string; sufixoProcedimento?: string }): string {
   const prof = profissionalNoModelo(p.profissionalBruto);
   // etapa com vários exames: cada serviço agendado, com o profissional (ou a sala) do cadastro, como a atendente escreve
   const proc = p.linhas?.length ? p.linhas.join(', ') : `${p.servico.nomeBruto ?? p.servico.nome.toLocaleUpperCase('pt-BR')}${prof ? ` - ${prof}` : ''}`;
-  const modelo = modeloDaClinica({ paciente: p.paciente, profissional: prof, procedimento: proc, unidade: p.unidade, ymd: p.ymd, hora: p.hora, valor: p.valor, formas: formasDePagamento(p.pagoPix, p.valor) });
+  const modelo = modeloDaClinica({ paciente: p.paciente, profissional: prof, procedimento: `${proc}${p.sufixoProcedimento ? ` ${p.sufixoProcedimento}` : ''}`, unidade: p.unidade, ymd: p.ymd, hora: p.hora, valor: p.valor, formas: formasDePagamento(p.pagoPix, p.valor), rotuloValor: p.rotuloValor });
   return [
     `${MARCA_AGENDADO}! Deu tudo certo${p.primeiroNome ? `, ${p.primeiroNome}` : ''}.${p.novoCadastro ? ` Cadastro de ${p.paciente} feito.` : ''}`,
     modelo,
