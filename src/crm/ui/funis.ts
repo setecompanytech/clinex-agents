@@ -60,7 +60,21 @@ function fvCarregarCards() {
 function fvAtualizar() {
   return fvCarregarLista().then(fvCarregarCards).then(function () { if (S.aba === 'pipelines') desenhar(true); }).catch(function (e) { FV.erro = e.message; FV.carregando = false; if (S.aba === 'pipelines') desenhar(true); });
 }
-function fvRecarregarCards() { return fvCarregarCards().then(function () { if (S.aba === 'pipelines') comFoco(function () { desenhar(true); }); }); }
+/* Troca só o resumo e as colunas do kanban, sem refazer a tela (cabeçalho e filtros ficam como estão: nada pisca e o campo de busca não perde o cursor).
+   Devolve false se a tela não está no formato esperado (carregando, outra aba): aí quem chamou redesenha tudo. */
+function fvRepintarKanban() {
+  if (S.aba !== 'pipelines' || FV.sub !== 'kanban' || !FV.dados) return false;
+  var tela = raiz.querySelector('.tela'), resumo = tela && tela.querySelector(':scope > .fv-resumo');
+  if (!resumo) return false;
+  var quadroAntigo = tela.querySelector(':scope > .fv-quadro'), rolagem = quadroAntigo ? quadroAntigo.scrollLeft : 0;
+  var novos = fvKanban().slice(1); /* o 1º item são os filtros, que continuam os mesmos */
+  var velhos = Array.prototype.slice.call(tela.children), i = velhos.indexOf(resumo);
+  velhos.slice(i).forEach(function (el) { tela.removeChild(el); });
+  novos.forEach(function (el) { tela.appendChild(el); });
+  var q = tela.querySelector(':scope > .fv-quadro'); if (q) q.scrollLeft = rolagem;
+  return true;
+}
+function fvRecarregarCards() { return fvCarregarCards().then(function () { if (S.aba !== 'pipelines') return; if (!fvRepintarKanban()) comFoco(function () { desenhar(true); }); }); }
 
 /* ---- tela */
 function telaPipelines() {
@@ -85,7 +99,7 @@ function telaPipelines() {
 /* ---- filtros do kanban */
 function fvFiltros() {
   var f = FV.f, D = FV.dados;
-  function aplicar() { clearTimeout(FV.tq); FV.tq = setTimeout(function () { fvRecarregarCards(); }, 250); }
+  function aplicar() { clearTimeout(FV.tq); FV.tq = setTimeout(function () { fvRecarregarCards(); }, 320); }
   var busca = h('input', { class: 'in', type: 'search', placeholder: 'Buscar paciente, telefone, código, item, valor…', value: f.q || null, 'aria-label': 'Buscar', oninput: function (e) { f.q = e.target.value; aplicar(); } });
   var por = h('div', { class: 'seg', role: 'group', 'aria-label': 'Filtrar período por' }, [['criacao', 'Criação'], ['agendamento', 'Agendamento'], ['conversao', 'Conversão']].map(function (p) {
     return h('button', { type: 'button', 'aria-pressed': String(f.por === p[0]), text: p[1], onclick: function () { f.por = p[0]; if (f.de || f.ate) fvRecarregarCards(); desenhar(true); } });
