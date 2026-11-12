@@ -37,6 +37,8 @@ export type Funil = {
 export type CardSnap = {
   id: string; codigo?: string; paciente: string; contato?: string; subtitulo?: string; valor: number; itens: string[];
   criadoEm: string; unidade?: string; status: string; convenio?: string; origem?: string; prioridade?: string; observacao?: string;
+  /** Combo: ids de todos os agendamentos do Clinilink que este card agrupa (um por serviço, no mesmo horário). Só existe em card agrupado. */
+  agendamentoIds?: string[];
 };
 
 /** Registros antigos usam `para` no lugar de `stageId`; o helper stageIdDoHistorico() aceita os dois. */

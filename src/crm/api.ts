@@ -9,7 +9,8 @@ import { gerarExemplos } from './exemplos.js';
 import { leadsDosOrcamentos } from './leadsOrcamento.js';
 import { DisparoError, enviarModelo, MODELOS as MODELOS_WA, modelosParaLead, statusDisparo } from './whatsapp.js';
 import { analisarHoje } from './analise.js';
-import { analisarTempo, type Periodo } from './tempo.js';
+import { analisarTempo } from './tempo.js';
+import { janelaDaQuery } from './periodo.js';
 import { analisarExecutivo, meuReport } from './executivo.js';
 import { analisarEtapa } from './etapa.js';
 import { analisarNoShow, dadosNoShow } from './noshow.js';
@@ -73,8 +74,7 @@ router.get('/estado', (_req, res) => {
 });
 
 router.get('/analise', (req, res) => {
-  const dias = Number(req.query.dias);
-  const periodo = (dias === 14 || dias === 90 ? dias : 30) as Periodo;
+  const periodo = janelaDaQuery(req.query, new Date());
   const agora = new Date();
   automatizarTodos(agora);
   const tarefas = tarefasDoDia(estado.leads, agora);
@@ -84,8 +84,7 @@ router.get('/analise', (req, res) => {
 
 /** Visão executiva (receita, previsão, alertas, fila de decisão, no-show, envelhecimento, unidades...) */
 router.get('/executivo', (req, res) => {
-  const dias = Number(req.query.dias);
-  const periodo = (dias === 14 || dias === 90 ? dias : 30) as Periodo;
+  const periodo = janelaDaQuery(req.query, new Date());
   const unidade = typeof req.query.unidade === 'string' && req.query.unidade ? req.query.unidade : null;
   const agora = new Date();
   automatizarTodos(agora);
@@ -96,8 +95,7 @@ router.get('/executivo', (req, res) => {
 
 /** Meu Report: performance individual de um responsável, pronta para a diretoria */
 router.get('/meu-report', (req, res) => {
-  const dias = Number(req.query.dias);
-  const periodo = (dias === 14 || dias === 90 ? dias : 30) as Periodo;
+  const periodo = janelaDaQuery(req.query, new Date());
   const nome = typeof req.query.nome === 'string' && req.query.nome ? req.query.nome : 'Sem responsável';
   const agora = new Date();
   automatizarTodos(agora);
@@ -151,8 +149,7 @@ router.get('/noshow', (_req, res) => { res.json(dadosNoShow(estado.pipelines, ne
 
 /** Análise de uma etapa do fluxo (modal do card clicado) */
 router.get('/etapa/:id', (req, res) => {
-  const dias = Number(req.query.dias);
-  const periodo = (dias === 14 || dias === 90 ? dias : 30) as Periodo;
+  const periodo = janelaDaQuery(req.query, new Date());
   const agora = new Date();
   if (req.params.id.startsWith('ns-')) { // etapas do fluxo do No-show: vêm dos cards do funil
     const n = analisarNoShow(estado.pipelines, agora, req.params.id, periodo);

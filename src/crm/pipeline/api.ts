@@ -7,6 +7,7 @@ import { sincronizar } from './ingestao.js';
 import { leadsDosOrcamentos } from '../leadsOrcamento.js';
 import { alinharCardsELeads } from '../sincroniaCardLead.js';
 import { logMovimentacoes, painelExecutivo, relatorio } from './metricas.js';
+import { janelaDaQuery } from '../periodo.js';
 import { FunilError, type Atribuicao, type Dimensao, type Funil } from './tipos.js';
 import { responsaveis } from '../../lib/usuarios.js';
 
@@ -216,7 +217,6 @@ const funisDoPedido = (id: unknown) => (typeof id === 'string' && id ? [achar(id
 pipelines.get('/relatorio/dados', (req, res) => { const { de, ate } = janela(req.query); res.json(relatorio(P(), funisDoPedido(req.query.funilId), de, ate)); });
 pipelines.get('/log/dados', (req, res) => { const { de, ate } = janela(req.query); res.json(logMovimentacoes(P(), funisDoPedido(req.query.funilId), de, ate)); });
 pipelines.get('/:id/executivo', (req, res) => {
-  const dias = Number(req.query.dias);
-  res.json(painelExecutivo(P(), achar(req.params.id), [14, 30, 90].includes(dias) ? dias : 30, new Date()));
+  res.json(painelExecutivo(P(), achar(req.params.id), janelaDaQuery(req.query, new Date()), new Date()));
 });
 

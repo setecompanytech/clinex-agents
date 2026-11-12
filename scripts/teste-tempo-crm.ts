@@ -3,6 +3,7 @@
  */
 import assert from 'node:assert/strict';
 import { analisarTempo, statusNoDia, transicoes } from '../src/crm/tempo.js';
+import { janelaDaQuery, ultimosDias } from '../src/crm/periodo.js';
 import { gerarExemplos } from '../src/crm/exemplos.js';
 import { aplicar, criarLead, hojeDe, somaDias, tarefasDoDia, vistaDoLead, type Lead } from '../src/crm/motor.js';
 
@@ -99,6 +100,45 @@ teste('destaques e funil coerentes', () => {
   const t = tempo(demo, 30);
   assert.ok(t.destaques.length > 0);
   for (let i = 1; i < t.funil.length; i++) assert.ok(t.funil[i].n <= t.funil[i - 1].n);
+});
+
+console.log('Filtro de período: qualquer intervalo de datas');
+const tempoJ = (leads: Lead[], de: string, ate: string, dias: number) => analisarTempo(leads, AGORA, { de, ate, dias }, tarefasDoDia(leads, AGORA), new Map(leads.map((l) => [l.id, vistaDoLead(l, AGORA)])));
+teste('intervalo no passado: só conta o que aconteceu dentro dele (nada de depois nem de antes)', () => {
+  const t = tempoJ([A, B, C], dia(8), dia(5), 4);
+  assert.equal(t.dias, 4); assert.equal(t.de, dia(8)); assert.equal(t.ate, dia(5)); assert.equal(t.series.novos.length, 4);
+  assert.equal(t.atual.novos, 1, 'só a Ana entrou entre dia(8) e dia(5)');
+  assert.equal(t.atual.contatos, 1, 'o contato da Ana em dia(5); o da Bia foi antes (dia 9)');
+  assert.equal(t.atual.respostas, 1);
+  assert.equal(t.atual.convertidos, 0, 'a conversão da Ana foi em dia(3), depois do intervalo');
+  assert.equal(t.series.contatos.reduce((a: number, b: number) => a + b, 0), 1);
+});
+teste('o período anterior tem o mesmo tamanho e vem logo antes do intervalo', () => {
+  const t = tempoJ([A, B, C], dia(8), dia(5), 4); // anterior = dia(12) a dia(9)
+  assert.equal(t.anterior.novos, 1, 'a Bia entrou em dia(10)');
+  assert.equal(t.anterior.contatos, 1, 'o contato da Bia em dia(9)');
+});
+teste('intervalo longo usa pontos semanais e não conta dias antes do início', () => {
+  const t = tempoJ([A, B, C], dia(40), dia(0), 41);
+  assert.equal(t.semanal, true); assert.equal(t.series.novos.length, Math.ceil(41 / 7));
+  assert.equal(t.series.novos.reduce((a: number, b: number) => a + b, 0), 3, 'os 3 leads entraram no intervalo');
+  const curto = tempoJ([A, B, C], dia(1), dia(0), 2);
+  assert.equal(curto.atual.novos, 1, 'só a Caio (hoje)');
+});
+teste('número de dias continua valendo (últimos N dias até hoje)', () => {
+  const a = tempo([A, B, C], 30), b = analisarTempo([A, B, C], AGORA, ultimosDias(30, AGORA), tarefasDoDia([A, B, C], AGORA), new Map([A, B, C].map((l) => [l.id, vistaDoLead(l, AGORA)])));
+  assert.deepEqual(JSON.parse(JSON.stringify(a)), JSON.parse(JSON.stringify(b)));
+  assert.equal(a.ate, HOJE); assert.equal(a.de, somaDias(HOJE, -29));
+});
+teste('a rota lê de/ate, corrige datas trocadas, nunca passa de hoje e limita a 366 dias', () => {
+  assert.deepEqual(janelaDaQuery({ de: '2026-03-01', ate: '2026-03-10' }, AGORA), { de: '2026-03-01', ate: '2026-03-10', dias: 10 });
+  assert.deepEqual(janelaDaQuery({ de: '2026-03-10', ate: '2026-03-01' }, AGORA), { de: '2026-03-01', ate: '2026-03-10', dias: 10 }, 'trocadas');
+  assert.equal(janelaDaQuery({ de: '2026-03-01', ate: '2030-01-01' }, AGORA).ate, HOJE, 'o fim não passa de hoje');
+  assert.equal(janelaDaQuery({ de: '2020-01-01', ate: '2026-03-10' }, AGORA).dias, 366, 'máximo 366 dias');
+  assert.deepEqual(janelaDaQuery({ dias: '14' }, AGORA), ultimosDias(14, AGORA), 'o antigo ?dias=N segue valendo');
+  assert.equal(janelaDaQuery({}, AGORA).dias, 30, 'sem nada: 30 dias');
+  assert.equal(janelaDaQuery({ de: '2026-02-31', ate: 'abc' }, AGORA).dias, 30, 'data inexistente ou lixo é ignorada');
+  assert.equal(janelaDaQuery({ de: '2026-03-15' }, AGORA).ate, HOJE, 'só a data inicial: vai até hoje');
 });
 
 console.log(`\n${ok} testes passaram${process.exitCode ? ', COM FALHAS' : ''}.`);

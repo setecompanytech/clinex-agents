@@ -5,9 +5,9 @@ var ETc = {};
 var COR_ST = { aberto: 'var(--c-aberto)', sem_retorno: 'var(--c-sem)', negociacao: 'var(--c-neg)', agendado: 'var(--c-agend)', convertido_ativo: 'var(--c-ativo)', convertido_organico: 'var(--c-org)', descarte: 'var(--c-desc)', ns_noshow: 'var(--c-neg)', ns_retomada: 'var(--g4)', ns_agendado: 'var(--c-agend)', ns_perdido: 'var(--c-desc)', ns_semretorno: 'var(--c-sem)', ns_recuperado: 'var(--c-ativo)' };
 
 function pedirEtapa(id) {
-  var k = id + '|' + S.dias, c = ETc[k];
+  var k = id + '|' + perChave(), c = ETc[k];
   if (c && Date.now() - c.t < 15000) return Promise.resolve(c.E);
-  return api('GET', '/etapa/' + id + '?dias=' + S.dias).then(function (E) { ETc[k] = { t: Date.now(), E: E }; return E; });
+  return api('GET', '/etapa/' + id + '?' + perQs()).then(function (E) { ETc[k] = { t: Date.now(), E: E }; return E; });
 }
 
 function montarItem(it) {
@@ -37,12 +37,13 @@ function montarItem(it) {
 }
 
 function periodoEtapa(refazer) {
-  return h('div', { class: 'it-tool' }, [
-    h('span', { text: 'Período analisado' }),
-    h('div', { class: 'seg', role: 'group', 'aria-label': 'Período' }, [14, 30, 90].map(function (d) {
-      return h('button', { type: 'button', 'aria-pressed': String(S.dias === d), text: d + ' dias', onclick: function () { S.dias = d; gravarLS('crm-dias', String(d)); refazer(); } });
-    }))
+  var aba = S.aba, p = perGet(aba), n = perDias(aba);
+  var b = h('button', { type: 'button', class: 'per-trig mini', 'aria-haspopup': 'dialog', title: 'Mudar o período', onclick: function () { abrirPeriodo(b, aba, refazer); } }, [
+    ico('calendar', 16),
+    h('span', { class: 'per-t' }, [h('b', { text: p.id === 'custom' ? 'Personalizado' : perRotuloPreset(p.id) }), h('small', { text: perTexto(aba) + (p.id !== 'tudo' ? ' \u00B7 ' + n + ' ' + plural(n, 'dia', 'dias') : '') })]),
+    h('span', { class: 'per-seta', 'aria-hidden': 'true', text: '\u25BE' })
   ]);
+  return h('div', { class: 'it-tool' }, [h('span', { text: 'Período analisado' }), b]);
 }
 
 /* ------------------------------------------------------------------ aba Painel */
@@ -51,12 +52,12 @@ function painelEtapa(it, E, refazer) {
   var kp = [];
   if (nov) {
     var med = Math.round(F.entradas / E.dias * 10) / 10;
-    kp.push(kpi2({ rotulo: 'Leads que entraram', valor: String(F.entradas), delta: dlt(F.entradas, F.entradasAnt, { bom: 'sobe' }), serie: F.serie.entradas, cor: COR.novos }));
-    kp.push(kpi2({ rotulo: 'Média por dia', valor: String(med).replace('.', ','), sub: 'nos últimos ' + E.dias + ' dias' }));
+    kp.push(kpi2({ rotulo: 'Leads que entraram', valor: String(F.entradas), delta: dltP(F.entradas, F.entradasAnt, { bom: 'sobe' }), serie: F.serie.entradas, cor: COR.novos }));
+    kp.push(kpi2({ rotulo: 'Média por dia', valor: String(med).replace('.', ','), sub: 'no período (' + E.dias + ' ' + plural(E.dias, 'dia', 'dias') + ')' }));
     kp.push(kpi2({ rotulo: 'Origem principal', valor: E.origem[0] ? E.origem[0].nome : '–', sub: E.origem[0] ? E.origem[0].n + ' leads' : 'sem dados' }));
   } else {
     kp.push(kpi2({ rotulo: 'Aqui agora', valor: String(A.n), sub: brl(A.valor) + ' em orçamentos', tom: A.estourados ? 'risco' : '' }));
-    kp.push(kpi2({ rotulo: 'Entraram', valor: String(F.entradas), delta: dlt(F.entradas, F.entradasAnt, { bom: 'sobe' }), serie: F.serie.entradas, cor: COR.novos }));
+    kp.push(kpi2({ rotulo: 'Entraram', valor: String(F.entradas), delta: dltP(F.entradas, F.entradasAnt, { bom: 'sobe' }), serie: F.serie.entradas, cor: COR.novos }));
     kp.push(kpi2({ rotulo: 'Saíram', valor: String(F.saidas), sub: F.avancaram + ' avançaram · ' + F.descartaram + ' descartados', serie: F.serie.saidas, cor: COR.convertidos }));
     kp.push(kpi2({ rotulo: 'Taxa de avanço', valor: F.taxaAvanco === null ? '–' : F.taxaAvanco + '%', sub: F.taxaAvanco === null ? 'sem saídas ainda' : 'de quem sai da etapa', tom: F.taxaAvanco !== null && F.taxaAvanco < 40 ? 'risco' : '' }));
     kp.push(kpi2({ rotulo: 'Tempo médio na etapa', valor: F.tempoMedio === null ? '–' : String(F.tempoMedio).replace('.', ',') + ' d', sub: E.item.limiteDias ? 'limite do guia: ' + E.item.limiteDias + ' d' : 'sem limite fixo', tom: E.item.limiteDias && F.tempoMedio > E.item.limiteDias ? 'risco' : '' }));

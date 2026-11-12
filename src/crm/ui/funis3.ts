@@ -1,15 +1,9 @@
 /** Aba Pipelines (cliente), parte 3: log de movimentações, relatório de produtividade e painel executivo dos funis. Sem backticks nem dólar-chave aqui dentro. */
 export const funis3 = String.raw`
 /* ------------------------------------------------------------------ período compartilhado (log e relatório) */
-function fvPeriodoBarra(refazer) {
-  if (!FV.rde) { FV.rate = fvHoje(); FV.rde = fvSoma(FV.rate, -29); }
-  return h('div', { class: 'fv-filtros' }, [
-    h('label', { class: 'fv-f' }, [h('span', { text: 'De' }), h('input', { class: 'in', type: 'date', value: FV.rde, onchange: function (e) { FV.rde = e.target.value; refazer(); } })]),
-    h('label', { class: 'fv-f' }, [h('span', { text: 'Até' }), h('input', { class: 'in', type: 'date', value: FV.rate, onchange: function (e) { FV.rate = e.target.value; refazer(); } })]),
-    h('div', { class: 'seg', role: 'group', 'aria-label': 'Atalhos' }, [[7, '7 dias'], [30, '30 dias'], [90, '90 dias']].map(function (p) {
-      return h('button', { type: 'button', text: p[1], 'aria-pressed': 'false', onclick: function () { FV.rate = fvHoje(); FV.rde = fvSoma(FV.rate, -(p[0] - 1)); refazer(); } });
-    }))
-  ]);
+function fvPeriodoBarra() {
+  var j = perJanela('pipelines'); FV.rde = j.de; FV.rate = j.ate;
+  return null;
 }
 function fvPedir(chave, caminho, refazer) {
   var k = chave + '|' + caminho;
@@ -74,17 +68,16 @@ function fvRelatorio() {
 
 /* ------------------------------------------------------------------ painel executivo */
 function fvExecutivo() {
-  var dias = S.dias;
-  var d = fvPedir('EXE', '/pipelines/' + FV.id + '/executivo?dias=' + dias, null);
-  var barra = h('div', { class: 'fv-filtros' }, [h('div', { class: 'seg', role: 'group', 'aria-label': 'Período' }, [14, 30, 90].map(function (x) { return h('button', { type: 'button', 'aria-pressed': String(S.dias === x), text: x + ' dias', onclick: function () { S.dias = x; gravarLS('crm-dias', String(x)); FV.EXE = null; desenhar(true); } }); }))]);
+  var d = fvPedir('EXE', '/pipelines/' + FV.id + '/executivo?' + perQs('pipelines'), null);
+  var barra = null;
   if (!d) return [barra, fvCarregando()];
   if (d.erro) return [barra, vazio('Não consegui carregar o painel', d.erro)];
   var K = d.kpis, r = K.receita;
   var kp = h('div', { class: 'kpis' }, [
-    kpi2({ rotulo: 'Receita convertida', valor: brl(r.valor), delta: dlt(r.valor, r.anterior, { bom: 'sobe' }), sub: r.n + ' cards · ' + brlCompacto(r.ativo.valor) + ' ativo · ' + brlCompacto(r.organico.valor) + ' orgânico', serie: d.serie.receita, cor: 'var(--g3)' }),
+    kpi2({ rotulo: 'Receita convertida', valor: brl(r.valor), delta: dltP(r.valor, r.anterior, { bom: 'sobe' }), sub: r.n + ' cards · ' + brlCompacto(r.ativo.valor) + ' ativo · ' + brlCompacto(r.organico.valor) + ' orgânico', serie: d.serie.receita, cor: 'var(--g3)' }),
     kpi2({ rotulo: 'Pipeline em aberto', valor: brl(K.pipeline.valor), sub: K.pipeline.n + ' cards em andamento' }),
     kpi2({ rotulo: 'Previsão ponderada', valor: brl(K.previsao.valor), sub: 'valor × taxa histórica por coluna' }),
-    kpi2({ rotulo: 'Conversão', valor: K.conversao.taxa === null ? '–' : pct(K.conversao.taxa), sub: K.conversao.convertidos + ' conversões ÷ ' + K.conversao.entradas + ' entradas no período', delta: dlt(K.conversao.entradas, K.conversao.entradasAnt, { bom: 'sobe', vs: 'entradas' }) }),
+    kpi2({ rotulo: 'Conversão', valor: K.conversao.taxa === null ? '–' : pct(K.conversao.taxa), sub: K.conversao.convertidos + ' conversões ÷ ' + K.conversao.entradas + ' entradas no período', delta: dltP(K.conversao.entradas, K.conversao.entradasAnt, { bom: 'sobe', vs: 'entradas' }) }),
     kpi2({ rotulo: 'Velocidade de venda', valor: K.velocidade.mediana === null ? '–' : String(K.velocidade.mediana).replace('.', ',') + ' d', sub: 'mediana da criação à conversão (' + K.velocidade.n + ' casos)' })
   ]);
   var alertas = d.alertas.length ? h('div', { class: 'fv-alertas' }, d.alertas.map(function (a) { return h('div', { class: 'au-previa n-' + a.nivel }, [h('b', { text: a.titulo }), h('p', { text: a.texto })]); })) : null;

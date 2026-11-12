@@ -2,7 +2,7 @@
  * Testa as regras dos funis do documento "pipelines-crm-tecnico" (src/crm/pipeline). Rodar: npx tsx scripts/teste-funis-crm.ts
  */
 import assert from 'node:assert/strict';
-import { funilDestino, ingerir, janelaDoPedido, janelaPadrao, snapDeAgendamento, snapDeOrcamento } from '../src/crm/pipeline/ingestao.js';
+import { funilDestino, ingerir, janelaDoPedido, janelaPadrao, snapDeAgendamento, snapDeOrcamento, snapsDeAgendamentos } from '../src/crm/pipeline/ingestao.js';
 import { painelExecutivo, relatorio } from '../src/crm/pipeline/metricas.js';
 import { aplicarAutomacoes, atrasado, classeDaEtapa, diaBRT, estrelas, funisPadrao, moverCard, recortar, validarAutomacoes, validarConfig, valorExibido } from '../src/crm/pipeline/regras.js';
 import { FunilError, type CardSnap, type EstadoFunis } from '../src/crm/pipeline/tipos.js';
@@ -155,5 +155,47 @@ teste('painel executivo calcula sem quebrar, com e sem dados', () => {
   assert.ok(p.etapas.find((e) => e.etapa === 'EM NEGOCIAÇÃO')!.peso !== null, 'peso com 6 resolvidos');
   assert.ok(!JSON.stringify(p).includes('NaN') && !JSON.stringify(p).includes('undefined'));
   assert.equal(diaBRT('2026-11-02T01:00:00Z'), '2026-11-01', 'fuso -3');
+});
+
+// ---------------------------------------------------------------- combo no No-show: um card só
+const ag = (id: string, nome: string, proc: string, valor: number, dataHora = '2026-11-01T08:00:00-03:00', unidade = 'CLINEX GUAMÁ', prof = 'Dra. Ana') => ({ agendamentoId: id, status: 'faltou', dataHora, paciente: { nome }, unidade: { nome: unidade }, procedimentos: [{ nome: proc }], valorTotal: valor, profissional: { nome: prof } }) as never;
+teste('combo (vários serviços, mesmo paciente, unidade e horário) vira UM card com tudo somado', () => {
+  const r = snapsDeAgendamentos([ag('a3', 'Maria Souza', 'Hemograma', 30), ag('a1', 'MARIA  SOUZA', 'Ultrassom', 90), ag('a2', 'Maria Souza', 'Glicemia', 20)]);
+  assert.equal(r.length, 1);
+  assert.equal(r[0].id, 'a1', 'o menor id do grupo');
+  assert.deepEqual(r[0].agendamentoIds, ['a1', 'a2', 'a3']);
+  assert.deepEqual(r[0].itens.sort(), ['Glicemia', 'Hemograma', 'Ultrassom']);
+  assert.equal(r[0].valor, 140);
+  assert.ok(r[0].subtitulo!.includes('Ultrassom') && r[0].subtitulo!.includes('Dra. Ana'));
+});
+teste('não junta pacientes, unidades ou horários diferentes', () => {
+  const r = snapsDeAgendamentos([ag('a1', 'Maria', 'USG', 10), ag('a2', 'Maria', 'RX', 10, '2026-11-01T09:00:00-03:00'), ag('a3', 'Maria', 'TC', 10, '2026-11-01T08:00:00-03:00', 'CLINEX NAZARÉ'), ag('a4', 'João', 'USG', 10), ag('a5', 'Sem nome', 'X', 5), ag('a6', 'Sem nome', 'Y', 5)]);
+  assert.equal(r.length, 6);
+});
+teste('rotina repetida não duplica: o combo continua um card só', () => {
+  const est = novoEstado(), fn = funilDestino(est, 'agendamento', AGORA);
+  const lote = [ag('a1', 'Maria', 'Ultrassom', 90), ag('a2', 'Maria', 'Glicemia', 20)];
+  const r1 = ingerir(est, fn, snapsDeAgendamentos(lote, est.atribuicoes.map((a) => a.originSnapshot)), AGORA);
+  assert.equal(r1.criados, 1);
+  const r2 = ingerir(est, fn, snapsDeAgendamentos(lote, est.atribuicoes.map((a) => a.originSnapshot)), AGORA);
+  assert.equal(r2.criados, 0); assert.equal(est.atribuicoes.length, 1);
+  // um dos serviços volta sozinho numa janela seguinte: já está dentro do card, não vira outro
+  const r3 = ingerir(est, fn, snapsDeAgendamentos([ag('a2', 'Maria', 'Glicemia', 20)], est.atribuicoes.map((a) => a.originSnapshot)), AGORA);
+  assert.equal(r3.criados, 0); assert.equal(est.atribuicoes.length, 1);
+});
+teste('serviço do combo que só aparece depois entra no card (se ainda está na 1ª coluna)', () => {
+  const est = novoEstado(), fn = funilDestino(est, 'agendamento', AGORA);
+  ingerir(est, fn, snapsDeAgendamentos([ag('a2', 'Maria', 'Glicemia', 20)], []), AGORA);
+  const r = ingerir(est, fn, snapsDeAgendamentos([ag('a1', 'Maria', 'Ultrassom', 90), ag('a2', 'Maria', 'Glicemia', 20)], est.atribuicoes.map((a) => a.originSnapshot)), AGORA);
+  assert.equal(r.criados, 0); assert.equal(est.atribuicoes.length, 1);
+  assert.equal(est.atribuicoes[0].cardId, 'a2', 'mantém o id do card que já existia');
+  assert.equal(est.atribuicoes[0].ultimoSnapshot.valor, 110); assert.equal(est.atribuicoes[0].ultimoSnapshot.itens.length, 2);
+});
+teste('cards antigos já separados não são mexidos (nunca conta o mesmo valor duas vezes)', () => {
+  const est = novoEstado(), fn = funilDestino(est, 'agendamento', AGORA);
+  ingerir(est, fn, [snapDeAgendamento(ag('a1', 'Maria', 'Ultrassom', 90)), snapDeAgendamento(ag('a2', 'Maria', 'Glicemia', 20))], AGORA);
+  const r = ingerir(est, fn, snapsDeAgendamentos([ag('a1', 'Maria', 'Ultrassom', 90), ag('a2', 'Maria', 'Glicemia', 20)], est.atribuicoes.map((a) => a.originSnapshot)), AGORA);
+  assert.equal(r.criados, 0); assert.equal(est.atribuicoes.length, 2);
+  assert.deepEqual(est.atribuicoes.map((a) => a.ultimoSnapshot.valor).sort(), [20, 90]);
 });
 console.log(`${ok} testes passaram.`);

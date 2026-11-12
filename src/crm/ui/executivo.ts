@@ -11,13 +11,12 @@ var ETAPAS_NS = ['No-show', 'Retomada', 'Agendado', 'Sem retorno'];
 
 function statsCaixa(itens) { return h('div', { class: 'stat2' }, itens.map(function (i) { return h('div', null, [h('small', { text: i[0] }), h('b', { class: i[2] || '', text: i[1] })]); })); }
 function esqueleto() { return h('div', { class: 'carregando-an' }, [h('div', { class: 'skel' }), h('div', { class: 'skel' }), h('div', { class: 'skel' })]); }
-function mudarPeriodo(d) { S.dias = d; gravarLS('crm-dias', String(d)); desenhar(true); }
 
 function pedirExec() {
-  var k = S.dias + '|' + (S.unidade || '');
+  var k = perChave() + '|' + (S.unidade || '');
   if (S.EXfresh[k] || S.EXcarregando[k]) return;
   S.EXcarregando[k] = true;
-  api('GET', '/executivo?dias=' + S.dias + '&unidade=' + encodeURIComponent(S.unidade || '')).then(function (r) { S.EX[k] = r; S.EXfresh[k] = true; S.EXcarregando[k] = false; if (S.aba === 'analises') desenhar(true); })
+  api('GET', '/executivo?' + perQs() + '&unidade=' + encodeURIComponent(S.unidade || '')).then(function (r) { S.EX[k] = r; S.EXfresh[k] = true; S.EXcarregando[k] = false; if (S.aba === 'analises') desenhar(true); })
     .catch(function (e) { S.EXcarregando[k] = false; aviso('Não consegui calcular a visão executiva: ' + e.message, 'erro'); });
 }
 
@@ -27,18 +26,12 @@ function nomesResponsaveis() {
   if (S.D && S.D.leads.some(function (x) { return !x.atendente; })) l.push('Sem responsável');
   return l;
 }
-function periodoSeg() {
-  return h('div', { class: 'seg', role: 'group', 'aria-label': 'Período' }, [14, 30, 90].map(function (d) {
-    return h('button', { type: 'button', 'aria-pressed': String(S.dias === d), onclick: function () { mudarPeriodo(d); }, text: d + ' dias' });
-  }));
-}
 function cabecalhoAnalises() {
   var controles = [];
   if (S.anTab === 'executivo') {
     var un = unidadesConhecidas();
     controles.push(h('select', { class: 'in', 'aria-label': 'Unidade', onchange: function (e) { S.unidade = e.target.value; desenhar(true); } }, [h('option', { value: '', text: 'Todas as unidades' })].concat(un.map(function (u) { return h('option', { value: u, text: u, selected: S.unidade === u ? 'selected' : null }); }))));
   }
-  controles.push(periodoSeg());
   controles.push(h('button', { class: 'btn', type: 'button', title: 'Recalcular com os dados mais recentes', onclick: function () { carregar().then(function () { aviso('Dados atualizados.', 'ok'); }); } }, [ico('bolt', 16), 'Atualizar']));
   var sub = S.anTab === 'executivo' ? 'Receita, previsão, riscos e gargalos do comercial. Todos os números vêm do CRM.' : S.anTab === 'evolucao' ? 'Como o atendimento evolui no tempo.' : 'Sua performance individual, pronta para compartilhar com a diretoria.';
   return [
@@ -56,6 +49,7 @@ function telaAnalises() {
 
 /* ------------------------------------------------------------------ cockpit: receita, medidores e fluxo */
 function chipDeltaDias(v) {
+  if (!perComparar()) return null; /* comparação desligada na barra de período */
   if (v === null || v === undefined) return h('span', { class: 'dlt neutro', text: 'sem base anterior' });
   var bom = v < 0;
   return h('span', { class: 'dlt ' + (v === 0 ? 'neutro' : bom ? 'bom' : 'ruim') }, [h('i', { 'aria-hidden': 'true', text: v === 0 ? '■' : v > 0 ? '▲' : '▼' }), (v >= 0 ? '+' : '−') + nf1.format(Math.abs(v)) + ' d', h('em', { text: ' vs. período anterior' })]);
@@ -63,7 +57,7 @@ function chipDeltaDias(v) {
 function cockpitHero(E) {
   var K = E.kpis, R = K.receita, S2 = E.receitaSerie;
   var num = h('div', { class: 'cx-num' }); contar(num, R.valor, brl2);
-  var pilula = R.deltaPct === null ? h('span', { class: 'cx-pill', text: 'sem período anterior para comparar' }) : h('span', { class: 'cx-pill ' + (R.deltaPct >= 0 ? 'bom' : 'ruim') }, [h('i', { 'aria-hidden': 'true', text: R.deltaPct >= 0 ? '▲' : '▼' }), (R.deltaPct >= 0 ? '+' : '−') + (Math.abs(R.deltaPct) > 999 ? '999%+' : nf1.format(Math.abs(R.deltaPct)) + '%') + ' vs. período anterior']);
+  var pilula = !perComparar() ? null : R.deltaPct === null ? h('span', { class: 'cx-pill', text: 'sem período anterior para comparar' }) : h('span', { class: 'cx-pill ' + (R.deltaPct >= 0 ? 'bom' : 'ruim') }, [h('i', { 'aria-hidden': 'true', text: R.deltaPct >= 0 ? '▲' : '▼' }), (R.deltaPct >= 0 ? '+' : '−') + (Math.abs(R.deltaPct) > 999 ? '999%+' : nf1.format(Math.abs(R.deltaPct)) + '%') + ' vs. período anterior']);
   var mix = h('div', { class: 'cx-mix' }, [
     empilhada([{ rotulo: 'Convertido ativo', valor: R.ativo.valor, cor: 'var(--g3)' }, { rotulo: 'Convertido orgânico', valor: R.organico.valor, cor: 'var(--g1)' }], { semLegenda: true }),
     h('div', { class: 'cx-mix-l' }, [
@@ -72,7 +66,7 @@ function cockpitHero(E) {
     ])
   ]);
   var esq = h('div', { class: 'cx-l' }, [
-    h('small', { class: 'cx-eyebrow', text: 'RECEITA CONVERTIDA · ÚLTIMOS ' + E.dias + ' DIAS · ' + (E.unidade ? E.unidade.toUpperCase() : 'TODAS AS UNIDADES') }),
+    h('small', { class: 'cx-eyebrow', text: 'RECEITA CONVERTIDA · ' + (E.ate === perHoje() ? (E.dias === 1 ? 'HOJE' : 'ÚLTIMOS ' + E.dias + ' DIAS') : dBRfull(E.de) + ' A ' + dBRfull(E.ate)) + ' · ' + (E.unidade ? E.unidade.toUpperCase() : 'TODAS AS UNIDADES') }),
     num,
     h('div', { class: 'cx-sub' }, [pilula, h('span', { text: R.n + ' ' + plural(R.n, 'orçamento ganho', 'orçamentos ganhos') })]),
     mix,
@@ -268,7 +262,7 @@ function cartaoEquipeTiles(E) {
 
 function corpoExecutivo() {
   pedirExec();
-  var E = S.EX[S.dias + '|' + (S.unidade || '')];
+  var E = S.EX[perChave() + '|' + (S.unidade || '')];
   if (!E) return esqueleto();
   return h('div', { class: 'exe' }, [
     cockpitHero(E), briefing(E),

@@ -53,6 +53,55 @@ export function snapDeAgendamento(a: AgendamentoCrm): CardSnap {
   };
 }
 
+// ------------------------------------------------------------------------------------------------ combo: um card só
+
+const semAcento = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toUpperCase();
+const unicos = (xs: (string | undefined)[]) => [...new Set(xs.map((x) => (x ?? '').trim()).filter(Boolean))];
+
+/**
+ * No Clinilink cada serviço de um combo é um agendamento próprio. Quando o paciente falta, o combo não pode virar vários
+ * cards "como se fossem vários serviços": agendamentos do MESMO paciente, na MESMA unidade e no MESMO horário viram UM card,
+ * com todos os serviços, o valor somado e os ids de origem em agendamentoIds.
+ * Id do card = o de um agendamento que já é card (assim a rotina não duplica); sem nenhum, o menor id do grupo.
+ * Se mais de um agendamento do grupo já virou card separado (cards antigos, de antes do agrupamento), não mexe neles:
+ * seguem como estão, para nunca contar o mesmo valor duas vezes.
+ */
+export function snapsDeAgendamentos(ags: AgendamentoCrm[], jaCards: Iterable<CardSnap> = []): CardSnap[] {
+  const cards = [...jaCards], porId = new Map<string, CardSnap>();
+  for (const c of cards) { porId.set(c.id, c); for (const i of c.agendamentoIds ?? []) if (!porId.has(i)) porId.set(i, c); }
+  const grupos = new Map<string, AgendamentoCrm[]>(), saida: CardSnap[] = [], ordem: (CardSnap | string)[] = [];
+  for (const a of ags) {
+    const nome = semAcento(a.paciente?.nome ?? '');
+    if (!nome || nome === 'SEM NOME' || !a.dataHora) { ordem.push(snapDeAgendamento(a)); continue; }
+    const k = [nome, semAcento(a.unidade?.nome ?? ''), String(a.dataHora).slice(0, 16)].join('|');
+    if (!grupos.has(k)) { grupos.set(k, []); ordem.push(k); }
+    grupos.get(k)!.push(a);
+  }
+  for (const o of ordem) {
+    if (typeof o !== 'string') { saida.push(o); continue; }
+    const g = grupos.get(o)!.sort((x, y) => String(x.agendamentoId).localeCompare(String(y.agendamentoId)));
+    if (g.length === 1) {
+      const c = porId.get(g[0].agendamentoId);
+      if (c && c.id !== g[0].agendamentoId) continue; // este serviço já está dentro de um card de combo
+      saida.push(snapDeAgendamento(g[0])); continue;
+    }
+    const ids = g.map((x) => x.agendamentoId);
+    const emCard = new Set(ids.map((i) => porId.get(i)?.id).filter((x): x is string => !!x));
+    if (emCard.size > 1) { for (const x of g) saida.push(snapDeAgendamento(x)); continue; } // cards antigos separados: ficam como estão
+    const id = [...emCard][0] ?? ids[0];
+    const snaps = g.map(snapDeAgendamento);
+    const itens = unicos(snaps.flatMap((s) => s.itens));
+    const profs = unicos(g.map((x) => x.profissional?.nome));
+    const base = snaps[0];
+    saida.push({
+      ...base, id, itens, valor: Math.round(snaps.reduce((t, s) => t + s.valor, 0) * 100) / 100,
+      subtitulo: [itens.join(' · '), profs.join(' · ')].filter(Boolean).join(' — '),
+      observacao: unicos(snaps.map((s) => s.observacao)).join(' | ') || undefined, agendamentoIds: ids,
+    });
+  }
+  return saida;
+}
+
 // ------------------------------------------------------------------------------------------------ gravação idempotente
 
 /** O funil que recebe os cards da rotina: pelo `dimensao` (+ nome no de orçamento); o mais antigo se houver mais de um. */
@@ -112,7 +161,10 @@ export async function sincronizar(est: EstadoFunis, agora: Date, pedido?: unknow
   ]);
   if (orc.status === 'fulfilled') out.orcamentos = ingerir(est, funilDestino(est, 'orcamento', agora), orc.value.map(snapDeOrcamento), agora);
   else out.erros.push(`Orçamentos: ${(orc.reason as Error).message}`);
-  if (ag.status === 'fulfilled') out.agendamentos = ingerir(est, funilDestino(est, 'agendamento', agora), ag.value.flat().map(snapDeAgendamento), agora);
+  if (ag.status === 'fulfilled') {
+    const fn = funilDestino(est, 'agendamento', agora);
+    out.agendamentos = ingerir(est, fn, snapsDeAgendamentos(ag.value.flat(), est.atribuicoes.filter((a) => a.funilId === fn.id).map((a) => a.originSnapshot)), agora);
+  }
   else out.erros.push(`No-show: ${(ag.reason as Error).message}`);
   est.rotina = { ultimaExecucao: agora.toISOString(), ultimoDia: diaBRT(agora), resultado: out, erro: out.erros.length ? out.erros.join(' | ') : undefined };
   return out;

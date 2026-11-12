@@ -178,12 +178,20 @@ function cartaoPipelineHoje(A) {
   return blocoCartao('Pipeline agora', 'Leads ativos por etapa.', barras(linhas, { max: maxN, alta: true, vazio: 'Nenhum lead ativo.' }), 4, null, 'sec-pipeline');
 }
 
+/* os números do período escolhido na barra do topo (a fila do dia, acima e abaixo, é sempre a de hoje) */
+function resumoDoPeriodoHoje() {
+  pedirAnalise();
+  var T = S.AN[perChave()];
+  var cab = h('div', { class: 'sec-t' }, [h('h2', { text: 'Resumo do período' }), h('p', { text: perTexto('hoje') + (perComparar('hoje') && perFiltrando('hoje') ? ' · comparado com ' + dBRfull(perAnterior('hoje').de) + ' a ' + dBRfull(perAnterior('hoje').ate) : '') })]);
+  return h('section', { class: 'hoje-per' }, [cab, T ? resumoPeriodo(T) : esqueleto()]);
+}
+
 /* ------------------------------------------------------------------ montagem */
 function telaHoje() {
   var D = S.D, A = D.analise;
   if (!D.leads.length) return h('div', { class: 'tela' }, [cabecalhoTela('Hoje', 'A visão do dia de atendimento.'), boasVindas()]);
   return h('div', { class: 'tela hoje' }, [
-    heroHoje(A), gradeKpisHoje(A),
+    heroHoje(A), gradeKpisHoje(A), resumoDoPeriodoHoje(),
     h('div', { class: 'g12' }, [secaoFila(), h('div', { class: 'col-dir sp4' }, [radarCompacto(A), cartaoProximos(A)])]),
     h('div', { class: 'g12' }, [cartaoAtividade(A), cartaoPipelineHoje(A)])
   ]);

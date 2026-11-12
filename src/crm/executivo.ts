@@ -2,6 +2,7 @@ import { diaDoInstante, diffDias, hojeDe, horaDe, somaDias, type EventoLead, typ
 import { LIMITES, MENSAGENS, type Status } from './modelo.js';
 import { marcosDe, type Marcos } from './analise.js';
 import { transicoes, type Periodo } from './tempo.js';
+import { fraseJanela, janela, type Janela } from './periodo.js';
 
 /**
  * Visão executiva e "Meu Report" do CRM. Tudo é calculado dos registros de cada lead (eventos, etapas, valores):
@@ -36,13 +37,13 @@ const dentro = (d: string | undefined, a: string, b: string) => !!d && d >= a &&
 const delta = (a: number, b: number) => (b > 0 ? r1(((a - b) / b) * 100) : null);
 
 /** Pontos do gráfico: diários até 30 dias, semanais acima disso. */
-function pontos(hoje: string, dias: number) {
+function pontos(hoje: string, dias: number, de?: string) {
   const semanal = dias > 30, n = semanal ? Math.ceil(dias / 7) : dias;
   const fins = Array.from({ length: n }, (_, i) => somaDias(hoje, -(n - 1 - i) * (semanal ? 7 : 1)));
   const inis = fins.map((f) => (semanal ? somaDias(f, -6) : f));
   const rotulos = inis.map((d) => `${d.slice(8, 10)}/${d.slice(5, 7)}`);
   const titulos = fins.map((f, i) => (semanal ? `${rotulos[i]} a ${f.slice(8, 10)}/${f.slice(5, 7)}` : new Date(`${f}T12:00:00-03:00`).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' })));
-  const idx = (dia: string) => { const k = diffDias(dia, hoje); if (k < 0) return -1; const i = n - 1 - (semanal ? Math.floor(k / 7) : k); return i >= 0 && i < n ? i : -1; };
+  const idx = (dia: string) => { if (de && dia < de) return -1; const k = diffDias(dia, hoje); if (k < 0) return -1; const i = n - 1 - (semanal ? Math.floor(k / 7) : k); return i >= 0 && i < n ? i : -1; };
   return { semanal, n, rotulos, titulos, idx };
 }
 
@@ -71,8 +72,8 @@ function casosNoShow(leads: Lead[], ini: string, fim: string): CasoNS[] {
 // ------------------------------------------------------------------------------------------------ visão executiva
 export type Alerta = { nivel: 'risco' | 'atencao' | 'info'; tag: string; titulo: string; texto: string; acao: string; leadIds?: string[]; valor?: number };
 
-export function analisarExecutivo(todos: Lead[], agora: Date, dias: Periodo, unidade: string | null, tarefas: Tarefa[], vistas: Map<string, Vista>) {
-  const hoje = hojeDe(agora), ini = somaDias(hoje, -(dias - 1)), ini0 = somaDias(ini, -dias), fim0 = somaDias(ini, -1);
+export function analisarExecutivo(todos: Lead[], agora: Date, per: Periodo | Janela, unidade: string | null, tarefas: Tarefa[], vistas: Map<string, Vista>) {
+  const J = janela(per, agora), dias = J.dias, hoje = J.ate, ini = J.de, ini0 = somaDias(ini, -dias), fim0 = somaDias(ini, -1), hojeReal = hojeDe(agora);
   const unidades = [...new Set(todos.map(un))].sort();
   const L = unidade ? todos.filter((l) => un(l) === unidade) : todos;
   const marcos = new Map<string, Marcos>(todos.map((l) => [l.id, marcosDe(l)]));
@@ -153,13 +154,13 @@ export function analisarExecutivo(todos: Lead[], agora: Date, dias: Periodo, uni
     const prioridade = v?.limite?.excedido || (px && px.situacao === 'atrasada' && px.atraso >= 2) ? 'Risco' : (px && px.situacao === 'atrasada') || (f !== null && f <= 2) ? 'Atenção' : 'Oportunidade';
     const etapa = ETAPAS.find((e) => e.item === v?.item)?.rotulo ?? ROTULO_STATUS[l.status];
     return {
-      id: l.id, nome: l.nome, unidade: un(l), etapa, parado: diffDias(ultimoMov(l), hoje), proxima: px ? px.passo.rotulo : l.status === 'agendado' ? 'Aguardar a data' : 'Aguardar resposta', valor: l.valor, prioridade,
+      id: l.id, nome: l.nome, unidade: un(l), etapa, parado: diffDias(ultimoMov(l), hojeReal), proxima: px ? px.passo.rotulo : l.status === 'agendado' ? 'Aguardar a data' : 'Aguardar resposta', valor: l.valor, prioridade,
       score: l.valor * (prioridade === 'Risco' ? 1.6 : prioridade === 'Atenção' ? 1.25 : 1),
     };
   }).sort((a, b) => b.score - a.score).slice(0, 120).map(({ score: _s, ...x }) => x);
 
   // ---- ritmo e conversão por data de entrada
-  const P = pontos(hoje, dias);
+  const P = pontos(hoje, dias, ini);
   const ritmo = { rotulos: P.rotulos, titulos: P.titulos, todos: Array<number>(P.n).fill(0), ativo: Array<number>(P.n).fill(0), organico: Array<number>(P.n).fill(0), participacao: Array<number | null>(P.n).fill(null) };
   for (const l of L) { const i = P.idx(l.d0); if (i < 0) continue; ritmo.todos[i]++; if (l.status === 'convertido_ativo') ritmo.ativo[i]++; if (l.status === 'convertido_organico') ritmo.organico[i]++; }
   ritmo.participacao = ritmo.todos.map((t, i) => pc(ritmo.ativo[i] + ritmo.organico[i], t));
@@ -202,18 +203,18 @@ export function analisarExecutivo(todos: Lead[], agora: Date, dias: Periodo, uni
   const idade = (n: number) => FAIXAS_IDADE.findIndex(([, ok]) => ok(n));
   const envOrc = ETAPAS.map((e) => {
     const faixas = FAIXAS_IDADE.map(() => 0);
-    for (const l of ativosL) if (vistas.get(l.id)?.item === e.item) faixas[idade(Math.max(0, diffDias(l.statusDesde, hoje)))]++;
+    for (const l of ativosL) if (vistas.get(l.id)?.item === e.item) faixas[idade(Math.max(0, diffDias(l.statusDesde, hojeReal)))]++;
     return { etapa: e.rotulo, faixas };
   }).filter((r) => r.faixas.some((n) => n > 0));
   const nsAbertos = ns.filter((c) => c.etapa === 'No-show' || c.etapa === 'Retomada' || c.etapa === 'Agendado' || c.etapa === 'Sem retorno');
   const envNs = (['No-show', 'Retomada', 'Agendado', 'Sem retorno'] as EtapaNS[]).map((e) => {
     const faixas = FAIXAS_IDADE.map(() => 0);
-    for (const c of nsAbertos) if (c.etapa === e) faixas[idade(Math.max(0, diffDias(c.dia, hoje)))]++;
+    for (const c of nsAbertos) if (c.etapa === e) faixas[idade(Math.max(0, diffDias(c.dia, hojeReal)))]++;
     return { etapa: e as string, faixas };
   }).filter((r) => r.faixas.some((n) => n > 0));
   const critico = (rows: { faixas: number[] }[]) => soma(rows.map((r) => r.faixas[3]));
-  const pontosOrc = ativosL.map((l) => ({ id: l.id, nome: l.nome, etapa: ETAPAS.find((e) => e.item === vistas.get(l.id)?.item)?.rotulo ?? ROTULO_STATUS[l.status], dias: Math.max(0, diffDias(l.statusDesde, hoje)), valor: l.valor }));
-  const pontosNs = nsAbertos.map((c) => ({ id: c.id, nome: c.nome, etapa: c.etapa as string, dias: Math.max(0, diffDias(c.dia, hoje)), valor: c.valor }));
+  const pontosOrc = ativosL.map((l) => ({ id: l.id, nome: l.nome, etapa: ETAPAS.find((e) => e.item === vistas.get(l.id)?.item)?.rotulo ?? ROTULO_STATUS[l.status], dias: Math.max(0, diffDias(l.statusDesde, hojeReal)), valor: l.valor }));
+  const pontosNs = nsAbertos.map((c) => ({ id: c.id, nome: c.nome, etapa: c.etapa as string, dias: Math.max(0, diffDias(c.dia, hojeReal)), valor: c.valor }));
   const envelhecimento = { faixas: FAIXAS_IDADE.map(([r]) => r), orcamentos: envOrc, noshow: envNs, criticosOrcamentos: critico(envOrc), criticosNoshow: critico(envNs), pontos: { orcamentos: pontosOrc, noshow: pontosNs } };
 
   // ---- unidades: volume x conversão (compara todas as unidades, ignora o filtro de unidade)
@@ -243,7 +244,7 @@ export function analisarExecutivo(todos: Lead[], agora: Date, dias: Periodo, uni
   const atividade = [...nomes].map((nome) => ({ nome, ...(mov.get(nome) ?? { movimentos: 0, contatos: 0, respostas: 0, agendamentos: 0 }), receita: soma([...g.ativo, ...g.org].filter((l) => dono(l) === nome).map((l) => l.valor)) })).sort((a, b) => b.movimentos - a.movimentos);
 
   return {
-    dias, hoje, ini, unidade, unidades,
+    dias, hoje, ini, de: ini, ate: hoje, unidade, unidades,
     kpis: {
       receita: { valor: g.valor, n: g.n, ativo: { valor: valAtivo, n: g.ativo.length }, organico: { valor: valOrg, n: g.org.length }, anterior: g0.valor, deltaPct: delta(g.valor, g0.valor) },
       pipeline: { valor: pipelineValor, n: ativosL.length, multiplo: g.valor > 0 ? r1(pipelineValor / g.valor) : null },
@@ -258,8 +259,8 @@ export function analisarExecutivo(todos: Lead[], agora: Date, dias: Periodo, uni
 export type AnaliseExecutiva = ReturnType<typeof analisarExecutivo>;
 
 // ------------------------------------------------------------------------------------------------ meu report (individual)
-export function meuReport(todos: Lead[], agora: Date, dias: Periodo, nome: string, tarefas: Tarefa[], vistas: Map<string, Vista>) {
-  const hoje = hojeDe(agora), ini = somaDias(hoje, -(dias - 1)), ini0 = somaDias(ini, -dias), fim0 = somaDias(ini, -1);
+export function meuReport(todos: Lead[], agora: Date, per: Periodo | Janela, nome: string, tarefas: Tarefa[], vistas: Map<string, Vista>) {
+  const J = janela(per, agora), dias = J.dias, hoje = J.ate, ini = J.de, ini0 = somaDias(ini, -dias), fim0 = somaDias(ini, -1), hojeReal = hojeDe(agora);
   const marcos = new Map<string, Marcos>(todos.map((l) => [l.id, marcosDe(l)]));
   const mk = (l: Lead) => marcos.get(l.id)!;
   const nomes = [...new Set(todos.map(dono))].sort();
@@ -289,7 +290,7 @@ export function meuReport(todos: Lead[], agora: Date, dias: Periodo, nome: strin
   const mediaEq = (campo: 'receita' | 'convertidos' | 'contatos' | 'conversao' | 'taxaResposta' | 'velocidade') => { const v = equipe.filter((e) => e[campo] !== null && e[campo] !== undefined && (campo !== 'conversao' && campo !== 'taxaResposta' && campo !== 'velocidade' ? true : (e[campo] as number) >= 0)).map((e) => e[campo] as number); return v.length ? Math.round(soma(v) / v.length * 10) / 10 : null; };
 
   // ---- séries no tempo
-  const P = pontos(hoje, dias);
+  const P = pontos(hoje, dias, ini);
   const zero = () => Array<number>(P.n).fill(0);
   const S = { contatos: zero(), respostas: zero(), agendamentos: zero(), convertidos: zero(), receita: zero(), recebidos: zero() };
   const heat = Array.from({ length: 7 }, () => Array<number>(24).fill(0));
@@ -319,7 +320,7 @@ export function meuReport(todos: Lead[], agora: Date, dias: Periodo, nome: strin
     n: carteiraL.length, valor: soma(carteiraL.map((l) => l.valor)), atrasadas: minhasTarefas.filter((t) => t.situacao === 'atrasada').length, hoje: minhasTarefas.length,
     foraDoLimite: carteiraL.filter((l) => vistas.get(l.id)?.limite?.excedido).length,
     porEtapa: ETAPAS.map((e) => { const ls = carteiraL.filter((l) => vistas.get(l.id)?.item === e.item); return { etapa: e.rotulo, n: ls.length, valor: soma(ls.map((l) => l.valor)) }; }).filter((x) => x.n > 0),
-    aging: FAIXAS_IDADE.map(([rotulo, ok]) => ({ rotulo, n: carteiraL.filter((l) => ok(Math.max(0, diffDias(l.statusDesde, hoje)))).length })),
+    aging: FAIXAS_IDADE.map(([rotulo, ok]) => ({ rotulo, n: carteiraL.filter((l) => ok(Math.max(0, diffDias(l.statusDesde, hojeReal)))).length })),
   };
   const rec = meus.filter((l) => l.d0 >= ini && l.d0 <= hoje);
   const m = (f: (x: Marcos) => boolean) => rec.filter((l) => f(mk(l))).length;
@@ -352,7 +353,7 @@ export function meuReport(todos: Lead[], agora: Date, dias: Periodo, nome: strin
   // ---- resumo para a diretoria (frases prontas, com os números)
   const resumo: string[] = [];
   const dr = delta(atual.receita, anterior.receita);
-  resumo.push(`${nome} recebeu ${atual.recebidos} ${atual.recebidos === 1 ? 'lead' : 'leads'} nos últimos ${dias} dias e converteu ${atual.convertidos}, gerando ${brl(atual.receita)}${dr !== null ? (Math.abs(dr) <= 500 ? `, ${dr >= 0 ? 'alta' : 'queda'} de ${fmt(Math.abs(dr), 0)}% sobre o período anterior (${brl(anterior.receita)})` : `, contra ${brl(anterior.receita)} no período anterior`) : ''}.`);
+  resumo.push(`${nome} recebeu ${atual.recebidos} ${atual.recebidos === 1 ? 'lead' : 'leads'} ${fraseJanela(J, hojeReal).quando} e converteu ${atual.convertidos}, gerando ${brl(atual.receita)}${dr !== null ? (Math.abs(dr) <= 500 ? `, ${dr >= 0 ? 'alta' : 'queda'} de ${fmt(Math.abs(dr), 0)}% sobre o período anterior (${brl(anterior.receita)})` : `, contra ${brl(anterior.receita)} no período anterior`) : ''}.`);
   if (ranking.receita.de > 1 && atual.receita > 0) resumo.push(`Ocupa a ${ranking.receita.pos}ª posição de ${ranking.receita.de} em receita convertida na equipe.`);
   if (atual.contatos) resumo.push(`Fez ${atual.contatos} ${atual.contatos === 1 ? 'contato' : 'contatos'} e recebeu ${atual.respostas} ${atual.respostas === 1 ? 'resposta' : 'respostas'} (taxa de ${atual.taxaResposta !== null ? fmt(atual.taxaResposta, 0) : '–'}%${media.taxaResposta !== null ? `, média da equipe ${fmt(media.taxaResposta, 0)}%` : ''}).`);
   if (atual.conversao !== null) resumo.push(`A conversão dos leads recebidos é de ${fmt(atual.conversao, 0)}%${media.conversao !== null ? ` (média da equipe ${fmt(media.conversao, 0)}%)` : ''}${atual.velocidade !== null ? `, com ${fmt(atual.velocidade, 1)} dias de ciclo mediano até converter` : ''}.`);
@@ -362,7 +363,7 @@ export function meuReport(todos: Lead[], agora: Date, dias: Periodo, nome: strin
   if (noshow.entraram) resumo.push(`Recuperou ${noshow.recuperados} de ${noshow.entraram} no-shows (${brl(noshow.valorRecuperado)}).`);
 
   return {
-    dias, hoje, ini, nome, nomes, rotulos: P.rotulos, titulos: P.titulos, semanal: P.semanal,
+    dias, hoje, ini, de: ini, ate: hoje, nome, nomes, rotulos: P.rotulos, titulos: P.titulos, semanal: P.semanal,
     atual, anterior, media, ranking, radar, series: S, heat, carteira, funil, descartes, mensagens, noshow, resumo,
     equipe: equipe.map((e) => ({ nome: e.nome, receita: e.receita, convertidos: e.convertidos, contatos: e.contatos, conversao: e.conversao })).sort((a, b) => b.receita - a.receita),
   };

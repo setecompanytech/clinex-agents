@@ -1,5 +1,6 @@
 import { narrar } from './etapa.js';
 import { ETAPA_DO_ITEM, ITEM_DA_ETAPA, ITENS_NOSHOW, LIMITE_NOSHOW } from './modelo-noshow.js';
+import { fraseJanela, janela, type Janela } from './periodo.js';
 import { classeDaEtapa, diaBRT, diasNaEtapa, diffDia, etapaDe, etapaHist, somaDia, stageIdDoHistorico, valorExibido, visiveis } from './pipeline/regras.js';
 import type { Atribuicao, EstadoFunis, Funil, Mov } from './pipeline/tipos.js';
 
@@ -64,20 +65,20 @@ export function dadosNoShow(est: EstadoFunis, agora: Date) {
 type Passagem = { a: Atribuicao; entrada: string; saida?: string; dest?: string; dur?: number; primeira?: boolean };
 
 /** Análise de UMA etapa do No-show (modal): quem está lá, quem entrou e saiu, tempo, destinos, contato e a narrativa. */
-export function analisarNoShow(est: EstadoFunis, agora: Date, itemId: string, dias: 14 | 30 | 90) {
+export function analisarNoShow(est: EstadoFunis, agora: Date, itemId: string, per: number | Janela) {
   const it = ITENS_NOSHOW.find((i) => i.id === itemId);
   const f = funilNoShow(est);
   if (!it || !(itemId in ETAPA_DO_ITEM) || !f) return null;
   const chave = ETAPA_DO_ITEM[itemId]; // null = a entrada ("Paciente faltou")
   const entrada = chave === null;
-  const hoje = diaBRT(agora);
+  const J = janela(per, agora), dias = J.dias, hoje = J.ate;
   const semanal = dias > 30;
   const nB = semanal ? Math.ceil(dias / 7) : dias, passoB = semanal ? 7 : 1;
   const fins = Array.from({ length: nB }, (_, i) => somaDia(hoje, -(nB - 1 - i) * passoB));
   const inis = fins.map((x) => (semanal ? somaDia(x, -6) : x));
   const rotulos = inis.map((d) => `${d.slice(8, 10)}/${d.slice(5, 7)}`);
   const titulos = fins.map((x, i) => (semanal ? `${rotulos[i]} a ${x.slice(8, 10)}/${x.slice(5, 7)}` : `${x.slice(8, 10)}/${x.slice(5, 7)}`));
-  const ini = inis[0], ini0 = somaDia(ini, -dias), fim0 = somaDia(ini, -1);
+  const ini = J.de, ini0 = somaDia(ini, -dias), fim0 = somaDia(ini, -1);
   const balde = (dia: string) => { for (let i = 0; i < nB; i++) if (dia >= inis[i] && dia <= fins[i]) return i; return -1; };
 
   const cartoes = visiveis(f, est.atribuicoes);
@@ -98,9 +99,9 @@ export function analisarNoShow(est: EstadoFunis, agora: Date, itemId: string, di
       passagens.push({ a, entrada: dia, primeira: i === 0, saida: j >= 0 ? diaBRT(h[j].em) : undefined, dest: j >= 0 ? chaveDe(h[j]) ?? undefined : undefined, dur: j >= 0 ? Math.max(0, diffDia(dia, diaBRT(h[j].em))) : undefined });
     }
   }
-  const entP = passagens.filter((p) => p.entrada >= ini);
+  const entP = passagens.filter((p) => p.entrada >= ini && p.entrada <= hoje);
   const entP0 = passagens.filter((p) => p.entrada >= ini0 && p.entrada <= fim0);
-  const saiP = passagens.filter((p) => p.saida && p.saida >= ini);
+  const saiP = passagens.filter((p) => p.saida && p.saida >= ini && p.saida <= hoje);
   const entradas = Array(nB).fill(0) as number[], saidas = Array(nB).fill(0) as number[];
   for (const p of entP) { const b = balde(p.entrada); if (b >= 0) entradas[b]++; }
   for (const p of saiP) { const b = balde(p.saida!); if (b >= 0) saidas[b]++; }
@@ -161,7 +162,7 @@ export function analisarNoShow(est: EstadoFunis, agora: Date, itemId: string, di
   const origem = entrada ? (() => { const m = new Map<string, number>(); for (const p of entP) { const o = p.a.ultimoSnapshot.unidade || p.a.ultimoSnapshot.origem || 'Não informada'; m.set(o, (m.get(o) ?? 0) + 1); } return [...m].sort((x, y) => y[1] - x[1]).map(([nome, n]) => ({ nome, n })); })() : [];
 
   const out = {
-    item: { id: it.id, titulo: it.titulo, limiteDias, entrada }, dias, semanal, rotulos, titulos,
+    item: { id: it.id, titulo: it.titulo, limiteDias, entrada }, dias, de: J.de, ate: J.ate, ...fraseJanela(J, diaBRT(agora)), semanal, rotulos, titulos,
     agora: { n: aqui.length, valor: valorAqui, ticket: aqui.length ? Math.round(valorAqui / aqui.length) : 0, atrasados: 0, estourados: estourados.length, quase: quase.length, valorRisco: soma([...estourados, ...quase].map(valorDe)), antigo: antigo ? { id: antigo.cardId, nome: antigo.ultimoSnapshot.paciente, dias: idadeDe(antigo) } : null, faixas, porUnidade: agrupa((a) => a.ultimoSnapshot.unidade || 'Sem unidade'), porAtendente: agrupa((a) => est.extras[a.cardId]?.responsavel || 'Sem responsável'), topValor },
     fluxo: { entradas: entP.length, entradasAnt: entP0.length, saidas: saiP.length, avancaram, descartaram, taxaAvanco: pct(avancaram, baseDest.length), destinos, destinosHistorico: !periodoSai.length && baseDest.length > 0, tempoMedio, serie: { entradas, saidas } },
     contatos: { tem, total: contatos, whatsapp: whats, ligacao: lig, leads: comContato.size, responderam: responderam.size, taxaResposta, serie: contPorBalde },

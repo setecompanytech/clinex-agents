@@ -2,6 +2,7 @@ import { diaDoInstante, diffDias, hojeDe, horaDe, somaDias, type Lead, type Tare
 import type { Status } from './modelo.js';
 import { LIMITES, MENSAGENS } from './modelo.js';
 import { marcosDe, type Marcos } from './analise.js';
+import { janela as janelaDe, type Janela } from './periodo.js';
 
 /**
  * Evolução no tempo para a tela Análises do CRM. O estado de cada lead em cada dia é reconstruído do histórico de
@@ -44,8 +45,8 @@ export function statusNoDia(tr: Trans[], dia: string): Status | null {
   return s;
 }
 
-export function analisarTempo(leads: Lead[], agora: Date, dias: Periodo, tarefas: Tarefa[], vistas: Map<string, Vista>) {
-  const hoje = hojeDe(agora);
+export function analisarTempo(leads: Lead[], agora: Date, per: Periodo | Janela, tarefas: Tarefa[], vistas: Map<string, Vista>) {
+  const J = janelaDe(per, agora), dias = J.dias, hoje = J.ate, hojeReal = hojeDe(agora);
   const semanal = dias > 30;
   const n = semanal ? Math.ceil(dias / 7) : dias;
   const passo = semanal ? 7 : 1;
@@ -53,7 +54,7 @@ export function analisarTempo(leads: Lead[], agora: Date, dias: Periodo, tarefas
   const inis = fins.map((f) => (semanal ? somaDias(f, -6) : f));
   const rotulos = inis.map((d) => `${d.slice(8, 10)}/${d.slice(5, 7)}`);
   const titulos = fins.map((f, i) => (semanal ? `${rotulos[i]} a ${f.slice(8, 10)}/${f.slice(5, 7)}` : new Date(`${f}T12:00:00-03:00`).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' })));
-  const idx = (dia: string) => { const k = diffDias(dia, hoje); if (k < 0) return -1; const i = n - 1 - (semanal ? Math.floor(k / 7) : k); return i >= 0 && i < n ? i : -1; };
+  const idx = (dia: string) => { if (dia < J.de) return -1; const k = diffDias(dia, hoje); if (k < 0) return -1; const i = n - 1 - (semanal ? Math.floor(k / 7) : k); return i >= 0 && i < n ? i : -1; };
   const zero = () => Array<number>(n).fill(0);
   const marcos = new Map<string, Marcos>(leads.map((l) => [l.id, marcosDe(l)]));
   const trs = new Map(leads.map((l) => [l.id, transicoes(l)]));
@@ -64,7 +65,7 @@ export function analisarTempo(leads: Lead[], agora: Date, dias: Periodo, tarefas
   const ciclosPorPonto: number[][] = Array.from({ length: n }, () => []);
   const heat = Array.from({ length: 7 }, () => Array<number>(24).fill(0));
   const msgs = new Map<number, { env: number; resp: number }>();
-  const iniPeriodo = inis[0];
+  const iniPeriodo = J.de;
   for (const l of leads) {
     const i0 = idx(l.d0); if (i0 >= 0) S.novos[i0]++;
     const evs = [...l.eventos].sort((a, b) => a.quando.localeCompare(b.quando));
@@ -110,7 +111,7 @@ export function analisarTempo(leads: Lead[], agora: Date, dias: Periodo, tarefas
   // ------------------------------------------------------------------ funil por semana de entrada (coortes)
   const semanas = Math.ceil(dias / 7);
   const coortes = Array.from({ length: semanas }, (_, k) => {
-    const fim = somaDias(hoje, -7 * (semanas - 1 - k)), ini = somaDias(fim, -6);
+    const fim = somaDias(hoje, -7 * (semanas - 1 - k)), ini6 = somaDias(fim, -6), ini = ini6 < J.de ? J.de : ini6;
     const ls = leads.filter((l) => l.d0 >= ini && l.d0 <= fim);
     const p = (f: (m: Marcos) => boolean) => r1(porcento(ls.filter((l) => f(marcos.get(l.id)!)).length, ls.length));
     return { rotulo: `${ini.slice(8, 10)}/${ini.slice(5, 7)}`, leads: ls.length, contatados: p((m) => !!m.contatado), responderam: p((m) => !!m.respondeu), agendaram: p((m) => !!m.agendou), compareceram: p((m) => !!m.compareceu) };
@@ -151,6 +152,18 @@ export function analisarTempo(leads: Lead[], agora: Date, dias: Periodo, tarefas
   const exames = grupo((l) => { const e = (l.exame || 'Sem exame informado').trim(); return e.charAt(0).toUpperCase() + e.slice(1); });
   const mensagens = MENSAGENS.map((m) => { const x = msgs.get(m.n) ?? { env: 0, resp: 0 }; return { n: m.n, titulo: m.titulo, enviadas: x.env, respostas: x.resp, taxa: r1(porcento(x.resp, x.env)) }; }).filter((m) => m.enviadas > 0);
 
+  // ------------------------------------------------------------------ o que o sistema fez sozinho no período (tela Regras)
+  const autoContagem = new Map<string, number>();
+  for (const l of leads) {
+    for (const e of l.eventos) {
+      if (e.tipo !== 'automacao' && !(e.tipo === 'descarte' && e.auto)) continue;
+      const d = diaDoInstante(e.quando); if (d < J.de || d > J.ate) continue;
+      const k = e.tipo === 'descarte' ? 'Descartes automáticos (sem retorno)' : /para Sem retorno/.test(e.texto) ? 'Leads movidos para Sem retorno' : /Confirmação/.test(e.texto) ? 'Confirmações de agendamento registradas' : 'Outras ações automáticas';
+      autoContagem.set(k, (autoContagem.get(k) ?? 0) + 1);
+    }
+  }
+  const automaticas = [...autoContagem.entries()].map(([rotulo, n]) => ({ rotulo, n })).sort((a, b) => b.n - a.n);
+
   // ------------------------------------------------------------------ equipe e carga (hoje)
   const atrasados = new Set(tarefas.filter((t) => t.situacao === 'atrasada').map((t) => t.leadId));
   const eq = new Map<string, Lead[]>();
@@ -166,7 +179,7 @@ export function analisarTempo(leads: Lead[], agora: Date, dias: Periodo, tarefas
   const valores = faixas.map(([rotulo, ok]) => { const ls = ativosL.filter((l) => ok(l.valor)); return { rotulo, n: ls.length, valor: soma(ls.map((l) => l.valor)) }; });
   const faixasAging: [string, (n: number) => boolean][] = [['0–1 dia', (n) => n <= 1], ['2–3 dias', (n) => n >= 2 && n <= 3], ['4–7 dias', (n) => n >= 4 && n <= 7], ['8–14 dias', (n) => n >= 8 && n <= 14], ['15+ dias', (n) => n >= 15]];
   const aging = (['aberto', 'sem_retorno', 'negociacao'] as Status[]).map((s) => ({
-    status: s, faixas: faixasAging.map(([rotulo, ok]) => ({ rotulo, n: leads.filter((l) => l.status === s && ok(diffDias(l.statusDesde, hoje))).length })),
+    status: s, faixas: faixasAging.map(([rotulo, ok]) => ({ rotulo, n: leads.filter((l) => l.status === s && ok(diffDias(l.statusDesde, hojeReal))).length })),
   }));
   void vistas;
 
@@ -195,9 +208,9 @@ export function analisarTempo(leads: Lead[], agora: Date, dias: Periodo, tarefas
   if (!destaques.length) add('info', 'Sem mudanças relevantes em relação ao período anterior.');
 
   return {
-    dias, semanal, hoje, rotulos, titulos,
+    dias, semanal, hoje, de: J.de, ate: J.ate, rotulos, titulos,
     series: { ...S, taxas, ciclo, pipeline: pipe },
-    coortes, atual, anterior, funil, descartes, origem, exames, mensagens, equipe, valores, aging, heat, destaques,
+    coortes, atual, anterior, funil, descartes, origem, exames, mensagens, automaticas, equipe, valores, aging, heat, destaques,
     limites: { janelaInicioH: LIMITES.janelaInicioH },
   };
 }

@@ -3,23 +3,19 @@
 export const analises = String.raw`
 var COR_ETAPA = { aberto: 'var(--c-aberto)', sem_retorno: 'var(--c-sem)', negociacao: 'var(--c-neg)', agendado: 'var(--c-agend)' };
 
-function pedirAnalise(dias) {
+function pedirAnalise() {
+  var dias = perChave();
   if (S.ANfresh[dias] || S.ANcarregando[dias]) return;
   S.ANcarregando[dias] = true;
-  api('GET', '/analise?dias=' + dias).then(function (r) { S.AN[dias] = r; S.ANfresh[dias] = true; S.ANcarregando[dias] = false; if (S.aba === 'analises') desenhar(true); })
+  api('GET', '/analise?' + perQs()).then(function (r) { S.AN[dias] = r; S.ANfresh[dias] = true; S.ANcarregando[dias] = false; desenhar(true); })
     .catch(function (e) { S.ANcarregando[dias] = false; aviso('Não consegui calcular as análises: ' + e.message, 'erro'); });
 }
 
-function seletorPeriodo() {
-  return h('div', { class: 'seg', role: 'group', 'aria-label': 'Período' }, [14, 30, 90].map(function (d) {
-    return h('button', { type: 'button', 'aria-pressed': String(S.dias === d), onclick: function () { S.dias = d; gravarLS('crm-dias', String(d)); pedirAnalise(d); desenhar(true); }, text: d + ' dias' });
-  }));
-}
 function secaoT(titulo, sub) { return h('div', { class: 'sec-t' }, [h('h2', { text: titulo }), sub ? h('p', { text: sub }) : null]); }
 function sufixo(T) { return T.semanal ? 'por semana' : 'por dia'; }
 
 function kpiP(T, rotulo, valor, atual, ant, o, serie, cor) {
-  return kpi2({ rotulo: rotulo, valor: valor, delta: dlt(atual, ant, { pp: o.pp, bom: o.bom, vs: 'vs. ' + T.dias + ' dias antes' }), serie: serie, cor: cor });
+  return kpi2({ rotulo: rotulo, valor: valor, delta: perComparar() ? dlt(atual, ant, { pp: o.pp, bom: o.bom, vs: 'vs. ' + T.dias + ' ' + plural(T.dias, 'dia', 'dias') + ' antes' }) : null, serie: serie, cor: cor });
 }
 function resumoPeriodo(T) {
   var a = T.atual, p = T.anterior, s = T.series;
@@ -34,7 +30,7 @@ function resumoPeriodo(T) {
 }
 function destaques(T) {
   return h('section', { class: 'cartao dest-card' }, [
-    h('header', { class: 'card-h' }, [h('div', null, [h('h3', { text: 'O que mudou' }), h('p', { text: 'Os últimos ' + T.dias + ' dias comparados com os ' + T.dias + ' anteriores.' })])]),
+    h('header', { class: 'card-h' }, [h('div', null, [h('h3', { text: 'O que mudou' }), h('p', { text: 'De ' + dBRfull(T.de) + ' a ' + dBRfull(T.ate) + ', comparado com os ' + T.dias + ' ' + plural(T.dias, 'dia anterior', 'dias anteriores') + '.' })])]),
     h('ul', { class: 'dest-l' }, T.destaques.map(function (d) { return h('li', { class: 'dl-' + d.nivel }, [h('i', { 'aria-hidden': 'true' }), d.texto]); }))
   ]);
 }
@@ -97,7 +93,7 @@ function cartaoCoortes(T) {
 }
 function cartaoFunilPeriodo(T) {
   var F = T.funil, cor = ['var(--f0)', 'var(--f1)', 'var(--f2)', 'var(--f3)', 'var(--f4)'];
-  return blocoCartao('Funil do período', 'Leads que entraram nos últimos ' + T.dias + ' dias e até onde chegaram.', barras(F.map(function (f, i) {
+  return blocoCartao('Funil do período', 'Leads que entraram no período e até onde chegaram.', barras(F.map(function (f, i) {
     return { rotulo: f.etapa, valor: f.n, texto: nf0.format(f.n), cor: cor[i], extra: pct(f.pct) + (i && f.perda > 0 ? '  ·  −' + nf0.format(f.perda) + '%' : ''), dica: { titulo: f.etapa, linhas: [{ valor: nf0.format(f.n), rotulo: 'leads' }, { valor: pct(f.pct), rotulo: 'do total' }].concat(i ? [{ valor: '−' + nf0.format(f.perda) + '%', rotulo: 'perdidos desde a etapa anterior' }] : []) } };
   }), { max: F[0].n || 1, alta: true, vazio: 'Sem leads no período.' }), 5);
 }
@@ -105,7 +101,7 @@ function cartaoFunilPeriodo(T) {
 /* ------------------------------------------------------------------ comportamento */
 function cartaoCalor(T) {
   var total = soma(T.heat.map(soma));
-  return blocoCartao('Quando os pacientes respondem', 'Respostas por dia da semana e hora, nos últimos ' + T.dias + ' dias. Mais escuro, mais respostas.', total ? mapaCalor(T.heat) : vazio('Registre as respostas dos pacientes para ver o melhor horário.'), 7);
+  return blocoCartao('Quando os pacientes respondem', 'Respostas por dia da semana e hora, no período. Mais escuro, mais respostas.', total ? mapaCalor(T.heat) : vazio('Registre as respostas dos pacientes para ver o melhor horário.'), 7);
 }
 function cartaoMensagensT(T) {
   var lista = T.mensagens, tot = soma(lista.map(function (m) { return m.enviadas; })), resp = soma(lista.map(function (m) { return m.respostas; })), media = tot ? resp / tot * 100 : 0;
@@ -160,8 +156,8 @@ var cartaoEqTaxa = miniEquipe('Conversão', 'Dos leads encerrados no período.',
 
 /* ------------------------------------------------------------------ montagem */
 function corpoEvolucao() {
-  pedirAnalise(S.dias);
-  var T = S.AN[S.dias];
+  pedirAnalise();
+  var T = S.AN[perChave()];
   if (!T) return esqueleto();
   return [
     resumoPeriodo(T), destaques(T),

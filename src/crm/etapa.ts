@@ -1,5 +1,6 @@
 import { diffDias, hojeDe, somaDias, type Lead, type Vista } from './motor.js';
 import { transicoes, type Periodo } from './tempo.js';
+import { fraseJanela, janela, type Janela } from './periodo.js';
 import { ITENS, LIMITES, type Status } from './modelo.js';
 
 /**
@@ -37,11 +38,11 @@ type Passagem = { id: string; entrada: string; saida?: string; dest?: Status; du
 export type Narrativa = { titulo: string; texto: string };
 export type Insight = { tom: 'bom' | 'atencao' | 'risco' | 'info'; titulo: string; texto: string };
 
-export function analisarEtapa(todos: Lead[], agora: Date, itemId: string, dias: Periodo, vistas: Map<string, Vista>) {
+export function analisarEtapa(todos: Lead[], agora: Date, itemId: string, per: Periodo | Janela, vistas: Map<string, Vista>) {
   const it = ITENS.find((i) => i.id === itemId);
   const def = DEF[itemId];
   if (!it || !def) return null;
-  const hoje = hojeDe(agora);
+  const J = janela(per, agora), dias = J.dias, hoje = J.ate, hojeReal = hojeDe(agora);
   const semanal = dias > 30;
   const nB = semanal ? Math.ceil(dias / 7) : dias;
   const passoB = semanal ? 7 : 1;
@@ -49,7 +50,7 @@ export function analisarEtapa(todos: Lead[], agora: Date, itemId: string, dias: 
   const inis = fins.map((f) => (semanal ? somaDias(f, -6) : f));
   const rotulos = inis.map((d) => `${d.slice(8, 10)}/${d.slice(5, 7)}`);
   const titulos = fins.map((f, i) => (semanal ? `${rotulos[i]} a ${f.slice(8, 10)}/${f.slice(5, 7)}` : `${f.slice(8, 10)}/${f.slice(5, 7)}`));
-  const ini = inis[0], ini0 = somaDias(ini, -dias), fim0 = somaDias(ini, -1);
+  const ini = J.de, ini0 = somaDias(ini, -dias), fim0 = somaDias(ini, -1);
   const balde = (dia: string) => { for (let i = 0; i < nB; i++) if (dia >= inis[i] && dia <= fins[i]) return i; return -1; };
   const dentro = (s: Status) => def.st.includes(s);
 
@@ -65,9 +66,9 @@ export function analisarEtapa(todos: Lead[], agora: Date, itemId: string, dias: 
       passagens.push({ lead: l, id: l.id, entrada: tr[i].dia, saida: out?.dia, dest: out?.status, dur: out ? Math.max(0, diffDias(tr[i].dia, out.dia)) : undefined });
     }
   }
-  const entP = passagens.filter((p) => p.entrada >= ini);
+  const entP = passagens.filter((p) => p.entrada >= ini && p.entrada <= hoje);
   const entP0 = passagens.filter((p) => p.entrada >= ini0 && p.entrada <= fim0);
-  const saiP = passagens.filter((p) => p.saida && p.saida >= ini);
+  const saiP = passagens.filter((p) => p.saida && p.saida >= ini && p.saida <= hoje);
   const entradas = Array(nB).fill(0) as number[], saidas = Array(nB).fill(0) as number[];
   for (const p of entP) { const b = balde(p.entrada); if (b >= 0) entradas[b]++; }
   for (const p of saiP) { const b = balde(p.saida!); if (b >= 0) saidas[b]++; }
@@ -78,7 +79,7 @@ export function analisarEtapa(todos: Lead[], agora: Date, itemId: string, dias: 
     if (v.item === itemId) return true;
     return it.tipo === 'passo' && l.status === 'negociacao' && v.proximo?.passo.item === itemId;
   });
-  const idadeDe = (l: Lead) => Math.max(0, diffDias(l.status === 'aberto' ? l.d0 : l.statusDesde, hoje));
+  const idadeDe = (l: Lead) => Math.max(0, diffDias(l.status === 'aberto' ? l.d0 : l.statusDesde, hojeReal));
   const faixas = [{ rotulo: '0 a 1 dia', n: 0, valor: 0 }, { rotulo: '2 a 3 dias', n: 0, valor: 0 }, { rotulo: '4 a 7 dias', n: 0, valor: 0 }, { rotulo: '8 a 14 dias', n: 0, valor: 0 }, { rotulo: '15+ dias', n: 0, valor: 0 }];
   for (const l of aqui) { const d = idadeDe(l); const f = faixas[d <= 1 ? 0 : d <= 3 ? 1 : d <= 7 ? 2 : d <= 14 ? 3 : 4]; f.n++; f.valor += l.valor; }
   const agrupa = (chave: (l: Lead) => string) => {
@@ -117,7 +118,7 @@ export function analisarEtapa(todos: Lead[], agora: Date, itemId: string, dias: 
       for (const e of l.eventos) {
         const dia = e.quando.slice(0, 10);
         if (e.tipo === 'contato' && (def.passo ? e.passo === def.passo : !e.fase || dentro(e.fase as Status))) {
-          if (dia >= ini) { contatos++; if (e.canal === 'ligacao') lig++; else whats++; const b = balde(dia); if (b >= 0) contPorBalde[b]++; }
+          if (dia >= ini && dia <= hoje) { contatos++; if (e.canal === 'ligacao') lig++; else whats++; const b = balde(dia); if (b >= 0) contPorBalde[b]++; }
           comContato.add(l.id); contatou = true;
         } else if (e.tipo === 'resposta' && contatou) responderam.add(l.id);
       }
@@ -140,7 +141,7 @@ export function analisarEtapa(todos: Lead[], agora: Date, itemId: string, dias: 
 
   const entN = entP.length, entN0 = entP0.length;
   const out = {
-    item: { id: it.id, titulo: it.titulo, limiteDias }, dias, semanal, rotulos, titulos,
+    item: { id: it.id, titulo: it.titulo, limiteDias }, dias, de: J.de, ate: J.ate, ...fraseJanela(J, hojeReal), semanal, rotulos, titulos,
     agora: { n: aqui.length, valor: valorAqui, ticket: aqui.length ? Math.round(valorAqui / aqui.length) : 0, atrasados: atrasados.length, estourados: estourados.length, quase: quase.length, valorRisco: soma([...estourados, ...quase].map((l) => l.valor)), antigo: antigo ? { id: antigo.id, nome: antigo.nome, dias: idadeDe(antigo) } : null, faixas, porUnidade: agrupa((l) => l.unidade || 'Sem unidade'), porAtendente: agrupa((l) => l.atendente || 'Sem responsável'), topValor },
     fluxo: { entradas: entN, entradasAnt: entN0, saidas: saiP.length, avancaram, descartaram, taxaAvanco: pct(avancaram, baseDest.length), destinos, destinosHistorico: !periodoSai.length && baseDest.length > 0, tempoMedio, serie: { entradas, saidas } },
     contatos: { tem, total: contatos, whatsapp: whats, ligacao: lig, leads: comContato.size, responderam: responderam.size, taxaResposta, serie: contPorBalde },
@@ -165,7 +166,7 @@ export function narrar(titulo: string, def: { st: string[]; entrada?: boolean },
   // 1. retrato
   if (def.entrada) {
     const top = d.origem[0];
-    historia.push({ titulo: 'Como os leads chegam', texto: `Nos últimos ${dias} dias entraram ${pl(F.entradas, 'lead', 'leads')}${delta === null ? '' : `, ${delta >= 0 ? 'uma alta' : 'uma queda'} de ${Math.abs(delta)}% sobre os ${dias} dias anteriores (${F.entradasAnt})`}.${top ? ` A origem que mais traz gente é ${top.nome}, com ${top.n} (${pct(top.n, F.entradas)}%).` : ''} Tudo começa aqui: o dia da entrada é o D0, e é dele que se contam todos os prazos do guia.` });
+    historia.push({ titulo: 'Como os leads chegam', texto: `${d.Quando} entraram ${pl(F.entradas, 'lead', 'leads')}${delta === null ? '' : `, ${delta >= 0 ? 'uma alta' : 'uma queda'} de ${Math.abs(delta)}% sobre os ${dias} dias anteriores (${F.entradasAnt})`}.${top ? ` A origem que mais traz gente é ${top.nome}, com ${top.n} (${pct(top.n, F.entradas)}%).` : ''} Tudo começa aqui: o dia da entrada é o D0, e é dele que se contam todos os prazos do guia.` });
     if (delta !== null && delta <= -20) insights.push({ tom: 'atencao', titulo: 'Entrada de leads em queda', texto: `Vieram ${F.entradas} leads contra ${F.entradasAnt} no período anterior (${delta}%). Vale checar campanhas e canais antes que a fila esvazie.` });
     else if (delta !== null && delta >= 20) insights.push({ tom: 'bom', titulo: 'Mais leads chegando', texto: `Entraram ${F.entradas} leads, ${delta}% a mais que no período anterior. Garanta que o 1º contato ainda saia no D1.` });
     if (top && F.entradas >= 5 && (pct(top.n, F.entradas) ?? 0) >= 60) insights.push({ tom: 'info', titulo: 'Dependência de uma origem', texto: `${pct(top.n, F.entradas)}% dos leads vêm de ${top.nome}. Se esse canal falhar, o funil seca.` });
@@ -177,8 +178,8 @@ export function narrar(titulo: string, def: { st: string[]; entrada?: boolean },
     ? `Agora há **${pl(A.n, 'lead', 'leads')}** na etapa "${titulo}", somando **${brl(A.valor)}** em orçamentos (ticket médio de ${brl(A.ticket)}).${A.antigo ? ` O mais antigo é ${A.antigo.nome}, há ${pl(A.antigo.dias, 'dia', 'dias')} nesta etapa.` : ''}`
     : `Neste momento não há nenhum lead na etapa "${titulo}".`;
   const fluxoTxt = F.entradas || F.saidas
-    ? ` Nos últimos ${dias} dias, ${pl(F.entradas, 'lead entrou', 'leads entraram')}${delta === null ? '' : ` (${delta >= 0 ? '+' : ''}${delta}% sobre o período anterior)`} e ${pl(F.saidas, 'saiu', 'saíram')}.`
-    : ` Nos últimos ${dias} dias ninguém entrou nem saiu desta etapa.`;
+    ? ` ${d.Quando}, ${pl(F.entradas, 'lead entrou', 'leads entraram')}${delta === null ? '' : ` (${delta >= 0 ? '+' : ''}${delta}% sobre o período anterior)`} e ${pl(F.saidas, 'saiu', 'saíram')}.`
+    : ` ${d.Quando} ninguém entrou nem saiu desta etapa.`;
   historia.push({ titulo: 'O retrato de agora', texto: aquiTxt + fluxoTxt });
 
   // 2. para onde vão

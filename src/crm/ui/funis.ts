@@ -78,6 +78,7 @@ function fvRecarregarCards() { return fvCarregarCards().then(function () { if (S
 
 /* ---- tela */
 function telaPipelines() {
+  if (perSincPipelines() && FV.dados && !FV.carregando) fvRecarregarCards(); /* o período da barra do topo manda nas datas do quadro */
   if (!FV.lista && !FV.carregando) { FV.carregando = true; fvAtualizar(); }
   else if (S.FVstale && !FV.carregando && FV.lista) { FV.carregando = true; fvAtualizar(); }
   var cab = cabecalhoTela('Pipelines', 'Os funis do Clinilink com colunas, histórico e relatórios. O guia de atendimento entra por cima de cada card.', h('div', { class: 'tela-ac' }, FV.lista ? [
@@ -107,17 +108,15 @@ function fvFiltros() {
   var modo = h('div', { class: 'seg', role: 'group', 'aria-label': 'Recorte', title: 'V2: o período recorta todas as colunas, exceto Em aberto e Em negociação, que sempre mostram tudo. V1: o período só recorta a 1ª coluna.' }, [['v2', 'V2'], ['v1', 'V1']].map(function (p) {
     return h('button', { type: 'button', 'aria-pressed': String(f.modo === p[0]), text: p[1], onclick: function () { f.modo = p[0]; if (f.de || f.ate) fvRecarregarCards(); desenhar(true); } });
   }));
-  var temFiltro = f.de || f.ate || f.unidade || f.responsavel || f.q || f.estrelas;
+  var temFiltro = perFiltrando('pipelines') || f.unidade || f.responsavel || f.q || f.estrelas;
   return h('div', { class: 'fv-filtros' }, [
     busca,
     h('label', { class: 'fv-f' }, [h('span', { text: 'Filtrar por' }), por]),
-    h('label', { class: 'fv-f' }, [h('span', { text: 'De' }), h('input', { class: 'in', type: 'date', value: f.de || null, onchange: function (e) { f.de = e.target.value; fvRecarregarCards(); } })]),
-    h('label', { class: 'fv-f' }, [h('span', { text: 'Até' }), h('input', { class: 'in', type: 'date', value: f.ate || null, onchange: function (e) { f.ate = e.target.value; fvRecarregarCards(); } })]),
     h('label', { class: 'fv-f' }, [h('span', { text: 'Recorte' }), modo]),
     h('select', { class: 'in', 'aria-label': 'Unidade', onchange: function (e) { f.unidade = e.target.value; fvRecarregarCards(); } }, [h('option', { value: '', text: 'Todas as unidades' })].concat(D.unidades.map(function (u) { return h('option', { value: u, text: u, selected: f.unidade === u }); }))),
     h('select', { class: 'in', 'aria-label': 'Responsável', onchange: function (e) { f.responsavel = e.target.value; fvRecarregarCards(); } }, [h('option', { value: '', text: 'Todos os responsáveis' })].concat(D.responsaveis.map(function (u) { return h('option', { value: u, text: u, selected: f.responsavel === u }); }))),
     h('select', { class: 'in', 'aria-label': 'Estrelas', onchange: function (e) { f.estrelas = Number(e.target.value); desenhar(true); } }, [h('option', { value: '0', text: 'Todas as estrelas' })].concat([1, 2, 3, 4, 5].map(function (n) { return h('option', { value: String(n), text: fvEstrelas(n), selected: f.estrelas === n }); }))),
-    temFiltro ? botao('Limpar', '', function () { FV.f = { modo: f.modo, por: 'criacao', de: '', ate: '', unidade: '', responsavel: '', q: '', estrelas: 0 }; fvRecarregarCards(); desenhar(true); }, 'x') : null
+    temFiltro ? botao('Limpar', '', function () { FV.f = { modo: f.modo, por: 'criacao', de: '', ate: '', unidade: '', responsavel: '', q: '', estrelas: 0 }; perSalvar('pipelines', { id: 'tudo', cmp: perComparar('pipelines') }); FV.EXE = null; FV.REL = null; FV.LOG = null; fvRecarregarCards(); desenhar(true); }, 'x') : null
   ]);
 }
 

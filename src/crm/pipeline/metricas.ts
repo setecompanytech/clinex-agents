@@ -1,5 +1,6 @@
 import { atrasado, classeDaEtapa, diaBRT, diasNaEtapa, diffDia, ehGanho, entradaEmClasse, etapaDe, etapaHist, somaDia, stageIdDoHistorico, valorExibido, visiveis, type Classe } from './regras.js';
 import type { Atribuicao, EstadoFunis, Funil } from './tipos.js';
+import { janela, type Janela } from '../periodo.js';
 
 /**
  * Relatório de produtividade (documento 7.1) e painel executivo (7.2), calculados só a partir dos cards e do
@@ -89,8 +90,8 @@ export function relatorio(est: EstadoFunis, funis: Funil[], de: string, ate: str
 
 // ------------------------------------------------------------------------------------------------ painel executivo
 
-export function painelExecutivo(est: EstadoFunis, f: Funil, dias: number, agora: Date) {
-  const hoje = diaBRT(agora), ini = somaDia(hoje, -(dias - 1)), ini0 = somaDia(ini, -dias), fim0 = somaDia(ini, -1);
+export function painelExecutivo(est: EstadoFunis, f: Funil, per: number | Janela, agora: Date) {
+  const J = janela(per, agora), dias = J.dias, hoje = J.ate, ini = J.de, ini0 = somaDia(ini, -dias), fim0 = somaDia(ini, -1);
   const cards = visiveis(f, est.atribuicoes);
   const dentro = (d: string | undefined, a: string, b: string) => !!d && d >= a && d <= b;
   const info = cards.map((a) => {

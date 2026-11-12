@@ -12,6 +12,7 @@ function botoesRapidos(lista) {
 function msgCard(m, o) {
   o = o || {};
   var corpo = h('div', { class: 'msg-c' }, [
+    o.perf || null,
     m.nota ? h('p', { class: 'msg-nota', text: m.nota }) : null,
     h('div', { class: 'msg-t' }, m.corpo.split('\n\n').map(function (p) { return h('p', null, textoComCampos(p)); })),
     botoesRapidos(m.botoes)
@@ -442,7 +443,7 @@ function contarCelula(linhaId, itemId) {
   var n = 0, atraso = 0;
   S.D.leads.forEach(function (l) {
     var p = l.v.proximo;
-    if (!p || p.passo.fase !== linhaId || p.passo.item !== itemId) return;
+    if (!p || p.passo.fase !== linhaId || p.passo.item !== itemId || !perNoLead(l, S.aba === 'calendario' ? 'calendario' : 'fluxo')) return;
     n++; if (p.situacao === 'atrasada') atraso++;
   });
   return { n: n, atraso: atraso };

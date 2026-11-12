@@ -23,6 +23,7 @@ function filtrarLeads(lista) {
   return lista.filter(function (l) {
     if (S.fStatus && l.status !== S.fStatus) return false;
     if (S.fAtend && (l.atendente || '') !== S.fAtend) return false;
+    if (!perNoLead(l)) return false;
     if (!q) return true;
     return (l.nome + ' ' + l.telefone + ' ' + (l.exame || '') + ' ' + (l.origem || '')).toLowerCase().indexOf(q) >= 0;
   });
@@ -101,11 +102,13 @@ function quadroFunil() {
   var D = S.D, R = D.resumo;
   var todos = filtrarLeads(D.leads);
   var por = function (s) { return todos.filter(function (l) { return l.status === s; }); };
+  var noPer = perFiltrando('funil') ? D.leads.filter(function (l) { return perNoLead(l, 'funil'); }) : null;
+  if (noPer) R = resumoLocal(noPer); /* com período, os números do topo e os motivos são só dos leads do período */
   var mot = Object.keys(R.motivos).map(function (k) { return [k, R.motivos[k]]; }).sort(function (a, b) { return b[1] - a[1]; });
   return h('div', { class: 'tela' }, [
     cabecalhoTela('Funil', 'Todos os leads por etapa. Clique em um lead para ver o próximo passo, registrar contato e o histórico.', h('div', { class: 'tela-ac' }, [botao('Novo lead', 'pri', function () { dialogoNovoLead(); }, 'plus')])),
     h('div', { class: 'kpis' }, [
-      kpi('Leads no total', R.total, 'todos os tempos'),
+      kpi(noPer ? 'Leads no período' : 'Leads no total', R.total, noPer ? perTexto('funil') : 'todos os tempos'),
       kpi('Valor em andamento', brl(R.valorEmAberto), 'orçamentos abertos'),
       kpi('Valor convertido', brl(R.valorConvertido), 'compareceu e pagou', 'ok'),
       kpi('Taxa de conversão', (R.taxaConversao).toFixed(0).replace('.', ',') + '%', 'convertidos entre os encerrados')
@@ -116,11 +119,23 @@ function quadroFunil() {
       colunaFunil({ id: 'convertido_organico', r: 'Convertido orgânico', lim: 'já foi à recepção: não entrar em contato' }, por('convertido_organico')),
       colunaFunil({ id: 'descarte', r: 'Descarte', lim: 'sempre com motivo · reativação em 30 a 60 dias' }, por('descarte')),
       h('section', { class: 'col col-motivos' }, [
-        h('header', null, [h('div', null, [h('b', { text: 'Motivos de descarte' }), h('small', { text: 'de todos os descartes' })])]),
+        h('header', null, [h('div', null, [h('b', { text: 'Motivos de descarte' }), h('small', { text: noPer ? 'dos leads do período' : 'de todos os descartes' })])]),
         h('div', { class: 'col-c' }, mot.length ? mot.map(function (m) { var max = mot[0][1]; return h('div', { class: 'mot' }, [h('span', { text: m[0] }), h('i', null, h('u', { style: 'width:' + Math.round(m[1] / max * 100) + '%' })), h('b', { text: String(m[1]) })]); }) : [h('p', { class: 'vazio-linha', text: 'Nenhum descarte ainda.' })])
       ])
     ])
   ]);
+}
+
+/* mesmos números do resumo do servidor, calculados só para os leads do período */
+function resumoLocal(leads) {
+  var ATIVOS = ['aberto', 'sem_retorno', 'negociacao', 'agendado'], motivos = {}, ativos = 0, organicos = 0, desc = 0, emAberto = 0, conv = 0;
+  leads.forEach(function (l) {
+    if (l.status === 'convertido_ativo') { ativos++; conv += l.valor; } else if (l.status === 'convertido_organico') organicos++;
+    else if (l.status === 'descarte') { desc++; var m = (l.descarte && l.descarte.motivo) || 'Outro'; motivos[m] = (motivos[m] || 0) + 1; }
+    if (ATIVOS.indexOf(l.status) >= 0) emAberto += l.valor;
+  });
+  var enc = ativos + organicos + desc;
+  return { total: leads.length, motivos: motivos, valorEmAberto: emAberto, valorConvertido: conv, taxaConversao: enc ? (ativos + organicos) / enc * 100 : 0 };
 }
 
 /* ------------------------------------------------------------------ LEADS (tabela) */
@@ -168,15 +183,23 @@ function telaMensagens() {
     return h('button', { class: 'chip-f', type: 'button', 'aria-pressed': String(S.msgGrupo === c.id), onclick: function () { S.msgGrupo = c.id; desenhar(true); }, text: c.rotulo });
   }));
   var lista = M.MENSAGENS.filter(function (m) { return S.msgGrupo === 'todas' || m.grupo === S.msgGrupo; });
+  pedirAnalise();
+  var T = S.AN[perChave()], perf = {};
+  if (T) T.mensagens.forEach(function (x) { perf[x.n] = x; });
   return h('div', { class: 'tela' }, [
     cabecalhoTela('Mensagens prontas', 'As 11 mensagens do guia. Copie e troque o que está entre [colchetes]. Dentro de cada lead, a mensagem do passo já vem preenchida, e os botões de resposta rápida (↩) registram a resposta.'),
     barra,
-    h('div', { class: 'msgs' }, lista.map(function (m) { return msgCard(m, { verEtapa: true }); })),
+    h('div', { class: 'msgs' }, lista.map(function (m) { return msgCard(m, { verEtapa: true, perf: T ? desempenhoMsg(perf[m.n]) : h('div', { class: 'msg-perf carrega', text: 'Calculando o desempenho no período…' }) }); })),
     h('div', { class: 'cartao' }, [
       h('h3', { class: 'h3', text: 'Como escrever para vender' }),
       h('div', { class: 'dicas' }, M.DICAS_VENDA.map(function (d) { return h('div', { class: 'dica' }, [h('span', { class: 'dica-ck', 'aria-hidden': 'true' }, ico('check', 16)), h('div', null, [h('b', { text: d.titulo + ': ' }), d.texto])]); }))
     ])
   ]);
+}
+
+function desempenhoMsg(x) {
+  if (!x || !x.enviadas) return h('div', { class: 'msg-perf vazio' }, [ico('chart', 14), 'Não foi enviada no período']);
+  return h('div', { class: 'msg-perf' }, [ico('chart', 14), h('span', null, [h('b', { text: String(x.enviadas) }), ' ' + plural(x.enviadas, 'envio', 'envios')]), h('span', null, [h('b', { text: String(x.respostas) }), ' ' + plural(x.respostas, 'resposta', 'respostas')]), h('span', { class: 'msg-perf-t' }, [h('b', { text: x.taxa === null ? '–' : String(x.taxa).replace('.', ',') + '%' }), ' de resposta'])]);
 }
 
 /* ------------------------------------------------------------------ REGRAS */
@@ -198,6 +221,7 @@ function telaRegras() {
   ];
   return h('div', { class: 'tela' }, [
     cabecalhoTela('Regras do atendimento', 'O que o sistema cobra e o que ele faz sozinho.'),
+    atividadeAutomatica(),
     bannerPrioridade(),
     h('div', { class: 'regras4' }, M.REGRAS_OURO.map(function (r) {
       return h('article', { class: 'regra4' }, [h('span', { class: 'rg-n', text: String(r.n) }), h('h3', { text: r.titulo }), h('p', { class: 'r-doc', text: r.texto }), h('p', { class: 'r-sis' }, [h('b', { text: 'No sistema: ' }), r.aplicada])]);
@@ -215,6 +239,18 @@ function telaRegras() {
         h('h3', { class: 'h3 m', text: 'Glossário' }), h('dl', { class: 'glossario' }, M.GLOSSARIO.map(function (g) { return [h('dt', { text: g.termo }), h('dd', { text: g.texto })]; }))
       ])
     ])
+  ]);
+}
+/* o que o sistema fez sozinho no período (movimentos e descartes automáticos, confirmações) */
+function atividadeAutomatica() {
+  pedirAnalise();
+  var T = S.AN[perChave()];
+  if (!T) return h('div', { class: 'cartao' }, h('p', { class: 'mut', text: 'Calculando o que o sistema fez no período…' }));
+  var lista = T.automaticas || [], total = lista.reduce(function (s, x) { return s + x.n; }, 0);
+  return h('div', { class: 'cartao auto-per' }, [
+    h('h3', { class: 'h3', text: 'O que o sistema fez sozinho no período' }),
+    h('p', { class: 'mut peq', text: perTexto('regras') + ' · ' + total + ' ' + plural(total, 'ação automática', 'ações automáticas') }),
+    lista.length ? h('div', { class: 'auto-per-g' }, lista.map(function (x) { return h('div', { class: 'auto-per-i' }, [h('b', { text: String(x.n) }), h('span', { text: x.rotulo })]); })) : h('p', { class: 'mut', text: 'Nenhuma ação automática no período.' })
   ]);
 }
 function tabelaSimples(cols, linhas) {

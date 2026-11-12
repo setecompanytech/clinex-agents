@@ -3,10 +3,10 @@
 export const report = String.raw`
 function nomeReport() { var n = nomesResponsaveis(); return S.repNome && n.indexOf(S.repNome) >= 0 ? S.repNome : (S.eu && n.indexOf(S.eu) >= 0 ? S.eu : (n[0] || '')); }
 function pedirReport(nome) {
-  var k = S.dias + '|' + nome;
+  var k = perChave() + '|' + nome;
   if (S.RPfresh[k] || S.RPcarregando[k] || !nome) return;
   S.RPcarregando[k] = true;
-  api('GET', '/meu-report?dias=' + S.dias + '&nome=' + encodeURIComponent(nome)).then(function (r) { S.RP[k] = r; S.RPfresh[k] = true; S.RPcarregando[k] = false; if (S.aba === 'analises') desenhar(true); })
+  api('GET', '/meu-report?' + perQs() + '&nome=' + encodeURIComponent(nome)).then(function (r) { S.RP[k] = r; S.RPfresh[k] = true; S.RPcarregando[k] = false; if (S.aba === 'analises') desenhar(true); })
     .catch(function (e) { S.RPcarregando[k] = false; aviso('Não consegui montar o report: ' + e.message, 'erro'); });
 }
 function dataHoraAgora() { return new Date().toLocaleString('pt-BR', { timeZone: TZ, dateStyle: 'short', timeStyle: 'short' }); }
@@ -52,7 +52,7 @@ function heroReport(R) {
     h('div', null, [
       h('div', { class: 'rep-id' }, [
         anel({ titulo: '', tam: 96, pct: fatia, centro: iniciais(R.nome), sub: '', cor: 'var(--acc)', dica: { titulo: R.nome, linhas: [{ valor: brl(a.receita), rotulo: pct(fatia) + ' da receita da equipe' }] } }),
-        h('div', null, [h('small', { class: 'cx-eyebrow', text: 'REPORT DE PERFORMANCE' }), h('h2', { text: R.nome }), h('p', { text: dBRfull(R.ini) + ' a ' + dBRfull(R.hoje) + ' · últimos ' + R.dias + ' dias' })])
+        h('div', null, [h('small', { class: 'cx-eyebrow', text: 'REPORT DE PERFORMANCE' }), h('h2', { text: R.nome }), h('p', { text: dBRfull(R.ini) + ' a ' + dBRfull(R.hoje) + ' · ' + R.dias + ' ' + plural(R.dias, 'dia', 'dias') })])
       ]),
       h('div', { class: 'rk-chips' }, [chip('receita', rk.receita), chip('conversões', rk.convertidos), chip('contatos', rk.contatos), chip('conversão', rk.conversao)]),
       h('div', { class: 'rep-brief' }, [h('small', { text: 'RESUMO PARA A DIRETORIA' }), h('ul', { class: 'resumo-l' }, R.resumo.map(function (t) { return h('li', { text: t }); }))])
@@ -68,18 +68,18 @@ function corpoReport() {
   var nome = nomeReport();
   if (!nome) return vazio('Cadastre um responsável para gerar o report.');
   pedirReport(nome);
-  var R = S.RP[S.dias + '|' + nome];
+  var R = S.RP[perChave() + '|' + nome];
   if (!R) return esqueleto();
   var a = R.atual, p = R.anterior, m = R.media, s = R.series;
   var eq = function (v, f) { return v === null || v === undefined ? 'sem média da equipe' : 'Equipe: ' + f(v); };
   var kpis = h('div', { class: 'kpis2 oito' }, [
-    kpiR('Receita convertida', brl2(a.receita), dlt(a.receita, p.receita, { bom: 'sobe', vs: 'vs. anterior' }), eq(m.receita, brl), s.receita, 'var(--g3)'),
-    kpiR('Convertidos', nf0.format(a.convertidos), dlt(a.convertidos, p.convertidos, { bom: 'sobe' }), eq(m.convertidos, nf1.format), s.convertidos, 'var(--g3)'),
-    kpiR('Conversão', pct(a.conversao), dlt(a.conversao, p.conversao, { pp: true, bom: 'sobe' }), eq(m.conversao, pct), null),
-    kpiR('Ciclo mediano', a.velocidade === null ? '–' : nf1.format(a.velocidade) + ' d', dlt(a.velocidade, p.velocidade, { bom: 'desce' }), eq(m.velocidade, function (v) { return nf1.format(v) + ' d'; }), null),
-    kpiR('Contatos feitos', nf0.format(a.contatos), dlt(a.contatos, p.contatos, { bom: 'sobe' }), eq(m.contatos, nf1.format), s.contatos, 'var(--g6)'),
-    kpiR('Taxa de resposta', pct(a.taxaResposta), dlt(a.taxaResposta, p.taxaResposta, { pp: true, bom: 'sobe' }), eq(m.taxaResposta, pct), s.respostas, 'var(--g1)'),
-    kpiR('Agendamentos', nf0.format(a.agendamentos), dlt(a.agendamentos, p.agendamentos, { bom: 'sobe' }), a.recebidos + ' leads recebidos no período', s.agendamentos, 'var(--g2)'),
+    kpiR('Receita convertida', brl2(a.receita), dltP(a.receita, p.receita, { bom: 'sobe', vs: 'vs. anterior' }), eq(m.receita, brl), s.receita, 'var(--g3)'),
+    kpiR('Convertidos', nf0.format(a.convertidos), dltP(a.convertidos, p.convertidos, { bom: 'sobe' }), eq(m.convertidos, nf1.format), s.convertidos, 'var(--g3)'),
+    kpiR('Conversão', pct(a.conversao), dltP(a.conversao, p.conversao, { pp: true, bom: 'sobe' }), eq(m.conversao, pct), null),
+    kpiR('Ciclo mediano', a.velocidade === null ? '–' : nf1.format(a.velocidade) + ' d', dltP(a.velocidade, p.velocidade, { bom: 'desce' }), eq(m.velocidade, function (v) { return nf1.format(v) + ' d'; }), null),
+    kpiR('Contatos feitos', nf0.format(a.contatos), dltP(a.contatos, p.contatos, { bom: 'sobe' }), eq(m.contatos, nf1.format), s.contatos, 'var(--g6)'),
+    kpiR('Taxa de resposta', pct(a.taxaResposta), dltP(a.taxaResposta, p.taxaResposta, { pp: true, bom: 'sobe' }), eq(m.taxaResposta, pct), s.respostas, 'var(--g1)'),
+    kpiR('Agendamentos', nf0.format(a.agendamentos), dltP(a.agendamentos, p.agendamentos, { bom: 'sobe' }), a.recebidos + ' leads recebidos no período', s.agendamentos, 'var(--g2)'),
     kpiR('Carteira ativa', brl2(R.carteira.n ? R.carteira.valor : 0), null, R.carteira.n + ' leads · ' + R.carteira.atrasadas + ' atrasados · ' + R.carteira.foraDoLimite + ' fora do limite', null)
   ]);
   var evolucao = h('div', { class: 'g12' }, [

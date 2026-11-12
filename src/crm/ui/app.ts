@@ -33,7 +33,7 @@ function desenhar(manter) {
   if (!S.D) return;
   var y = window.scrollY;
   limpar(raiz);
-  kids(raiz, [avisoArmazenamento(), telaAtual()]);
+  kids(raiz, [avisoArmazenamento(), barraPeriodo(), telaAtual()]);
   navEl.querySelectorAll('.nav-i').forEach(function (b) { b.setAttribute('aria-current', b.getAttribute('data-aba') === S.aba ? 'page' : 'false'); });
   var bd = navEl.querySelector('[data-aba="hoje"] .nav-b');
   if (bd) { var n = S.D.tarefas.length; bd.textContent = n ? String(n) : ''; bd.style.display = n ? '' : 'none'; }
@@ -41,6 +41,7 @@ function desenhar(manter) {
   if (manter) window.scrollTo(0, y);
 }
 function ir(aba) {
+  perFechar();
   S.aba = aba; history.replaceState(null, '', '#' + aba);
   S.q = ''; S.fStatus = ''; S.fAtend = '';
   desenhar(); window.scrollTo(0, 0);
