@@ -281,7 +281,7 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
           c.saida.handoff = { motivo: `Pagamento por LINK DE CRÉDITO: enviar o link e concluir o agendamento. Escolhido: ${sv.frase} no ${un.nome}, ${dataFalada(g.slot.ymd, hoje)}, ${g.slot.turno} a partir das ${g.slot.inicio}${g.slot.profissional ? `, com ${g.slot.profissional}` : ''}. Paciente: ${String(args.nome_completo ?? '')}, nascimento ${String(args.nascimento ?? '')}${args.telefone ? `, tel. ${String(args.telefone)}` : ''}.` };
           return { ok: true, transferido: true, orientacao: 'NÃO agendado por você: pagamento por link de crédito é com a equipe, que vai enviar o link e concluir o agendamento. Avise o paciente numa frase curta.' };
         }
-        if (args.pagamento !== 'recepcao' && args.pagamento !== 'pix') return { erro: 'falta a forma de pagamento: pergunte ao paciente se prefere pagar na recepção no dia (pix, cartão de crédito e débito ou dinheiro) ou adiantar por pix aqui na conversa. NÃO agende antes da resposta.' };
+        if (args.pagamento !== 'recepcao' && args.pagamento !== 'pix') return { erro: 'falta a forma de pagamento: pergunte "Qual a sua forma de pagamento?" (sem listar opções). NÃO agende antes da resposta.' };
         const nomeCompleto = String(args.nome_completo ?? '').trim().replace(/\s+/g, ' ');
         const nasc = isoNascimento(args.nascimento) ?? '';
         const conhecido = c.mem.paciente?.id && norm(c.mem.paciente.nome) === norm(nomeCompleto) ? c.mem.paciente : undefined;

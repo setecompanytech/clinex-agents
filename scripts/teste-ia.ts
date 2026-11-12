@@ -22,6 +22,7 @@ const CASOS: Record<string, string[]> = {
   sangue: ['quero fazer exame de sangue', 'hemograma, glicose e colesterol total', 'quero agendar a coleta'],
   preco: ['quanto custa a consulta com cardiologista?', 'e qual o endereço do guamá?'],
   resultado: ['quero saber o resultado do meu exame de ontem'],
+  dinheiro: ['quero marcar clinico geral', 'guamá', 'o primeiro', 'Joana Teste Souza 10/05/1990, pode ser esse número', 'feminino', 'dinheiro'],
   link: ['quero marcar clinico geral', 'guamá', 'o primeiro', 'Joana Teste Souza 10/05/1990, pode ser esse número', 'feminino', 'quero pagar no cartão de crédito pelo link'],
   pix: ['quero marcar clinico geral', 'guamá', 'o primeiro', 'Joana Teste Souza 10/05/1990, pode ser esse número', 'feminino', 'vou pagar no pix', '529.982.247-25', '[imagem]'],
   semddd: ['quero marcar clinico geral pro meu filho', 'guamá', 'o primeiro', 'Marcos Silva Lima 05/05/2005, o número dele é 98596-3941', 'masculino', 'vai ser dinheiro'],
