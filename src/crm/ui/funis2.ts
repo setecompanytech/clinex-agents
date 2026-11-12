@@ -44,6 +44,15 @@ function fvAbrirCard(cardId) {
 
 function fvLinha(r, v) { return h('div', { class: 'fv-kv' }, [h('span', { text: r }), h('b', { text: v === undefined || v === null || v === '' ? '–' : String(v) })]); }
 
+/* a observação que vem do Clinilink: "Combo: NOME" vira uma linha com o nome do combo; o resto vira uma nota compacta */
+function fvObservacao(txt) {
+  txt = String(txt || '').trim();
+  if (!txt) return null;
+  var c = /^combo:\s*(.+)$/i.exec(txt);
+  if (c) return h('div', { class: 'fv-kv' }, [h('span', { text: 'Combo' }), h('b', { text: c[1] })]);
+  return h('div', { class: 'fv-obs' }, [h('span', { text: 'Observação' }), h('p', { text: txt })]);
+}
+
 function fvAbaResumo(D, a, etapa, recarregar, m) {
   var s = a.snap, x = D.extras, F = a;
   var vNeg = h('input', { class: 'in', type: 'number', min: '0', step: '0.01', placeholder: 'sem valor negociado', value: x.valorNegociado !== undefined ? String(x.valorNegociado) : null, 'aria-label': 'Valor negociado' });
@@ -58,8 +67,8 @@ function fvAbaResumo(D, a, etapa, recarregar, m) {
       h('section', null, [h('h4', { class: 'au-h', text: 'Do Clinilink (congelado)' }),
         fvLinha('Código', s.codigo), fvLinha('Unidade', s.unidade), fvLinha('Criado em', s.criadoEm ? dBRfull(s.criadoEm.slice(0, 10)) : null), fvLinha('Status no Clinilink', s.status),
         fvLinha('Valor do orçamento', brl(a.originSnapshot.valor)), fvLinha('Telefone', s.contato), fvLinha('Convênio', s.convenio), fvLinha('Origem', s.origem), fvLinha('Prioridade', s.prioridade),
-        s.itens && s.itens.length ? h('div', { class: 'fv-kv col' }, [h('span', { text: 'Itens' }), h('ul', { class: 'lista-o' }, s.itens.map(function (i) { return h('li', { text: i }); }))]) : null,
-        s.observacao ? h('div', { class: 'fv-kv col' }, [h('span', { text: 'Observação' }), h('p', { text: s.observacao })]) : null
+        s.itens && s.itens.length ? h('div', { class: 'fv-kv fv-kv-v' }, [h('span', { text: 'Itens' }), h('ul', { class: 'lista-o' }, s.itens.map(function (i) { return h('li', { text: i }); }))]) : null,
+        fvObservacao(s.observacao)
       ]),
       h('section', null, [h('h4', { class: 'au-h', text: 'Trabalho no CRM' }),
         campo('Valor negociado (R$)', vNeg, 'Substitui o valor do Clinilink no kanban. Zero é válido.'), campo('Responsável', resp), campo('Próximo contato', prox), campo('Observações do CRM', obs),

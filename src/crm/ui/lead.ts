@@ -37,7 +37,7 @@ function desenharGaveta(l) {
       h('a', { class: 'btn', href: wa, target: '_blank', rel: 'noopener' }, [ico('message', 16), 'WhatsApp']),
       h('a', { class: 'btn', href: 'tel:+55' + l.telefone.replace(/\D/g, '').replace(/^55/, '') }, [ico('phone', 16), 'Ligar'])
     ]),
-    faixaRegras(l), blocoProximo(l), blocoRespostas(l), blocoNota(l), blocoHistorico(l), blocoDados(l)
+    faixaRegras(l), blocoProximo(l), blocoClinilink(l), blocoRespostas(l), blocoNota(l), blocoHistorico(l), blocoDados(l)
   ]);
   gaveta.corpo.scrollTop = rolagem;
 }
@@ -217,6 +217,21 @@ function blocoHistorico(l) {
       ])
     ]);
   })));
+}
+
+/* os mesmos dados da aba Resumo do card no Pipelines (código, unidade, status no Clinilink, itens, combo...) */
+function blocoClinilink(l) {
+  var c = l.card; if (!c) return null;
+  var s = c.snap || {};
+  return secao('Do Clinilink', h('div', null, [
+    fvLinha('Pipeline', [c.funil, c.etapa].filter(Boolean).join(' · ')),
+    fvLinha('Código', s.codigo), fvLinha('Unidade', s.unidade), fvLinha('Criado em', s.criadoEm ? dBRfull(String(s.criadoEm).slice(0, 10)) : null), fvLinha('Status no Clinilink', s.status),
+    fvLinha('Valor do orçamento', brl(c.valorOrigem)), c.valorNegociado !== null && c.valorNegociado !== undefined ? fvLinha('Valor negociado', brl(c.valorNegociado)) : null,
+    fvLinha('Telefone', s.contato), fvLinha('Convênio', s.convenio), fvLinha('Origem', s.origem), fvLinha('Prioridade', s.prioridade),
+    s.itens && s.itens.length ? h('div', { class: 'fv-kv fv-kv-v' }, [h('span', { text: 'Itens' }), h('ul', { class: 'lista-o' }, s.itens.map(function (i) { return h('li', { text: i }); }))]) : null,
+    fvObservacao(s.observacao),
+    h('div', { class: 'linha-b', style: 'margin-top:10px' }, [botao('Abrir card no Pipelines', '', function () { if (gaveta) gaveta.fechar(); fvAbrirCard(c.cardId); }, 'kanban')])
+  ]));
 }
 
 function blocoDados(l) {

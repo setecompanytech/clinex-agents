@@ -269,7 +269,8 @@ ${parte_avisos}
 .fv-dr{display:flex;flex-direction:column;gap:16px;padding-top:6px}
 .fv-dr-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:26px;align-items:start}
 .fv-col-dr{display:flex;flex-direction:column;gap:22px;min-width:0}
-.fv-kv{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--line);font-size:13px}.fv-kv span{color:var(--mut)}.fv-kv b{text-align:right;overflow-wrap:anywhere}.fv-kv.col{flex-direction:column}
+.fv-kv{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--line);font-size:13px}.fv-kv span{color:var(--mut)}.fv-kv b{text-align:right;overflow-wrap:anywhere}.fv-kv.fv-kv-v{flex-direction:column;justify-content:flex-start;align-items:stretch;gap:6px}
+.fv-obs{margin-top:10px;padding:10px 12px;border-radius:12px;background:color-mix(in srgb,var(--ink) 5%,transparent);border:1px solid var(--line)}.fv-obs span{display:block;margin-bottom:4px;color:var(--mut);font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}.fv-obs p{margin:0;font-size:13px;line-height:1.45;overflow-wrap:anywhere}
 .fv-form{display:flex;flex-direction:column;gap:10px}
 /* ritmo vertical nas gavetas e janelas: campos, botões e textos nunca ficam colados */
 .fv-dr-grid>section>*+*,.fv-col-dr>section>*+*{margin-top:12px}

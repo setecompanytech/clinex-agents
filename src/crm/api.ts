@@ -15,7 +15,7 @@ import { analisarExecutivo, meuReport } from './executivo.js';
 import { analisarEtapa } from './etapa.js';
 import { analisarNoShow, dadosNoShow } from './noshow.js';
 import { pipelines } from './pipeline/api.js';
-import { atrasado as cardAtrasado, valorExibido as valorDoCard, visiveis as cardsVisiveis } from './pipeline/regras.js';
+import { atrasado as cardAtrasado, etapaHist, valorExibido as valorDoCard, visiveis as cardsVisiveis } from './pipeline/regras.js';
 import { FunilError } from './pipeline/tipos.js';
 import { cfgDeRegras, logDoGuia, MODELOS, regrasPadrao, rodarRegras, simular, validarRegra, type Regra } from './automacoes.js';
 import { MOTIVOS_DESCARTE } from './modelo.js';
@@ -200,8 +200,21 @@ router.post('/agente', async (req, res) => {
 router.get('/leads/:id', (req, res) => {
   const l = achar(req.params.id);
   if (!l) return res.status(404).json({ erro: 'nao_encontrado', mensagem: 'Lead não encontrado.' });
-  res.json({ ...l, v: vistaDoLead(l, new Date()) });
+  res.json({ ...l, v: vistaDoLead(l, new Date()), card: cardDoLead(l) });
 });
+
+/** Dados do card do Pipelines que originou o lead (o mesmo conteúdo da aba Resumo do card), ou null se o lead não veio de um card. */
+function cardDoLead(l: Lead) {
+  if (!l.cardId) return null;
+  const a = estado.pipelines.atribuicoes.find((x) => x.cardId === l.cardId);
+  if (!a) return null;
+  const f = estado.pipelines.funis.find((x) => x.id === a.funilId);
+  const x = estado.pipelines.extras[a.cardId];
+  return {
+    cardId: a.cardId, funil: f?.nome ?? '', etapa: f ? (etapaHist(f, a.stageId)?.label ?? '') : '', caso: a.caseStatus,
+    snap: a.ultimoSnapshot, valorOrigem: a.originSnapshot.valor, valorNegociado: x?.valorNegociado ?? null, responsavel: x?.responsavel ?? null,
+  };
+}
 
 router.post('/leads', (req, res) => {
   const b = (req.body ?? {}) as NovoLead & { forcar?: boolean };
