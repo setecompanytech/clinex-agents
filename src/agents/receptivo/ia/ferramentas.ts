@@ -22,7 +22,8 @@ export type MemoriaIA = {
   orcamento?: { itens: ItemExame[] };
   agendados: { servicoId: string; ymd: string; resumo: string }[];
   /** combos em andamento: o serviço de cada etapa (para agendar uma de cada vez) */
-  etapas?: Record<string, { combo: string; comboServicoId: string; comboRotulo: string; etapa: number; de: number; rotulo: string; valor?: number; feita?: boolean }>;
+  etapas?: Record<string, { combo: string; comboServicoId: string; comboRotulo: string; etapa: number; de: number; rotulo: string; valor?: number; feita?: boolean; medicos?: string[] }>;
+  planos?: Record<string, { etapas: string[][]; medicos: (string[] | undefined)[] }>; // etapas de cada combo (serviços do mesmo médico juntos)
   ate?: string;
   transferiu?: boolean; // a IA passou a conversa para a equipe
   pix?: { valor?: number; transacao?: string; em: string };
@@ -98,6 +99,15 @@ function jaPassou(sl: Slot, agora: Date): boolean {
 const ehTeste = (n?: string) => /\bteste\b|n[aã]o agenda/i.test(n ?? '');
 function nomesMedicos(nomes: string[]): string[] { return exibirLista(nomes.filter((n) => n && !ehTeste(n))); }
 
+async function planoDoCombo(pac: NonNullable<Servico['pacote']>, c: Contexto): Promise<{ etapas: string[][]; medicos: (string[] | undefined)[] }> {
+  const salvo = c.mem.planos?.[pac.id];
+  if (salvo) return salvo;
+  const p = c.fonte.etapasJuntas ? await c.fonte.etapasJuntas(pac).catch(() => undefined) : undefined;
+  const plano = p ?? { etapas: pac.etapas, medicos: pac.etapas.map(() => undefined) };
+  (c.mem.planos ??= {})[pac.id] = plano;
+  return plano;
+}
+
 async function resumoServico(sv: Servico, c: Contexto, chave = sv.id) {
   c.mem.servicos[chave] = sv;
   await prepararGeneros(sv.unidades.flatMap((u) => [...(u.profissionais ?? []), ...(u.porServico ?? []).flatMap((x) => x.profissionais)]));
@@ -115,7 +125,7 @@ async function resumoServico(sv: Servico, c: Contexto, chave = sv.id) {
     })),
     ...(sv.detalhe ? { detalhe: sv.detalhe } : {}),
     ...(sv.preparo ? { preparo: sv.preparo } : {}),
-    ...(sv.pacote ? { combo: { etapas: sv.pacote.etapas.map((ids, i) => ({ etapa: i + 1, itens: ids.map((id) => sv.pacote!.itens.find((x) => x.id === id)?.nome).filter(Boolean) })), observacao: 'Combo: NÃO tem unidades nem profissionais próprios aqui. NUNCA cite médico ou unidade do combo antes de chamar etapa_do_combo (cada etapa devolve as unidades e os profissionais reais dela). Para agendar, chame etapa_do_combo(etapa 1), mostre as unidades/profissionais que ela devolver e siga etapa por etapa.' } } : {}),
+    ...(sv.pacote ? { combo: { etapas: (await planoDoCombo(sv.pacote, c)).etapas.map((ids, i) => ({ etapa: i + 1, itens: ids.map((id) => sv.pacote!.itens.find((x) => x.id === id)?.nome).filter(Boolean) })), observacao: 'Combo: NÃO tem unidades nem profissionais próprios aqui. NUNCA cite médico ou unidade do combo antes de chamar etapa_do_combo (cada etapa devolve as unidades e os profissionais reais dela). Para agendar, chame etapa_do_combo(etapa 1), mostre as unidades/profissionais que ela devolver e siga etapa por etapa.' } } : {}),
     ...(sv.unidades.length === 0 && !sv.pacote ? { aviso: 'sem unidade com agenda aberta' } : {}),
   };
 }
@@ -229,6 +239,8 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
         let lista = f.horariosPorProfissional ? await f.horariosPorProfissional(sv, un, de, ate) : await f.proximas(sv, un, de, 12);
         lista = lista.filter((s) => !jaPassou(s, c.agora) && !ehTeste(s.profissionalBruto) && !ehTeste(s.profissional));
         if (args.turno) lista = lista.filter((s) => s.turno === args.turno);
+        const soCom = c.mem.etapas?.[String(args.servico_id)]?.medicos;
+        if (soCom?.length) { const ok = new Set(soCom.map((x) => norm(x))); const filtrada = lista.filter((s) => s.profissional && ok.has(norm(s.profissional))); if (filtrada.length) lista = filtrada; }
         if (args.profissional) { const p = norm(String(args.profissional).replace(/^(dra?\.?|doutora?)\s+/i, '')); lista = lista.filter((s) => s.profissional && (norm(s.profissional).includes(p) || norm(exibir(s.profissional)).includes(p))); }
         const total = lista.length;
         lista = lista.slice(0, 6);
@@ -334,7 +346,17 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
         }
         const etapaCombo = c.mem.etapas?.[g.servicoId];
         if (etapaCombo) etapaCombo.feita = true;
-        c.saida.confirmacoes.push(mensagemConfirmacao({ ...(etapaCombo ? { rotuloValor: 'Valor no combo', sufixoProcedimento: `(COMBO ${etapaCombo.comboRotulo.toLocaleUpperCase('pt-BR')} - etapa ${etapaCombo.etapa} de ${etapaCombo.de})` } : {}), paciente: quem, novoCadastro: r.cadastrou, servico: sv, unidade: un, ymd: g.slot.ymd, hora: r.hora, profissionalBruto: r.profissionalBruto ?? g.slot.profissionalBruto, valor: etapaCombo?.valor ?? un.precoPix, pagoPix, primeiroNome: quem.split(' ')[0], linhas: r.linhas, extra: r.extra }));
+        let proxima = '';
+        if (etapaCombo) {
+          const pac = c.mem.servicos[etapaCombo.comboServicoId]?.pacote;
+          const plano = pac ? c.mem.planos?.[pac.id] : undefined;
+          const feitas = new Set(Object.values(c.mem.etapas ?? {}).filter((e) => e.combo === etapaCombo.combo && e.feita).map((e) => e.etapa));
+          const pend = plano && pac ? plano.etapas.map((ids, i) => ({ n: i + 1, nome: ids.map((id) => pac.itens.find((x) => x.id === id)?.curto ?? '').filter(Boolean).join(' + ') })).filter((e) => !feitas.has(e.n)) : [];
+          proxima = pend.length ? `Agora falta agendar ${pend.length > 1 ? `as outras etapas do combo: ${pend.map((e) => `*${e.nome}*`).join(', ')}` : `a última etapa do combo: *${pend[0].nome}*`}. Vamos ver os horários da próxima (*${pend[0].nome}*)?` : `Pronto, todas as etapas do combo ${etapaCombo.comboRotulo} estão agendadas!`;
+        }
+        const confirmacao = (mensagemConfirmacao({ ...(etapaCombo ? { rotuloValor: 'Valor no combo', sufixoProcedimento: `(COMBO ${etapaCombo.comboRotulo.toLocaleUpperCase('pt-BR')} - etapa ${etapaCombo.etapa} de ${etapaCombo.de})` } : {}), paciente: quem, novoCadastro: r.cadastrou, servico: sv, unidade: un, ymd: g.slot.ymd, hora: r.hora, profissionalBruto: r.profissionalBruto ?? g.slot.profissionalBruto, valor: etapaCombo?.valor ?? un.precoPix, pagoPix, primeiroNome: quem.split(' ')[0], linhas: r.linhas, extra: r.extra }));
+        // combo: o fecho genérico ("quer agendar mais algum exame?") vira a próxima etapa (caso real: agendou só a consulta do Feminino 1 e parou)
+        c.saida.confirmacoes.push(proxima ? confirmacao.replace(/Quer aproveitar e agendar mais algum exame ou consulta\?/, proxima) : confirmacao);
         return { ok: true, orientacao: 'Agendado. A mensagem oficial de confirmação (com todos os dados) é enviada automaticamente logo depois da sua resposta: NÃO repita os dados. Escreva no máximo uma frase curta (ou nada) e, se for pix, a chave pix.' + '' };
       }
       case 'orcar_exames': {
@@ -397,17 +419,19 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
         const pac = sv?.pacote;
         if (!pac || !f.etapaDoCombo) return { erro: 'não é um combo (abra com buscar_servico/abrir_servico)' };
         const n = Number(args.etapa) - 1;
-        const ids = pac.etapas[n];
-        if (!ids) return { erro: `o combo tem ${pac.etapas.length} etapas` };
+        const plano = await planoDoCombo(pac, c);
+        const ids = plano.etapas[n];
+        if (!ids) return { erro: `o combo tem ${plano.etapas.length} etapas` };
         const itens = ids.map((id) => pac.itens.find((i) => i.id === id)).filter((x): x is NonNullable<typeof x> => Boolean(x));
         const et = await f.etapaDoCombo({ id: pac.id, rotulo: pac.rotulo, total: pac.total }, itens);
         if ('semAgenda' in et) return { erro: `sem agenda para esta etapa (${et.semAgenda}). Siga para a próxima ou passe para a equipe.` };
         // caso real: a etapa de um serviço só ia ao Clinilink como consulta avulsa (R$ 100,00) e a confirmação mostrava o valor do combo inteiro
         const chave = `combo:${pac.id}:etapa${n + 1}`;
         const valorEtapa = itens.reduce((soma, i) => soma + (i.preco ?? 0), 0) || undefined;
-        (c.mem.etapas ??= {})[chave] = { combo: pac.id, comboServicoId: sv!.id, comboRotulo: pac.rotulo, etapa: n + 1, de: pac.etapas.length, rotulo: itens.map((i) => i.nome).join(' + '), valor: valorEtapa };
+        const medicosDaEtapa = plano.medicos[n];
+        (c.mem.etapas ??= {})[chave] = { combo: pac.id, comboServicoId: sv!.id, comboRotulo: pac.rotulo, etapa: n + 1, de: plano.etapas.length, rotulo: itens.map((i) => i.nome).join(' + '), valor: valorEtapa, medicos: medicosDaEtapa };
         const r = await resumoServico(et, c, chave);
-        return { ...r, resultado: 'servico', etapa: n + 1, de: pac.etapas.length, preco: valorEtapa ? `Dentro do combo esta etapa sai por ${reais(valorEtapa)} (o combo inteiro: ${pac.total ? reais(pac.total) : 'ver combo'}).` : r.preco, orientacao: 'Agende esta etapa (ver_horarios com este servico_id). Depois de agendada, siga para a próxima etapa até completar o combo.' };
+        return { ...r, resultado: 'servico', etapa: n + 1, de: plano.etapas.length, ...(medicosDaEtapa?.length ? { mesmo_agendamento: `Os serviços desta etapa (${itens.map((i) => i.nome).join(' + ')}) são feitos juntos, no mesmo agendamento, por: ${nomesMedicos(medicosDaEtapa).join(', ')}.` } : {}), preco: valorEtapa ? `Dentro do combo esta etapa sai por ${reais(valorEtapa)} (o combo inteiro: ${pac.total ? reais(pac.total) : 'ver combo'}).` : r.preco, orientacao: 'Agende esta etapa (ver_horarios com este servico_id). Depois de agendada, siga para a próxima etapa até completar o combo.' };
       }
       case 'conferir_comprovante': {
         const cp = await c.lerComprovante?.();

@@ -106,6 +106,9 @@ export interface Fonte {
   dicaDeCombo?(itens: ItemExame[], soma: number): Promise<string | undefined>;
   /** Os exames de laboratório mais agendados na clínica e os combos de exames, para quem não sabe quais fazer. */
   sugestoesDeExames?(): Promise<{ exames: ItemExame[]; combos: string[] }>;
+  /** Só a fonte real (Amanda IA): as etapas do combo juntando os serviços que o mesmo profissional faz (ex.: consulta cardiológica + eletrocardiograma
+   *  com a mesma médica = um agendamento só). `medicos[i]` = quem faz TODOS os serviços da etapa i (quando ela junta mais de um serviço). */
+  etapasJuntas?(info: ComboInfo): Promise<{ etapas: string[][]; medicos: (string[] | undefined)[] }>;
   /** Só a fonte real: o serviço de UMA etapa do combo (um item, ou os exames de laboratório juntos), com as unidades que têm agenda. */
   etapaDoCombo?(combo: { id: string; rotulo: string; total?: number }, itens: ItemDeCombo[]): Promise<Servico | { semAgenda: string }>;
 }

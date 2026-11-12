@@ -170,8 +170,8 @@ export async function atenderComIA(p: {
   }
   let texto = acabamento(resposta.texto);
   // agendou: a confirmação oficial já traz tudo; do texto do modelo só fica o que for do pix (chave/comprovante), nunca o resumo repetido
-  const comboPendente = Object.values(mem.etapas ?? {}).some((e) => !e.feita);
-  if (c.saida.confirmacoes.length) texto = [...c.saida.confirmacoes, /\bpix\b/i.test(texto) || (comboPendente && /\b(etapa|combo)\b/i.test(texto)) ? texto : ''].filter(Boolean).join('\n\n');
+  // depois de agendar, a confirmação oficial já traz tudo (inclusive a próxima etapa do combo); do texto do modelo só fica o do pix
+  if (c.saida.confirmacoes.length) texto = [...c.saida.confirmacoes, /\bpix\b/i.test(texto) ? texto : ''].filter(Boolean).join('\n\n');
   if (!c.saida.encerrar && !c.saida.handoff && !c.saida.confirmacoes.length && DESPEDIDA.test(c.ultimaDoPaciente ?? '') && /\b(qualquer coisa|estou a disposicao|estou à disposição|e so chamar|é só chamar|ate (mais|logo)|até (mais|logo)|boa sorte|tenha um (otimo|ótimo|bom))\b/i.test(texto) && !/\?\s*$/.test(texto)) c.saida.encerrar = true;
   // foto IMPRESSA lida e valores informados: a conversa vai para a equipe montar o orçamento (regra da clínica)
   if (mem.fotoOrcamento && !c.saida.handoff && /R\$\s?\d/.test(texto)) {

@@ -1106,6 +1106,36 @@ export const fonteClinilink: Fonte = {
   sugestoesDeExames: sugestoesDeExamesFonte,
   etapaDoCombo: etapaDoComboFonte,
 
+  async etapasJuntas(info) {
+    const clinicas = await listClinicas();
+    const lab = info.itens.filter((i) => ehLab(i.categoria)).map((i) => i.id);
+    const naoLab = info.itens.filter((i) => !ehLab(i.categoria));
+    // quem faz cada serviço (pessoas, não salas), somando as unidades
+    const profs = new Map<string, Map<string, string>>();
+    await Promise.all(naoLab.map(async (i) => {
+      const m = new Map<string, string>();
+      for (const u of clinicas) for (const p of await listProfissionais(u.id, i.id).catch(() => [])) if (!ehSala(p.nome)) m.set(p.id, titulo(p.nome));
+      profs.set(i.id, m);
+    }));
+    const grupos: { ids: string[]; comum: Map<string, string> }[] = [];
+    for (const i of naoLab) {
+      const m = profs.get(i.id) ?? new Map<string, string>();
+      const g = grupos.find((x) => [...x.comum.keys()].some((k) => m.has(k)));
+      if (g) { g.ids.push(i.id); g.comum = new Map([...g.comum].filter(([k]) => m.has(k))); }
+      else grupos.push({ ids: [i.id], comum: new Map(m) });
+    }
+    // mantém a ordem das etapas originais (o laboratório fica onde estava)
+    const etapas: string[][] = []; const medicos: (string[] | undefined)[] = []; const usados = new Set<number>();
+    for (const e of info.etapas) {
+      if (e.some((id) => lab.includes(id))) { etapas.push(e); medicos.push(undefined); continue; }
+      const gi = grupos.findIndex((g) => g.ids.includes(e[0]));
+      if (gi < 0) { etapas.push(e); medicos.push(undefined); continue; }
+      if (usados.has(gi)) continue;
+      usados.add(gi); etapas.push(grupos[gi].ids); medicos.push(grupos[gi].ids.length > 1 ? [...grupos[gi].comum.values()] : undefined);
+    }
+    return { etapas, medicos };
+  },
+
   async paciente(cpf) {
     const lista = await getPacientePorCpf(cpf);
     const p = lista[0];
