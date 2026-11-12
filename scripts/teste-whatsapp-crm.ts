@@ -58,7 +58,7 @@ await teste('nomes e variáveis padrão vêm do lead (nome bonito, unidade, valo
   assert.equal(nomeBonito('TAIS DE PAULA FURTADO DE OLIVEIRA'), 'Tais de Paula Furtado de Oliveira');
   const e = novo(); const l = lead(e, 'MARIA SILVA', '91988887777');
   const m = modelosParaLead(e, l);
-  assert.deepEqual(m.find((x) => x.id === 'recuperacao_2')!.variaveis.map((v) => v.valor), P3);
+  assert.deepEqual(m.find((x) => x.id === 'recuperacao_2')!.variaveis.map((v) => v.valor), ['Maria', 'Clinex Guamá', 'R$ 380,00'], 'só o primeiro nome na saudação');
   assert.equal(m.find((x) => x.id === 'recuperacao_2')!.idioma, 'en', 'recuperacao_2 foi aprovado como "en"');
   assert.equal(m.find((x) => x.id === 'follow_up')!.variaveis[1].valor, 'Ultrassom');
 });
@@ -167,8 +167,8 @@ await teste('modelos do guia: nomes e idiomas do WhatsApp Manager, variáveis pa
     ['faltoso_no_show', 'en'], ['reativacao', 'en'], ['follow_up', 'en'], ['recuperacao_2', 'en'],
   ]);
   assert.deepEqual(m.filter((x) => x.msg).map((x) => [x.msg, x.id]), [[1, 'primeiro_contato'], [2, 'nova_tentativa_d3'], [3, 'desconto_d4'], [4, 'encerramento_d7'], [9, 'retorno_personalizado'], [10, 'faltoso_no_show'], [11, 'reativacao']]);
-  assert.deepEqual(de('primeiro_contato').variaveis.map((v) => v.valor), ['Maria Silva', 'Carla', 'Ultrassom']);
-  assert.deepEqual(de('nova_tentativa_d3').variaveis.map((v) => v.valor), ['Maria Silva', 'Ultrassom', 'esta semana']);
+  assert.deepEqual(de('primeiro_contato').variaveis.map((v) => v.valor), ['Maria', 'Carla', 'Ultrassom']);
+  assert.deepEqual(de('nova_tentativa_d3').variaveis.map((v) => v.valor), ['Maria', 'Ultrassom', 'esta semana']);
   assert.equal(de('desconto_d4').variaveis.length, 5); assert.equal(de('desconto_d4').variaveis[1].valor, '10%');
   assert.equal(de('desconto_d4').variaveis[4].valor, 'R$ 342,00', '10% sobre R$ 380,00');
   assert.equal(de('encerramento_d7').variaveis.length, 2);

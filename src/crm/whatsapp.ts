@@ -36,7 +36,8 @@ const dataDaFalta = (_l: Lead, c?: CardSnap) => { const m = /^(\d{4})-(\d{2})-(\
 const comDesconto = (l: Lead) => reais(Math.round(l.valor * 0.9 * 100) / 100);
 
 const V = {
-  nome: { id: 'nome', rotulo: 'Nome do paciente', padrao: (l: Lead) => nomeBonito(l.nome) },
+  // só o primeiro nome na saudação ("Olá, Maria!"); a tela deixa editar se a pessoa preferir o nome inteiro
+  nome: { id: 'nome', rotulo: 'Nome do paciente', padrao: (l: Lead) => nomeBonito(l.nome.trim().split(/\s+/)[0] ?? '') },
   empresa: { id: 'empresa', rotulo: 'Clínica / unidade', padrao: empresa },
   valor: { id: 'valor', rotulo: 'Valor', padrao: (l: Lead) => reais(l.valor) },
   itens: { id: 'itens', rotulo: 'Itens do orçamento', padrao: itens },
