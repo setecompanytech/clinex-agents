@@ -25,7 +25,8 @@ export type MemoriaIA = {
   etapas?: Record<string, { combo: string; comboServicoId: string; comboRotulo: string; etapa: number; de: number; rotulo: string; valor?: number; feita?: boolean }>;
   ate?: string;
   transferiu?: boolean; // a IA passou a conversa para a equipe
-  pix?: { valor?: number; transacao?: string; em: string }; // comprovante de pix conferido (só com ele o agendamento pago por pix é gravado)
+  pix?: { valor?: number; transacao?: string; em: string };
+  fotoOrcamento?: boolean; // o paciente mandou foto IMPRESSA: depois de informar os valores, a conversa vai para a equipe montar o orçamento // comprovante de pix conferido (só com ele o agendamento pago por pix é gravado)
   combosVistos?: string[];
   combosOferecidos?: { combo: string; total: string; economia: string }[]; // combos já citados (o valor deles é dado real) // serviços cujos combos já foram consultados (a sugestão é feita uma vez só)
 };
@@ -357,6 +358,13 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
       case 'ler_pedido_medico': {
         // o paciente pode mandar várias fotos (álbum: cada página do pedido numa foto): lê todas e junta os exames, sem repetir
         const lidos = (await c.lerPedidos?.()) ?? [];
+        // REGRA DA CLÍNICA: escrito À MÃO -> não tenta ler, passa direto para o atendimento principal
+        if (lidos.some((p) => p?.escrita === 'manuscrita')) {
+          c.saida.handoff = { motivo: 'Paciente enviou pedido/imagem com texto ESCRITO À MÃO: a equipe lê o pedido e faz o orçamento.' };
+          return { manuscrito: true, orientacao: 'Texto escrito à mão: NÃO leia nem cite exames. Avise numa frase curta que a equipe vai olhar o pedido e já passa o orçamento por aqui.' };
+        }
+        // impresso/digitado (pedido, panfleto): ela lê e informa os valores do Clinilink; depois a equipe monta o orçamento
+        if (lidos.some((p) => p?.tipo === 'pedido' || p?.tipo === 'panfleto')) c.mem.fotoOrcamento = true;
         // panfleto/anúncio da Clinex (caso real: a paciente mandou o panfleto do Feminino 1 e ela respondeu 4 vezes que não conseguia ler)
         const panfleto = lidos.find((p): p is PedidoLido => Boolean(p && p.tipo === 'panfleto'));
         if (panfleto && !lidos.some((p) => p?.tipo === 'pedido')) return { panfleto: true, combo: panfleto.combo, valor_impresso: panfleto.valor, inclui: panfleto.exames, orientacao: panfleto.combo ? `É um panfleto da Clinex com o combo "${panfleto.combo}". Chame buscar_servico com "combo ${panfleto.combo}" para abrir o combo real (valor e agenda vêm do Clinilink; o valor impresso é só referência).` : 'É um panfleto da Clinex: chame buscar_servico com os serviços que ele inclui.' };
@@ -364,7 +372,7 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
         const vistos = new Set<string>(); const exames: string[] = [];
         for (const p of pedidos) for (const e of p.exames) { const k = norm(e); if (!vistos.has(k)) { vistos.add(k); exames.push(e); } }
         if (!exames.length) return { erro: lidos.length ? `não consegui ler ${lidos.length > 1 ? 'as fotos' : 'a foto'} do pedido: peça uma foto mais nítida ou os nomes dos exames` : 'não há foto de pedido na conversa' };
-        return { fotos_lidas: pedidos.length, fotos_recebidas: lidos.length, exames, incerto: pedidos.some((p) => p.incerto) || pedidos.length < lidos.length, orientacao: `Li ${pedidos.length} de ${lidos.length} foto(s). Agora chame orcar_exames com TODOS esses nomes.` + (pedidos.length < lidos.length ? ' Avise que alguma foto não deu para ler e peça para reenviar essa.' : '') };
+        return { fotos_lidas: pedidos.length, fotos_recebidas: lidos.length, exames, incerto: pedidos.some((p) => p.incerto) || pedidos.length < lidos.length, orientacao: `Li ${pedidos.length} de ${lidos.length} foto(s). Agora chame orcar_exames com TODOS esses nomes e mostre os valores; depois disso a equipe monta o orçamento (avise o paciente).` + (pedidos.length < lidos.length ? ' Avise que alguma foto não deu para ler e peça para reenviar essa.' : '') };
       }
       case 'agendar_coleta': {
         const itens = c.mem.orcamento?.itens ?? [];
