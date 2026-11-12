@@ -10,7 +10,7 @@ import type { Fonte } from '../script/catalog.js';
 import { unidadesDaClinica } from '../script/clinilinkFonte.js';
 import { pensar, type Msg, type Resposta } from './cerebro.js';
 import { evt } from '../../../lib/log.js';
-import { memoriaNova, type Contexto, type MemoriaIA } from './ferramentas.js';
+import { DESPEDIDA, memoriaNova, type Contexto, type MemoriaIA } from './ferramentas.js';
 import { promptAmanda, type Unidades } from './prompt.js';
 
 export type Atendimento = {
@@ -152,12 +152,16 @@ export async function atenderComIA(p: {
   const doPaciente = conversa.filter((m) => m.role === 'user').map((m) => m.content).join('\n');
   const fontesDe = () => [...(c.saida.dados ?? []), JSON.stringify(listaUnidades), env.clinicHorario, env.clinicName, 'Clinex', JSON.stringify({ servicos: mem.servicos, slots: mem.slots, orcamento: mem.orcamento, combos: mem.combosOferecidos, paciente: mem.paciente })];
   const agendouSemAgendar = (t: string) => !c.saida.confirmacoes.length && !mem.agendados.length && /\b(ficou|esta|está|foi|ja esta|já está) (agendad|marcad|confirmad|reservad)\w*|\bagendamento (feito|confirmado|realizado)\b/i.test(t);
-  let ruins = c.saida.confirmacoes.length ? [] : [...inventados(resposta.texto, fontesDe(), doPaciente), ...(agendouSemAgendar(resposta.texto) ? ['"agendado" sem ter agendado (o agendamento só existe depois da ferramenta agendar dar certo; diga que vai reservar e peça o que falta)'] : [])];
+  // "encontrei o cadastro" sem ter procurado (caso real: disse que achou a Joana sem chamar buscar_paciente)
+  const cadastroInventado = (t: string) => /(?<!n[aã]o )\b(encontrei|achei|localizei)\b.{0,20}\bcadastro\b/i.test(t) && !mem.paciente?.id && !(c.saida.dados ?? []).some((d) => d.includes('"encontrado":true'));
+  const temCombo = Object.values(mem.servicos).some((x) => x.pacote || x.combo) || Boolean(mem.combosOferecidos?.length) || Boolean(Object.keys(mem.etapas ?? {}).length) || (c.saida.dados ?? []).some((d) => /combo/i.test(d)) || /\bcombo\b/i.test(doPaciente);
+  const regras = (t: string) => [...(/\bcombo\b/i.test(t) && !temCombo ? ['"combo" sem combo nesta conversa (não cite combo que não existe no atendimento)'] : []), ...(/\b(ja |já )?te retorno\b|\bvou te retornar\b|\bte dou um retorno\b/i.test(t) ? ['"te retorno" (você não retorna depois: se a equipe vai continuar, diga que a equipe vai mandar e transfira)'] : []),...(agendouSemAgendar(t) ? ['"agendado" sem ter agendado (o agendamento só existe depois da ferramenta agendar dar certo; diga que vai reservar e peça o que falta)'] : []), ...(cadastroInventado(t) ? ['"encontrei o cadastro" sem ter consultado (chame buscar_paciente antes de dizer que achou)'] : [])];
+  let ruins = c.saida.confirmacoes.length ? [] : [...inventados(resposta.texto, fontesDe(), doPaciente), ...regras(resposta.texto)];
   if (ruins.length) {
     evt('erro', { mensagem: 'IA: resposta com dado que não veio do Clinilink (refazendo)', itens: ruins, rascunho: resposta.texto.slice(0, 400) });
-    const correcao: Msg[] = [...conversa, { role: 'assistant', content: resposta.texto }, { role: 'user', content: '[CHECAGEM INTERNA DO SISTEMA, não é o paciente] Sua última resposta citou ' + ruins.join(', ') + ', que NÃO veio das ferramentas. Isso é proibido. Consulte agora as ferramentas (buscar_servico, servico_com_profissional, ver_horarios, orcar_exames) e reescreva a resposta ao paciente usando SOMENTE os profissionais e valores que elas devolverem. Não mencione esta checagem.' }];
+    const correcao: Msg[] = [...conversa, { role: 'assistant', content: resposta.texto }, { role: 'user', content: '[CHECAGEM INTERNA DO SISTEMA, não é o paciente] Sua última resposta citou ' + ruins.join(', ') + ', que NÃO veio das ferramentas. Isso é proibido. Consulte agora as ferramentas (buscar_servico, servico_com_profissional, ver_horarios, buscar_paciente, orcar_exames) e reescreva a resposta ao paciente usando SOMENTE os profissionais e valores que elas devolverem. Não mencione esta checagem.' }];
     resposta = await pensar(system, correcao, c);
-    ruins = [...inventados(resposta.texto, fontesDe(), doPaciente), ...(agendouSemAgendar(resposta.texto) ? ['"agendado" sem ter agendado'] : [])];
+    ruins = [...inventados(resposta.texto, fontesDe(), doPaciente), ...regras(resposta.texto)];
     if (ruins.length) {
       evt('erro', { mensagem: 'IA: insistiu em dado que não veio do Clinilink; resposta bloqueada', itens: ruins, rascunho: resposta.texto.slice(0, 400) });
       resposta = { ...resposta, texto: 'Deixa eu confirmar essa informação certinho no sistema. Vou chamar alguém da equipe pra te passar os dados corretos, só um instante.' };
@@ -166,7 +170,15 @@ export async function atenderComIA(p: {
   }
   let texto = acabamento(resposta.texto);
   // agendou: a confirmação oficial já traz tudo; do texto do modelo só fica o que for do pix (chave/comprovante), nunca o resumo repetido
-  if (c.saida.confirmacoes.length) texto = [...c.saida.confirmacoes, /\bpix\b/i.test(texto) ? texto : ''].filter(Boolean).join('\n\n');
+  const comboPendente = Object.values(mem.etapas ?? {}).some((e) => !e.feita);
+  if (c.saida.confirmacoes.length) texto = [...c.saida.confirmacoes, /\bpix\b/i.test(texto) || (comboPendente && /\b(etapa|combo)\b/i.test(texto)) ? texto : ''].filter(Boolean).join('\n\n');
+  if (!c.saida.encerrar && !c.saida.handoff && !c.saida.confirmacoes.length && DESPEDIDA.test(c.ultimaDoPaciente ?? '') && /\b(qualquer coisa|estou a disposicao|estou à disposição|e so chamar|é só chamar|ate (mais|logo)|até (mais|logo)|boa sorte|tenha um (otimo|ótimo|bom))\b/i.test(texto) && !/\?\s*$/.test(texto)) c.saida.encerrar = true;
+  // 2 tentativas sem entender/ler e a terceira igual: passa para a equipe (caso real: 4 vezes "não consegui ler a foto")
+  const NAO_ENTENDI = /n[aã]o consegui (ler|identificar|entender|ouvir)/i;
+  if (!c.saida.handoff && NAO_ENTENDI.test(texto) && conversa.filter((m) => m.role === 'assistant').slice(-2).filter((m) => NAO_ENTENDI.test(m.content)).length >= 2) {
+    texto = 'Pra não te fazer perder tempo, vou passar pra alguém da equipe te ajudar com isso. Só um instante.';
+    c.saida.handoff = { motivo: 'A Amanda não conseguiu entender o pedido depois de 2 tentativas (foto/áudio/mensagem). Ver a conversa e atender.' };
+  }
   if (!texto && c.saida.handoff) texto = 'Vou passar pra alguém da equipe te ajudar com isso. Só um instante.';
   if (!texto) return null;
   return { texto, handoff: c.saida.handoff, encerrar: Boolean(c.saida.encerrar), agendou: c.saida.confirmacoes.length > 0, mem, resposta };

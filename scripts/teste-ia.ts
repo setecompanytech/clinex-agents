@@ -12,7 +12,7 @@ const TITULO = '*Amanda S. (Clinex):*';
 const fonte: Fonte = {
   ...fonteClinilink,
   async gerarOS(id) { console.log(`   [gerarOS] agendamento=${id}`); return { ok: true, id: "os-teste-1" }; },
-  async reservar(p) { console.log(`   [reservar] paciente=${p.pacienteId ?? "novo"} cadastro=${JSON.stringify(p.cadastro ?? null)}`); return { ok: true, hora: p.slot.inicio, cadastrou: !p.pacienteId, pacienteId: p.pacienteId ?? 'novo-123', agendamentoId: 'ag-teste-1', profissional: p.slot.profissional, profissionalBruto: p.slot.profissionalBruto }; },
+  async reservar(p) { console.log(`   [reservar] combo=${p.comboId ?? "-"} proc=${p.servico.nome} paciente=${p.pacienteId ?? "novo"} cadastro=${JSON.stringify(p.cadastro ?? null)}`); return { ok: true, hora: p.slot.inicio, cadastrou: !p.pacienteId, pacienteId: p.pacienteId ?? 'novo-123', agendamentoId: 'ag-teste-1', profissional: p.slot.profissional, profissionalBruto: p.slot.profissionalBruto }; },
 };
 
 const CASOS: Record<string, string[]> = {
@@ -22,6 +22,8 @@ const CASOS: Record<string, string[]> = {
   sangue: ['quero fazer exame de sangue', 'hemograma, glicose e colesterol total', 'quero agendar a coleta'],
   preco: ['quanto custa a consulta com cardiologista?', 'e qual o endereço do guamá?'],
   resultado: ['quero saber o resultado do meu exame de ontem'],
+  feminino1: ['quero fazer o combo feminino 1', 'guamá', 'pode ser o primeiro horário', 'Josy Teste Fonseca 17/02/1980, pode ser esse número', 'sim, está certo', 'feminino', 'dinheiro', 'sim, quero agendar a próxima'],
+  orc2: ['quanto fica hemograma, glicose e o MAPA?', 'sim, esses', 'parcela?'],
   dinheiro: ['quero marcar clinico geral', 'guamá', 'o primeiro', 'Joana Teste Souza 10/05/1990, pode ser esse número', 'feminino', 'dinheiro'],
   link: ['quero marcar clinico geral', 'guamá', 'o primeiro', 'Joana Teste Souza 10/05/1990, pode ser esse número', 'feminino', 'quero pagar no cartão de crédito pelo link'],
   pix: ['quero marcar clinico geral', 'guamá', 'o primeiro', 'Joana Teste Souza 10/05/1990, pode ser esse número', 'feminino', 'vou pagar no pix', '529.982.247-25', '[imagem]'],

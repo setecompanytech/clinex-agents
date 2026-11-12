@@ -22,7 +22,7 @@ export type MemoriaIA = {
   orcamento?: { itens: ItemExame[] };
   agendados: { servicoId: string; ymd: string; resumo: string }[];
   /** combos em andamento: o serviço de cada etapa (para agendar uma de cada vez) */
-  etapas?: Record<string, { combo: string; etapa: number; rotulo: string }>;
+  etapas?: Record<string, { combo: string; comboServicoId: string; comboRotulo: string; etapa: number; de: number; rotulo: string; valor?: number; feita?: boolean }>;
   ate?: string;
   transferiu?: boolean; // a IA passou a conversa para a equipe
   pix?: { valor?: number; transacao?: string; em: string }; // comprovante de pix conferido (só com ele o agendamento pago por pix é gravado)
@@ -97,11 +97,11 @@ function jaPassou(sl: Slot, agora: Date): boolean {
 const ehTeste = (n?: string) => /\bteste\b|n[aã]o agenda/i.test(n ?? '');
 function nomesMedicos(nomes: string[]): string[] { return exibirLista(nomes.filter((n) => n && !ehTeste(n))); }
 
-async function resumoServico(sv: Servico, c: Contexto) {
-  c.mem.servicos[sv.id] = sv;
+async function resumoServico(sv: Servico, c: Contexto, chave = sv.id) {
+  c.mem.servicos[chave] = sv;
   await prepararGeneros(sv.unidades.flatMap((u) => [...(u.profissionais ?? []), ...(u.porServico ?? []).flatMap((x) => x.profissionais)]));
   return {
-    servico_id: sv.id,
+    servico_id: chave,
     nome: sv.frase,
     tipo: sv.tipo,
     profissional_escolhido: sv.profissional ? exibir(sv.profissional.nome) : undefined,
@@ -179,9 +179,9 @@ export const DEFINICOES: Def[] = [
   { name: 'servico_com_profissional', description: 'Quando o paciente escolhe um profissional de um serviço já aberto: devolve o mesmo serviço só com a agenda dele.', parameters: obj({ servico_id: str('servico_id'), profissional: str('nome do profissional como aparece na lista') }, ['servico_id', 'profissional']) },
   { name: 'ver_horarios', description: 'Horários com vaga de um serviço numa unidade. Cada horário vem com horario_id. O atendimento é por ordem de chegada: o horário é a hora em que o atendimento começa naquele período. Sem data: os próximos dias. Com data: só aquele dia.', parameters: obj({ servico_id: str('servico_id'), unidade: str('nome da unidade'), data: str('AAAA-MM-DD (opcional)'), a_partir_de: str('AAAA-MM-DD (opcional)'), turno: { type: 'string', enum: ['manhã', 'tarde'], description: 'opcional' }, profissional: str('opcional: só os horários deste profissional') }, ['servico_id', 'unidade']) },
   { name: 'buscar_paciente', description: 'Procura o cadastro do paciente: pelo CPF (se ele mandou) ou por nome completo + data de nascimento (procura pelo telefone desta conversa). Só mostre ao paciente o NOME encontrado, nunca outros dados.', parameters: obj({ cpf: str('11 dígitos (opcional)'), nome_completo: str('opcional'), nascimento: str('DD/MM/AAAA (opcional)') }) },
-  { name: 'agendar', description: 'Grava o agendamento de um horario_id oferecido. Paciente já encontrado: só confirme que é ele. Paciente novo: precisa de nome completo, data de nascimento e sexo (CPF é opcional). O telefone de contato do paciente é obrigatório: peça (para o próprio paciente, ofereça este WhatsApp; para outra pessoa, o telefone dela). Só chame depois de o paciente confirmar o horário E dizer como vai pagar (na recepção ou pix). Pix: só depois de conferir_comprovante confirmar o comprovante.', parameters: obj({ horario_id: str('horario_id escolhido'), nome_completo: str('nome completo do paciente'), nascimento: str('DD/MM/AAAA'), sexo: { type: 'string', enum: ['feminino', 'masculino'] }, cpf: str('CPF do paciente: OBRIGATÓRIO quando o pagamento é pix; opcional nos outros casos'), telefone: str('telefone de contato do PACIENTE, com DDD, que ele informou ou confirmou na conversa (se disse que pode ser este WhatsApp, use o número do WhatsApp desta conversa)'), pagamento: { type: 'string', enum: ['recepcao', 'pix', 'link_credito'], description: 'como o PACIENTE disse que vai pagar (pergunte antes; nunca presuma). link_credito = cartão de crédito por link (a equipe envia o link e conclui)' } }, ['horario_id', 'nome_completo', 'nascimento', 'telefone', 'pagamento']) },
+  { name: 'agendar', description: 'Grava o agendamento de um horario_id oferecido. Paciente já encontrado: só confirme que é ele. Paciente novo: precisa de nome completo, data de nascimento e sexo (CPF é opcional). O telefone de contato do paciente é obrigatório: peça (para o próprio paciente, ofereça este WhatsApp; para outra pessoa, o telefone dela). Só chame depois de o paciente confirmar o horário E dizer como vai pagar (na recepção ou pix). Pix: só depois de conferir_comprovante confirmar o comprovante.', parameters: obj({ horario_id: str('horario_id escolhido'), nome_completo: str('nome completo do paciente'), nascimento: str('DD/MM/AAAA'), sexo: { type: 'string', enum: ['feminino', 'masculino'] }, cpf: str('CPF do paciente: OBRIGATÓRIO quando o pagamento é pix; opcional nos outros casos'), nome_confirmado: { type: 'boolean', description: 'paciente novo: true só depois de o paciente confirmar o nome completo que vai para o cadastro' }, telefone: str('telefone de contato do PACIENTE, com DDD, que ele informou ou confirmou na conversa (se disse que pode ser este WhatsApp, use o número do WhatsApp desta conversa)'), pagamento: { type: 'string', enum: ['recepcao', 'pix', 'link_credito'], description: 'como o PACIENTE disse que vai pagar (pergunte antes; nunca presuma). link_credito = cartão de crédito por link (a equipe envia o link e conclui)' } }, ['horario_id', 'nome_completo', 'nascimento', 'telefone', 'pagamento']) },
   { name: 'orcar_exames', description: 'Monta o orçamento de exames (de laboratório ou outros) a partir dos nomes que o paciente escreveu ou que vieram do pedido médico. Devolve cada exame com o valor por unidade.', parameters: obj({ exames: { type: 'array', items: { type: 'string' }, description: 'nomes dos exames' } }, ['exames']) },
-  { name: 'ler_pedido_medico', description: 'Lê a última foto que o paciente mandou como pedido médico e devolve os exames escritos nela.', parameters: obj({}) },
+  { name: 'ler_pedido_medico', description: 'Lê as fotos que o paciente mandou: pedido médico (devolve os exames) ou panfleto/anúncio da própria Clinex (devolve o combo destacado, o valor impresso e o que ele inclui). Use sempre que o paciente mandar foto.', parameters: obj({}) },
   { name: 'agendar_coleta', description: 'Depois do orçamento de exames, prepara o agendamento da coleta de todos os exames do orçamento juntos (devolve um servico_id para ver_horarios).', parameters: obj({}) },
   { name: 'sugerir_exames', description: 'Os exames de laboratório mais procurados e os combos de exames, para quem não sabe quais fazer.', parameters: obj({}) },
   { name: 'combos_do_servico', description: 'Combos que incluem o serviço e saem mais em conta. Só ofereça se fizer sentido, sem empurrar.', parameters: obj({ servico_id: str('servico_id') }, ['servico_id']) },
@@ -237,7 +237,7 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
           servico: sv.frase, unidade: un.nome, total_encontrado: total,
           horarios: lista.map((s) => {
             const id = `H${c.mem.proxSlot++}`;
-            c.mem.slots[id] = { servicoId: sv.id, unidade: un.nome, slot: s };
+            c.mem.slots[id] = { servicoId: String(args.servico_id), unidade: un.nome, slot: s };
             return { horario_id: id, dia: dataFalada(s.ymd, hoje), data: s.ymd, periodo: s.turno, a_partir_das: horaFalada(s.inicio), profissional: s.profissional ? exibir(s.profissional) : undefined };
           }),
           lembrete: 'Atendimento por ordem de chegada: diga "a partir das Xh". Não invente horários fora desta lista.',
@@ -282,11 +282,13 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
           return { ok: true, transferido: true, orientacao: 'NÃO agendado por você: pagamento por link de crédito é com a equipe, que vai enviar o link e concluir o agendamento. Avise o paciente numa frase curta.' };
         }
         if (args.pagamento !== 'recepcao' && args.pagamento !== 'pix') return { erro: 'falta a forma de pagamento: pergunte "Qual a sua forma de pagamento?" (sem listar opções). NÃO agende antes da resposta.' };
-        const nomeCompleto = String(args.nome_completo ?? '').trim().replace(/\s+/g, ' ');
+        // caso real: "Jéssica monteiro nascimento" virou o nome do cadastro (a palavra era o rótulo do dado que ela pediu)
+        const nomeCompleto = String(args.nome_completo ?? '').trim().replace(/\s+/g, ' ').replace(/(\s+(nascimento|data( de nascimento)?|nasc|cpf|telefone|celular|sexo|nome( completo)?|feminino|masculino))+$/i, '').replace(/^(nome( completo)?|paciente)\s*:?\s+/i, '').trim();
         const nasc = isoNascimento(args.nascimento) ?? '';
         const conhecido = c.mem.paciente?.id && norm(c.mem.paciente.nome) === norm(nomeCompleto) ? c.mem.paciente : undefined;
         if (!conhecido) {
           if (nomeCompleto.split(' ').length < 2) return { erro: 'preciso do nome completo (nome e sobrenome)' };
+          if (args.nome_confirmado !== true) return { erro: `paciente NOVO: antes de cadastrar, confirme o nome com o paciente ("Vou cadastrar como ${nomeCompleto}, está certo?"). Só chame agendar de novo com nome_confirmado=true depois que ele confirmar.` };
           if (!nasc) return { erro: 'data de nascimento inválida: peça para o paciente conferir (dia/mês/ano)' };
           if (!args.sexo) return { erro: 'preciso do sexo do paciente (feminino ou masculino) para o cadastro: pergunte com respeito' };
           // paciente pode já existir pelo telefone + nome + nascimento
@@ -308,7 +310,7 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
           pacienteId: pac?.id,
           cadastro: pac?.id ? undefined : { nome: nomeCompleto, nascimento: nasc, sexo: args.sexo, telefone },
           observacao: ['Agendado pela Amanda (IA) via WhatsApp', args.pagamento === 'pix' ? `Pago por pix${c.mem.pix?.valor ? ` (R$ ${c.mem.pix.valor.toFixed(2).replace('.', ',')})` : ''}, comprovante recebido no WhatsApp` : 'Pagamento na recepção'].join('. '),
-          comboId: sv.combo?.id,
+          comboId: sv.combo?.id ?? c.mem.etapas?.[g.servicoId]?.combo,
         });
         if (!r.ok) {
           evt('erro', { mensagem: `IA agendar: ${r.codigo} ${r.motivo}`.slice(0, 200) });
@@ -329,14 +331,16 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
           if (os.ok) evt('ignorado', { motivo: `IA: O.S. gerada para o agendamento pago por pix${'id' in os && os.id ? ` (${os.id})` : ''}` });
           else evt('erro', { mensagem: `IA: agendamento pago por pix, mas a O.S. não foi gerada: ${'erro' in os ? os.erro : ''}` });
         }
-        c.saida.confirmacoes.push(mensagemConfirmacao({ paciente: quem, novoCadastro: r.cadastrou, servico: sv, unidade: un, ymd: g.slot.ymd, hora: r.hora, profissionalBruto: r.profissionalBruto ?? g.slot.profissionalBruto, valor: un.precoPix, pagoPix, primeiroNome: quem.split(' ')[0], linhas: r.linhas, extra: r.extra }));
+        const etapaCombo = c.mem.etapas?.[g.servicoId];
+        if (etapaCombo) etapaCombo.feita = true;
+        c.saida.confirmacoes.push(mensagemConfirmacao({ ...(etapaCombo ? { rotuloValor: 'Valor no combo', sufixoProcedimento: `(COMBO ${etapaCombo.comboRotulo.toLocaleUpperCase('pt-BR')} - etapa ${etapaCombo.etapa} de ${etapaCombo.de})` } : {}), paciente: quem, novoCadastro: r.cadastrou, servico: sv, unidade: un, ymd: g.slot.ymd, hora: r.hora, profissionalBruto: r.profissionalBruto ?? g.slot.profissionalBruto, valor: etapaCombo?.valor ?? un.precoPix, pagoPix, primeiroNome: quem.split(' ')[0], linhas: r.linhas, extra: r.extra }));
         return { ok: true, orientacao: 'Agendado. A mensagem oficial de confirmação (com todos os dados) é enviada automaticamente logo depois da sua resposta: NÃO repita os dados. Escreva no máximo uma frase curta (ou nada) e, se for pix, a chave pix.' + '' };
       }
       case 'orcar_exames': {
         const nomes: string[] = Array.isArray(args.exames) ? args.exames.map(String).filter(Boolean) : [];
         if (!nomes.length || !f.casarExames) return { erro: 'sem exames' };
         // REGRA DA CLÍNICA: pedido de orçamento é com o atendimento principal (a IA não monta nem passa os valores)
-        if (c.pedidoOrcamento) return { erro: 'PEDIDO DE ORÇAMENTO: regra da clínica, quem faz é o atendimento principal. NÃO passe valores. Chame transferir_para_humano com o motivo "Orçamento: ' + nomes.join(', ') + '" e avise o paciente numa frase curta que a equipe já vai passar o orçamento.' };
+        // pedido de orçamento: ela informa os valores da tabela (relatório de 12/11); parcelamento/link e orçamento formal vão para a equipe
         const r = await f.casarExames(nomes, escolherExames);
         const ant = c.mem.orcamento?.itens ?? [];
         const itens = [...ant, ...r.itens.filter((i) => !ant.some((a) => a.id === i.id))];
@@ -347,12 +351,15 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
           exames: itens.map((i) => ({ exame: i.nome, valores: Object.fromEntries(Object.entries(i.precos).map(([u, v]) => [u, reais(v)])) })),
           total_por_unidade: Object.fromEntries(unidades.map((u) => [u, reais(itens.reduce((s, i) => s + (i.precos[u] ?? 0), 0))])),
           nao_encontrados: r.naoAchados, externos_com_a_equipe: r.externos, ...(dica ? { dica_de_combo: dica } : {}),
-          orientacao: 'Mostre um exame por linha com o valor e o total. Depois pergunte se quer agendar a coleta (agendar_coleta).',
+          orientacao: 'Mostre um exame por linha com o valor e o total, com os NOMES. Exame não encontrado ou externo (ex.: tomografia): diga que esse valor a equipe passa. Depois pergunte se quer agendar a coleta (agendar_coleta). Parcelamento/link e orçamento formal: transferir_para_humano com a lista e os valores no motivo.',
         };
       }
       case 'ler_pedido_medico': {
         // o paciente pode mandar várias fotos (álbum: cada página do pedido numa foto): lê todas e junta os exames, sem repetir
         const lidos = (await c.lerPedidos?.()) ?? [];
+        // panfleto/anúncio da Clinex (caso real: a paciente mandou o panfleto do Feminino 1 e ela respondeu 4 vezes que não conseguia ler)
+        const panfleto = lidos.find((p): p is PedidoLido => Boolean(p && p.tipo === 'panfleto'));
+        if (panfleto && !lidos.some((p) => p?.tipo === 'pedido')) return { panfleto: true, combo: panfleto.combo, valor_impresso: panfleto.valor, inclui: panfleto.exames, orientacao: panfleto.combo ? `É um panfleto da Clinex com o combo "${panfleto.combo}". Chame buscar_servico com "combo ${panfleto.combo}" para abrir o combo real (valor e agenda vêm do Clinilink; o valor impresso é só referência).` : 'É um panfleto da Clinex: chame buscar_servico com os serviços que ele inclui.' };
         const pedidos = lidos.filter((p): p is PedidoLido => Boolean(p && p.tipo === 'pedido' && p.exames.length));
         const vistos = new Set<string>(); const exames: string[] = [];
         for (const p of pedidos) for (const e of p.exames) { const k = norm(e); if (!vistos.has(k)) { vistos.add(k); exames.push(e); } }
@@ -387,7 +394,12 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
         const itens = ids.map((id) => pac.itens.find((i) => i.id === id)).filter((x): x is NonNullable<typeof x> => Boolean(x));
         const et = await f.etapaDoCombo({ id: pac.id, rotulo: pac.rotulo, total: pac.total }, itens);
         if ('semAgenda' in et) return { erro: `sem agenda para esta etapa (${et.semAgenda}). Siga para a próxima ou passe para a equipe.` };
-        return { resultado: 'servico', etapa: n + 1, de: pac.etapas.length, ...(await resumoServico(et, c)) };
+        // caso real: a etapa de um serviço só ia ao Clinilink como consulta avulsa (R$ 100,00) e a confirmação mostrava o valor do combo inteiro
+        const chave = `combo:${pac.id}:etapa${n + 1}`;
+        const valorEtapa = itens.reduce((soma, i) => soma + (i.preco ?? 0), 0) || undefined;
+        (c.mem.etapas ??= {})[chave] = { combo: pac.id, comboServicoId: sv!.id, comboRotulo: pac.rotulo, etapa: n + 1, de: pac.etapas.length, rotulo: itens.map((i) => i.nome).join(' + '), valor: valorEtapa };
+        const r = await resumoServico(et, c, chave);
+        return { ...r, resultado: 'servico', etapa: n + 1, de: pac.etapas.length, preco: valorEtapa ? `Dentro do combo esta etapa sai por ${reais(valorEtapa)} (o combo inteiro: ${pac.total ? reais(pac.total) : 'ver combo'}).` : r.preco, orientacao: 'Agende esta etapa (ver_horarios com este servico_id). Depois de agendada, siga para a próxima etapa até completar o combo.' };
       }
       case 'conferir_comprovante': {
         const cp = await c.lerComprovante?.();
