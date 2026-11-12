@@ -38,7 +38,10 @@ function desenhar(manter) {
     var dir = h('div', { class: 'tela-dir' }), ac = cab.querySelector(':scope > .tela-ac');
     if (ac) { cab.insertBefore(dir, ac); dir.appendChild(barra); dir.appendChild(ac); } else { cab.appendChild(dir); dir.appendChild(barra); }
     kids(raiz, [avisoArmazenamento(), tela]);
-  } else kids(raiz, [avisoArmazenamento(), barra, tela]);
+  } else {
+    var slot = tela && tela.querySelector ? tela.querySelector('.hh-topo') : null; /* Hoje: o filtro entra na linha da data, no topo do cartão de boas-vindas */
+    if (slot) { slot.appendChild(barra); kids(raiz, [avisoArmazenamento(), tela]); } else kids(raiz, [avisoArmazenamento(), barra, tela]);
+  }
   navEl.querySelectorAll('.nav-i').forEach(function (b) { b.setAttribute('aria-current', b.getAttribute('data-aba') === S.aba ? 'page' : 'false'); });
   var bd = navEl.querySelector('[data-aba="hoje"] .nav-b');
   if (bd) { var n = S.D.tarefas.length; bd.textContent = n ? String(n) : ''; bd.style.display = n ? '' : 'none'; }

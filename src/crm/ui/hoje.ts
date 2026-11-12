@@ -63,11 +63,15 @@ function heroHoje(A) {
     b(P.pendentes + ' ' + plural(P.pendentes, 'tarefa', 'tarefas')), ' para hoje', P.atrasadas ? [', ', b(P.atrasadas + ' ' + plural(P.atrasadas, 'atrasada', 'atrasadas'))] : ', todas em dia', '. ',
     b(brlCompacto(K.pipelineValor)), ' em andamento', K.riscoValor ? [', ', b(brlCompacto(K.riscoValor)), ' em risco'] : '', '.'
   ];
-  return h('section', { class: 'hh' }, [
-    h('div', { class: 'hh-t' }, [h('small', { class: 'hh-data', text: dataExtenso(A.hoje) }), h('h1', { text: saudacao() + (S.eu ? ', ' + primeiroNome(S.eu) : '') }), h('p', { class: 'hh-frase' }, frase)]),
+  /* linha de cima: a data à esquerda e (colocada pelo app) o filtro de período à direita; embaixo, saudação e anéis */
+  return h('section', { class: 'hh hh-crm' }, [
+    h('div', { class: 'hh-topo' }, h('small', { class: 'hh-data', text: dataExtenso(A.hoje) })),
+    h('div', { class: 'hh-corpo' }, [
+    h('div', { class: 'hh-t' }, [h('h1', { text: saudacao() + (S.eu ? ', ' + primeiroNome(S.eu) : '') }), h('p', { class: 'hh-frase' }, frase)]),
     h('div', { class: 'hh-aneis' }, [
       anel({ titulo: 'Progresso do dia', tam: 104, pct: P.pct, centro: P.feitas + '/' + (P.feitas + P.pendentes), sub: 'tarefas', cor: 'var(--g3)', dica: { titulo: 'Progresso do dia', linhas: [{ valor: String(P.feitas), rotulo: 'concluídas hoje' }, { valor: String(P.pendentes), rotulo: 'ainda na fila' }, { valor: String(P.atrasadas), rotulo: 'delas atrasadas' }] } }),
       anel({ titulo: 'Janela de contato', tam: 104, pct: passou * 100, centro: restantes > 0 ? nf1.format(restantes) + ' h' : 'fechada', sub: restantes > 0 ? 'restantes' : '', cor: 'var(--g1)', dica: { titulo: 'Janela de contato', linhas: [{ valor: M.LIMITES.janelaInicioH + 'h às ' + M.LIMITES.janelaFimH + 'h', rotulo: 'horário permitido' }, { valor: P.ritmoPorHora === null ? '–' : nf1.format(P.ritmoPorHora), rotulo: 'tarefas por hora para zerar a fila' }] } })
+    ])
     ])
   ]);
 }
