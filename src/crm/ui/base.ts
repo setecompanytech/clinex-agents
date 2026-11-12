@@ -167,6 +167,17 @@ function carregar() {
   return api('GET', '/estado').then(function (d) { S.D = d; S.AUstale = true; S.FVstale = true; S.ANfresh = {}; S.EXfresh = {}; S.RPfresh = {}; desenhar(); if (S.leadAberto && typeof atualizarGaveta === 'function') atualizarGaveta(); return d; })
     .catch(function (e) { aviso('Não consegui carregar o CRM: ' + e.message, 'erro'); throw e; });
 }
+/* true enquanto alguém está com o cursor num campo de texto: a atualização automática espera, para não apagar o que está sendo digitado */
+function digitando() { var a = document.activeElement; return !!(a && (a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && ['checkbox', 'radio', 'button', 'submit'].indexOf(a.type) < 0))); }
+/* redesenha e devolve o cursor ao mesmo campo (a busca é refeita junto com a tela e perdia o foco a cada letra) */
+function comFoco(fn) {
+  var a = document.activeElement, info = null;
+  if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA')) info = { tag: a.tagName.toLowerCase(), rot: a.getAttribute('aria-label'), ph: a.getAttribute('placeholder'), tipo: a.type, ini: a.selectionStart, fim: a.selectionEnd };
+  fn();
+  if (!info) return;
+  var cand = Array.prototype.filter.call(document.querySelectorAll(info.tag), function (x) { return x.getAttribute('aria-label') === info.rot && x.getAttribute('placeholder') === info.ph && x.type === info.tipo; })[0];
+  if (cand && cand !== a) { cand.focus(); try { cand.setSelectionRange(info.ini, info.fim); } catch (e) {} }
+}
 /* executa uma ação em um lead; mostra a mensagem da regra se o sistema recusar */
 function agir(id, acao) {
   acao.atendente = acao.atendente || S.eu || undefined;

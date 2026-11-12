@@ -157,7 +157,7 @@ function identificar() {
     agConstruir();
     if (hs[1]) { if (hs[1].indexOf('lead-') === 0) abrirLead(hs[1].slice(5)); else if (itemDef(hs[1])) abrirItem(hs[1]); }
   }).catch(function () { limpar(raiz); raiz.appendChild(h('div', { class: 'cartao boas' }, [h('h2', { text: 'Não consegui carregar o CRM' }), botao('Tentar de novo', 'pri', function () { location.reload(); })])); });
-  setInterval(function () { if (document.visibilityState === 'visible' && !pilha.length) carregar().catch(function () {}); else atualizarTopo(); }, 45000);
+  setInterval(function () { if (document.visibilityState === 'visible' && !pilha.length && !digitando()) carregar().catch(function () {}); else atualizarTopo(); }, 45000);
   setInterval(atualizarTopo, 30000);
 })();
 `;

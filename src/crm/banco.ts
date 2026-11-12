@@ -6,7 +6,7 @@ import { migrarGuia, regrasPadrao, type LogAuto, type Regra } from './automacoes
 import { funisPadrao } from './pipeline/regras.js';
 import type { EstadoFunis } from './pipeline/tipos.js';
 import { supabaseConfigurado } from '../lib/supabase.js';
-import { agendarGravacao, atualizarUsuarios, carregarDoBanco, erroDoBanco, esvaziar } from './persistencia.js';
+import { agendarGravacao, atualizarLeads, atualizarUsuarios, carregarDoBanco, erroDoBanco, esvaziar } from './persistencia.js';
 
 /**
  * Armazenamento do CRM: um arquivo JSON (.data/crm.json, fora do git) mantido em memória e regravado de forma
@@ -113,6 +113,14 @@ export async function atualizarContas(ttlMs?: number) {
   await carregado;
   if (bancoIndisponivel) return tentarVoltarAoBanco();
   await atualizarUsuarios(estado, ttlMs);
+}
+
+/** Antes de cada chamada da API: traz do banco os leads que outras instâncias da Vercel mexeram (sem isto, cada uma mostra a sua versão). */
+export async function atualizarLeadsDoBanco() {
+  if (!process.env.VERCEL || !USA_BANCO) return;
+  await carregado;
+  if (bancoIndisponivel) return;
+  await atualizarLeads(estado);
 }
 
 /** Na resposta de uma escrita, espera o Supabase confirmar antes de devolver ao navegador (a função pode congelar logo depois). */

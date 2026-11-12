@@ -60,7 +60,7 @@ function fvCarregarCards() {
 function fvAtualizar() {
   return fvCarregarLista().then(fvCarregarCards).then(function () { if (S.aba === 'pipelines') desenhar(true); }).catch(function (e) { FV.erro = e.message; FV.carregando = false; if (S.aba === 'pipelines') desenhar(true); });
 }
-function fvRecarregarCards() { return fvCarregarCards().then(function () { if (S.aba === 'pipelines') desenhar(true); }); }
+function fvRecarregarCards() { return fvCarregarCards().then(function () { if (S.aba === 'pipelines') comFoco(function () { desenhar(true); }); }); }
 
 /* ---- tela */
 function telaPipelines() {

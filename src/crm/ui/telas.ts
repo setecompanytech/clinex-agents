@@ -30,7 +30,7 @@ function filtrarLeads(lista) {
 function barraBusca(opcoes) {
   var busca = h('input', { type: 'search', class: 'in', placeholder: 'Buscar por nome, telefone ou exame', value: S.q, 'aria-label': 'Buscar leads' });
   var t = null;
-  busca.addEventListener('input', function () { S.q = busca.value; clearTimeout(t); t = setTimeout(function () { desenhar(true); }, 180); });
+  busca.addEventListener('input', function () { S.q = busca.value; clearTimeout(t); t = setTimeout(function () { comFoco(function () { desenhar(true); }); }, 180); });
   var atend = h('select', { class: 'in', 'aria-label': 'Responsável', onchange: function (e) { S.fAtend = e.target.value; desenhar(true); } }, [h('option', { value: '', text: 'Todos os responsáveis' })].concat(listaAtendentes().map(function (a) { return h('option', { value: a, text: a, selected: S.fAtend === a ? 'selected' : null }); })));
   var cont = [h('div', { class: 'busca' }, [ico('search', 16), busca]), atend];
   if (opcoes && opcoes.status) {

@@ -1,5 +1,5 @@
 import { Router, json } from 'express';
-import { bancoFora, estado, infoArmazenamento, pronto, salvar } from './banco.js';
+import { atualizarLeadsDoBanco, bancoFora, estado, infoArmazenamento, pronto, salvar } from './banco.js';
 import { diagnosticarSupabase } from '../lib/supabase.js';
 import { exigirAdmin } from '../lib/painel-auth.js';
 import { erroDoBanco, TABELAS_CRM } from './persistencia.js';
@@ -27,7 +27,7 @@ import { agenteComIA, alertasDoAgente, responderAgente } from './agente.js';
  */
 const router = Router();
 router.use(json({ limit: '2mb' }));
-router.use(async (_req, _res, next) => { await pronto(); next(); });
+router.use(async (_req, _res, next) => { await pronto(); await atualizarLeadsDoBanco(); next(); });
 
 const achar = (id: string) => estado.leads.find((l) => l.id === id);
 

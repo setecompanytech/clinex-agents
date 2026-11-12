@@ -64,7 +64,7 @@ process.env.SUPABASE_URL = `http://127.0.0.1:${porta}`;
 process.env.SUPABASE_SERVICE_ROLE_KEY = 'chave-teste';
 
 // só agora os módulos (eles leem o ambiente ao carregar)
-const { carregarDoBanco, gravarMudancas, COLECOES } = await import('../src/crm/persistencia.js');
+const { atualizarLeads, carregarDoBanco, gravarMudancas, COLECOES } = await import('../src/crm/persistencia.js');
 const { funisPadrao, moverCard } = await import('../src/crm/pipeline/regras.js');
 const { ingerir, funilDestino } = await import('../src/crm/pipeline/ingestao.js');
 const { regrasPadrao } = await import('../src/crm/automacoes.js');
@@ -178,6 +178,26 @@ await teste('conexão que cai: leitura e gravação com upsert repetem; inserir 
     assert.equal(tab('t_log').size, 0, 'nada foi inserido, então nada duplica');
     derrubar = 3; await assert.rejects(() => sbGravar('t_retry', [{ id: 'b', v: 2 }], 'id'), (e: Error) => e instanceof SupabaseError, 'depois de 3 quedas desiste com erro claro');
   } finally { console.warn = aviso; derrubar = 0; }
+});
+await teste('outra instância da Vercel mexeu no lead: a releitura traz a mudança, no mesmo objeto, sem perder o que está pendente aqui', async () => {
+  const c = novo(); await carregarDoBanco(c);
+  c.usuarios = []; c.leads.push(criarLead({ nome: 'Maria Remota', telefone: '91977770000', valor: 50 }, AGORA)); await gravarMudancas(c);
+  const maria = c.leads[0]; const linhaMaria = tab('crm_leads').get(maria.id)!;
+  // a "outra instância" grava o envio de WhatsApp direto no banco
+  const dados = JSON.parse(JSON.stringify(linhaMaria.dados)) as typeof maria;
+  dados.eventos.push({ id: 'ev-outra', quando: '2026-11-02T12:05:00.000Z', tipo: 'contato', texto: 'WhatsApp · modelo primeiro_contato' } as never);
+  tab('crm_leads').set(maria.id, { ...linhaMaria, dados });
+  assert.equal(maria.eventos.some((e) => e.id === 'ev-outra'), false, 'sem releitura a memória segue velha (o defeito)');
+  // mudança local ainda não gravada: tem que ir para o banco antes da releitura, e não ser pisada
+  c.leads.push(criarLead({ nome: 'Lead local', telefone: '91988880000', valor: 10 }, AGORA));
+  await atualizarLeads(c, 0);
+  assert.equal(c.leads.length, 2, 'o lead local foi gravado e continua');
+  const depois = c.leads.find((l) => l.id === maria.id)!;
+  assert.equal(depois, maria, 'o objeto é o mesmo (requisição em andamento não fica com cópia solta)');
+  assert.ok(depois.eventos.some((e) => e.id === 'ev-outra'), 'o envio da outra instância apareceu');
+  assert.ok(tab('crm_leads').size === 2, 'o lead local chegou ao banco antes de reler');
+  pedidos.length = 0; await gravarMudancas(c);
+  assert.equal(reqs('POST').length + reqs('DELETE').length, 0, 'depois da releitura não há nada a regravar');
 });
 console.log = log;
 console.log(`${ok} testes passaram.`);

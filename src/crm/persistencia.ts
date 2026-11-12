@@ -199,6 +199,40 @@ export function agendarGravacao(estado: Estado) {
 /** Espera tudo o que está pendente (usado em testes e no desligamento). */
 export async function esvaziar(estado: Estado) { if (timer) { clearTimeout(timer); timer = null; } await gravarMudancas(estado); }
 
+let leadsLidosEm = 0;
+let leadsRelendo: Promise<void> | null = null;
+/**
+ * Relê os leads do banco. Na Vercel cada instância tem a sua memória e só lia o banco ao subir: o envio de WhatsApp gravado
+ * numa instância não aparecia na outra (o lead "continuava em Em aberto", o botão voltava a pedir o mesmo passo) e uma edição
+ * feita numa cópia velha sobrescrevia o envio. Grava o que está pendente antes (nunca sobrescreve mudança não enviada) e
+ * atualiza os objetos NO LUGAR, para que uma requisição em andamento continue mexendo no lead certo. Se falhar, segue com a memória.
+ */
+export async function atualizarLeads(estado: Estado, ttlMs = 1500) {
+  if (!baseLida || ausentes.has(leads.tabela)) return;
+  if (leadsRelendo) return leadsRelendo;
+  if (Date.now() - leadsLidosEm < ttlMs) return;
+  leadsRelendo = (async () => {
+    await esvaziar(estado);
+    if (ultimoErro) return;
+    try {
+      const linhas = await sbLer<Linha>(leads.tabela, { ordem: leads.ordem });
+      const novos = linhas.map((r) => leads.deLinha(r) as Lead);
+      const porId = new Map(estado.leads.map((l) => [l.id, l]));
+      estado.leads = novos.map((n) => {
+        const antigo = porId.get(n.id);
+        if (!antigo) return n;
+        for (const k of Object.keys(antigo)) delete (antigo as unknown as Record<string, unknown>)[k];
+        return Object.assign(antigo, n);
+      });
+      const m = new Map<string, string>();
+      for (const x of estado.leads) { const l = leads.paraLinha(x); m.set(chaveDe(leads, l), JSON.stringify(l)); }
+      noBanco.set(leads.tabela, m);
+      leadsLidosEm = Date.now();
+    } catch (e) { console.error(`[crm] não consegui reler os leads do banco: ${(e as Error).message}`); }
+  })().finally(() => { leadsRelendo = null; });
+  return leadsRelendo;
+}
+
 let usuariosLidosEm = 0;
 /**
  * Relê as contas do banco. Na Vercel há várias instâncias, cada uma com a sua memória: sem isto, a conta criada numa
