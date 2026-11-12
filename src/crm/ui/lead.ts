@@ -309,7 +309,7 @@ function dialogoModeloWA(l, px) {
     function desenhar() {
       limpar(area); campos = [];
       atual.variaveis.forEach(function (v, i) {
-        var inp = h('input', { class: 'in', type: 'text', maxlength: '200', 'aria-label': v.rotulo }); inp.value = v.valor; campos.push(inp);
+        var inp = h('input', { class: 'in', type: 'text', maxlength: '200', 'aria-label': v.rotulo }); inp.value = v.valor; if (v.id === 'atendente' && S.eu) inp.value = primeiroNome(S.eu); campos.push(inp);
         kids(area, campo('{{' + (i + 1) + '}} ' + v.rotulo, inp));
       });
     }
