@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { exigirEscrita, exigirModulo, painelAuth } from '../lib/painel-auth.js';
 import api from './api.js';
 import { MODELO } from './modelo.js';
+import { LOGO_CLINEX } from './ui/logo.js';
 import { base } from './ui/base.js';
 import { graficos } from '../ui/graficos.js';
 import { graficos2 } from '../ui/graficos2.js';
@@ -36,7 +37,7 @@ import { pagina } from './ui/page.js';
 const router = Router();
 router.use(painelAuth, exigirModulo('crm'));
 
-const CSP = "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+const CSP = "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 const clientJs = `(function () {\n'use strict';\nvar M = ${JSON.stringify(MODELO)};\n${base}\n${graficos}\n${graficos2}\n${graficos3}\n${graficos4}\n${fluxo}\n${etapa}\n${pipeline}\n${funis}\n${funis2}\n${funis3}\n${telas}\n${hoje}\n${analises}\n${executivo}\n${report}\n${leadUi}\n${agente}\n${selectModerno}\n${dataModerna}\n${app}\n})();`;
 
 router.use('/api', exigirEscrita, api);
@@ -46,5 +47,6 @@ router.get('/', (_req, res) => {
   res.type('text/html; charset=utf-8').send(pagina);
 });
 router.get('/app.js', (_req, res) => res.type('application/javascript; charset=utf-8').send(clientJs));
+router.get('/logo.jpg', (_req, res) => res.type('image/jpeg').set('Cache-Control', 'public, max-age=86400').send(LOGO_CLINEX));
 
 export default router;

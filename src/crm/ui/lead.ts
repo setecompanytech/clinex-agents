@@ -292,26 +292,62 @@ function dialogoContato(l, px, texto) {
 
 /* Envio pelo WhatsApp com modelo aprovado: o que vai para o paciente aparece e é conferido antes de enviar. */
 function dialogoModeloWA(l, px) {
-  var m = modal({ titulo: 'Enviar WhatsApp por modelo', sub: l.nome + ' · final ' + String(l.telefone).slice(-4), largura: 560, classe: 'peq', corpo: h('div', null, h('p', { class: 'mut', text: 'Carregando os modelos…' })) });
+  var m = modal({ titulo: 'Enviar WhatsApp por modelo', sub: l.nome + ' · final ' + String(l.telefone).slice(-4), largura: 1040, classe: 'wa-modal', corpo: h('div', null, h('p', { class: 'mut', text: 'Carregando os modelos…' })) });
   api('GET', '/whatsapp/modelos?lead=' + encodeURIComponent(l.id)).then(function (r) {
     limpar(m.corpo);
     var st = r.status;
-    if (!st.ativo) { kids(m.corpo, [h('p', { class: 'callout aviso', text: 'O disparo pelo WhatsApp está desligado neste ambiente. Peça ao administrador para ativar (variável DISPARO_WHATSAPP).' }), h('div', { class: 'linha-b' }, [botao('Fechar', '', function () { m.fechar(); })])]); return; }
     var doPasso = px && px.passo && px.passo.msg ? r.modelos.filter(function (x) { return x.msg === px.passo.msg; })[0] : null;
     var atual = doPasso || r.modelos[0], campos = [];
     var sel = h('select', { class: 'in', 'aria-label': 'Modelo' }, r.modelos.map(function (x) { return h('option', { value: x.id, selected: x.id === atual.id, text: (x.msg ? 'Msg ' + x.msg + ' · ' : '') + x.titulo + ' (' + x.id + ')' }); }));
     var area = h('div', { class: 'wa-vars' });
+    var idioma = h('span', { class: 'wa-lang', title: 'Idioma em que o modelo foi cadastrado na Meta' });
     var erro = h('div');
     var ok = h('input', { type: 'checkbox', id: 'wa-ok' });
     var enviar = botao('Enviar agora', 'pri', enviarAgora, 'bolt');
     enviar.setAttribute('disabled', 'true');
-    ok.addEventListener('change', function () { if (ok.checked) enviar.removeAttribute('disabled'); else enviar.setAttribute('disabled', 'true'); });
+    ok.addEventListener('change', function () { if (ok.checked && st.ativo) enviar.removeAttribute('disabled'); else enviar.setAttribute('disabled', 'true'); });
+    var prev = h('div', { class: 'wa-chat', 'aria-label': 'Pré-visualização da mensagem' });
+    /* o texto do guia tem os campos entre [colchetes], na mesma ordem das variáveis do modelo: troca um a um pelo que está digitado */
+    function previa() {
+      limpar(prev);
+      var ms = atual.msg ? M.MENSAGENS.filter(function (x) { return x.n === atual.msg; })[0] : null, i = 0, partes = [];
+      if (ms) {
+        var corpo = ms.corpo, re = /\[[^\]]*\]/g, ult = 0, mt;
+        while ((mt = re.exec(corpo))) {
+          if (mt.index > ult) partes.push(corpo.slice(ult, mt.index));
+          var c = campos[i], v = c ? c.value.trim() : '', rot = atual.variaveis[i] ? atual.variaveis[i].rotulo : mt[0];
+          partes.push(v ? h('span', { class: 'wa-v', text: v }) : h('span', { class: 'wa-vazio', text: '[' + rot + ']' })); i++; ult = mt.index + mt[0].length;
+        }
+        if (ult < corpo.length) partes.push(corpo.slice(ult));
+      } else {
+        partes.push('Modelo "' + atual.titulo + '": o texto fica na Meta. As variáveis são enviadas nesta ordem: ');
+        atual.variaveis.forEach(function (x, k) { var c = campos[k], v = c ? c.value.trim() : ''; partes.push(h('br'), '{{' + (k + 1) + '}} ', v ? h('span', { class: 'wa-v', text: v }) : h('span', { class: 'wa-vazio', text: '[' + x.rotulo + ']' })); });
+      }
+      var linhas = [];
+      partes.forEach(function (p) { if (typeof p === 'string') p.split('\n').forEach(function (t, k) { if (k) linhas.push(h('br')); linhas.push(t); }); else linhas.push(p); });
+      var t = horaBelem(), hora = String(t.h).padStart(2, '0') + ':' + String(t.m).padStart(2, '0');
+      kids(prev, h('div', { class: 'wa-fone' }, h('div', { class: 'wa-tela' }, [
+        h('div', { class: 'wa-topo' }, [
+          h('span', { class: 'wa-volta', text: '\u2039' }),
+          h('i', { class: 'wa-av', role: 'img', 'aria-label': 'Logo da Clinex' }),
+          h('div', { class: 'wa-quem' }, [h('b', null, ['Clinex', h('s', { class: 'wa-ver', text: '\u2713', title: 'Conta comercial verificada' })]), h('small', { text: 'conta comercial' })])
+        ]),
+        h('div', { class: 'wa-fundo' }, [
+          h('span', { class: 'wa-dia', text: 'HOJE' }),
+          h('div', { class: 'wa-bolha' }, [h('p', null, linhas), h('small', { class: 'wa-hora', text: hora })]),
+          ms && ms.botoes ? h('div', { class: 'wa-botoes' }, ms.botoes.map(function (b) { return h('span', null, [h('em', { text: '\u21A9' }), b]); })) : null
+        ]),
+        h('div', { class: 'wa-barra' }, [h('span', { text: 'Mensagem' })])
+      ])));
+    }
     function desenhar() {
       limpar(area); campos = [];
       atual.variaveis.forEach(function (v, i) {
-        var inp = h('input', { class: 'in', type: 'text', maxlength: '200', 'aria-label': v.rotulo }); inp.value = v.valor; if (v.id === 'atendente' && S.eu) inp.value = primeiroNome(S.eu); campos.push(inp);
-        kids(area, campo('{{' + (i + 1) + '}} ' + v.rotulo, inp));
+        var inp = h('input', { class: 'in', type: 'text', maxlength: '200', 'aria-label': v.rotulo }); inp.value = v.valor; if (v.id === 'atendente' && S.eu) inp.value = primeiroNome(S.eu); campos.push(inp); inp.addEventListener('input', previa);
+        kids(area, h('label', { class: 'wa-f' }, [h('span', { class: 'wa-f-r' }, [h('em', { text: String(i + 1) }), v.rotulo]), inp]));
       });
+      idioma.textContent = atual.idioma; idioma.className = 'wa-lang wa-lang-' + (atual.idioma === 'en' ? 'en' : 'pt');
+      previa();
     }
     sel.addEventListener('change', function () { atual = r.modelos.filter(function (x) { return x.id === sel.value; })[0]; desenhar(); });
     function enviarAgora() {
@@ -322,15 +358,28 @@ function dialogoModeloWA(l, px) {
         .catch(function (e) { kids(erro, h('p', { class: 'callout aviso', text: e.message })); enviar.removeAttribute('disabled'); });
     }
     desenhar();
-    kids(m.corpo, [
-      st.restrito ? h('p', { class: 'callout aviso', text: 'Fase de testes: só números liberados recebem. Os demais são recusados.' }) : null,
-      campo('Modelo aprovado no WhatsApp', sel, 'Idioma do envio: ' + r.modelos.map(function (x) { return x.id + ' = ' + x.idioma; }).join(', ')),
-      area,
-      h('p', { class: 'mut peq', text: 'As variáveis entram nesta ordem no texto do modelo ({{1}}, {{2}}…). Hoje: ' + st.enviadosHoje + ' de ' + st.limiteDia + ' envios. O mesmo modelo não volta ao mesmo lead em 24 h.' }),
-      h('label', { class: 'check-l' }, [ok, h('span', { text: 'Conferi o paciente e as variáveis. Este texto vai para o WhatsApp dele.' })]),
-      erro,
-      h('div', { class: 'linha-b' }, [botao('Cancelar', '', function () { m.fechar(); }), enviar])
-    ]);
+    var perto = st.limiteDia && st.enviadosHoje >= st.limiteDia * 0.8; // só avisa quando o limite do dia está perto
+    kids(m.corpo, h('div', { class: 'wa-grade' }, [
+      h('div', { class: 'wa-form' }, [
+        !st.ativo ? h('p', { class: 'wa-aviso', text: 'O disparo pelo WhatsApp está desligado neste ambiente (DISPARO_WHATSAPP): dá para ver e preencher o modelo, mas não enviar.' }) : null,
+        st.ativo && st.restrito ? h('p', { class: 'wa-aviso', text: 'Fase de testes: só números liberados recebem. Os demais são recusados.' }) : null,
+        h('section', { class: 'wa-sec' }, [
+          h('div', { class: 'wa-sec-t' }, [h('i', { text: '1' }), h('b', { text: 'Modelo aprovado' }), idioma]),
+          sel
+        ]),
+        h('section', { class: 'wa-sec' }, [
+          h('div', { class: 'wa-sec-t' }, [h('i', { text: '2' }), h('b', { text: 'Preencha as variáveis' }), h('small', { text: 'entram na ordem do texto' })]),
+          area
+        ]),
+        perto ? h('p', { class: 'wa-aviso', text: 'Atenção: ' + st.enviadosHoje + ' de ' + st.limiteDia + ' envios do dia já foram usados. Ao chegar no limite, o sistema para de enviar até amanhã.' }) : null,
+        erro,
+        h('div', { class: 'wa-rodape' }, [
+          h('label', { class: 'wa-conf' }, [ok, h('span', { text: 'Conferi o paciente e as variáveis. Este texto vai para o WhatsApp dele.' })]),
+          h('div', { class: 'wa-acoes' }, [botao('Cancelar', '', function () { m.fechar(); }), enviar])
+        ])
+      ]),
+      h('div', { class: 'wa-lado' }, [h('small', { class: 'wa-lado-t', text: 'Como o paciente vai ver' }), prev, h('small', { class: 'wa-lado-n', text: 'Atualiza enquanto você digita' })])
+    ]));
   }).catch(function (e) { limpar(m.corpo); kids(m.corpo, h('p', { class: 'callout aviso', text: e.message })); });
 }
 
