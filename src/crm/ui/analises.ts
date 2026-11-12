@@ -14,8 +14,8 @@ function pedirAnalise() {
 function secaoT(titulo, sub) { return h('div', { class: 'sec-t' }, [h('h2', { text: titulo }), sub ? h('p', { text: sub }) : null]); }
 function sufixo(T) { return T.semanal ? 'por semana' : 'por dia'; }
 
-function kpiP(T, rotulo, valor, atual, ant, o, serie, cor) {
-  return kpi2({ rotulo: rotulo, valor: valor, delta: perComparar() ? dlt(atual, ant, { pp: o.pp, bom: o.bom, vs: 'vs. ' + T.dias + ' ' + plural(T.dias, 'dia', 'dias') + ' antes' }) : null, serie: serie, cor: cor });
+function kpiP(T, rotulo, valor, atual, ant, o, serie, cor, sub) {
+  return kpi2({ rotulo: rotulo, valor: valor, delta: perComparar() ? dlt(atual, ant, { pp: o.pp, bom: o.bom, vs: 'vs. ' + T.dias + ' ' + plural(T.dias, 'dia', 'dias') + ' antes' }) : null, sub: sub || null, serie: serie, cor: cor });
 }
 function resumoPeriodo(T) {
   var a = T.atual, p = T.anterior, s = T.series;

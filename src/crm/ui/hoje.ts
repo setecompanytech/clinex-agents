@@ -76,15 +76,22 @@ function heroHoje(A) {
   ]);
 }
 
+/* uma fila só de indicadores: tarefas e pipeline são de agora; leads novos, resposta, conversão e valor convertido seguem o período da barra (quem quer outra visão muda o filtro) */
 function gradeKpisHoje(A) {
   var K = A.kpis;
-  return h('div', { class: 'kpis2' }, [
+  pedirAnalise();
+  var T = S.AN[perChave()], a = T && T.atual, p = T && T.anterior, sr = T && T.series;
+  var agora = [
     kpi2({ rotulo: 'Tarefas hoje', valor: String(A.progresso.pendentes), sub: A.progresso.atrasadas ? A.progresso.atrasadas + ' atrasadas' : 'todas em dia', tom: A.progresso.atrasadas ? 'bad' : '' }),
-    kpi2({ rotulo: 'Leads novos hoje', valor: String(K.novosHoje), delta: dlt(K.novos7, K.novos7Ant, { bom: 'sobe', vs: 'em 7 dias' }), serie: K.serieNovos, cor: COR.novos }),
-    kpi2({ rotulo: 'Taxa de resposta', valor: pct(K.respostaTaxa), delta: dlt(K.respostaTaxa, K.respostaTaxaAnt, { pp: true, bom: 'sobe' }), serie: K.serieRespostas, cor: COR.respostas }),
-    kpi2({ rotulo: 'Conversão (30 dias)', valor: pct(K.conversao), delta: dlt(K.conversao, K.conversaoAnt, { pp: true, bom: 'sobe' }), serie: K.serieConv, cor: COR.convertidos }),
     kpi2({ rotulo: 'Pipeline', valor: brlCompacto(K.pipelineValor), sub: K.pipelineN + ' ' + plural(K.pipelineN, 'lead ativo', 'leads ativos') })
-  ]);
+  ];
+  var periodo = T ? [
+    kpiP(T, 'Leads novos', nf0.format(a.novos), a.novos, p.novos, { bom: 'sobe' }, sr.novos, COR.novos),
+    kpiP(T, 'Taxa de resposta', pct(a.taxaResposta), a.taxaResposta, p.taxaResposta, { pp: true, bom: 'sobe' }, semNulos(sr.taxas.resposta), COR.respostas),
+    kpiP(T, 'Conversão', pct(a.taxaConversao), a.taxaConversao, p.taxaConversao, { pp: true, bom: 'sobe' }, semNulos(sr.taxas.conversao), COR.convertidos, a.convertidos + ' ' + plural(a.convertidos, 'convertido', 'convertidos')),
+    kpiP(T, 'Valor convertido', brlCompacto(a.valorConvertido), a.valorConvertido, p.valorConvertido, { bom: 'sobe' }, sr.valorConv, COR.convertidos)
+  ] : [1, 2, 3, 4].map(function () { return h('div', { class: 'kpi2' }, h('div', { class: 'skel' })); });
+  return h('div', { class: 'kpis2 seis' }, agora.concat(periodo));
 }
 
 /* ------------------------------------------------------------------ fila do dia (compacta) */
@@ -182,20 +189,12 @@ function cartaoPipelineHoje(A) {
   return blocoCartao('Pipeline agora', 'Leads ativos por etapa.', barras(linhas, { max: maxN, alta: true, vazio: 'Nenhum lead ativo.' }), 4, null, 'sec-pipeline');
 }
 
-/* os números do período escolhido na barra do topo (a fila do dia, acima e abaixo, é sempre a de hoje) */
-function resumoDoPeriodoHoje() {
-  pedirAnalise();
-  var T = S.AN[perChave()];
-  var cab = h('div', { class: 'sec-t' }, [h('h2', { text: 'Resumo do período' }), h('p', { text: perTexto('hoje') + (perComparar('hoje') && perFiltrando('hoje') ? ' · comparado com ' + dBRfull(perAnterior('hoje').de) + ' a ' + dBRfull(perAnterior('hoje').ate) : '') })]);
-  return h('section', { class: 'hoje-per' }, [cab, T ? resumoPeriodo(T) : esqueleto()]);
-}
-
 /* ------------------------------------------------------------------ montagem */
 function telaHoje() {
   var D = S.D, A = D.analise;
   if (!D.leads.length) return h('div', { class: 'tela' }, [cabecalhoTela('Hoje', 'A visão do dia de atendimento.'), boasVindas()]);
   return h('div', { class: 'tela hoje' }, [
-    heroHoje(A), gradeKpisHoje(A), resumoDoPeriodoHoje(),
+    heroHoje(A), gradeKpisHoje(A),
     h('div', { class: 'g12' }, [secaoFila(), h('div', { class: 'col-dir sp4' }, [radarCompacto(A), cartaoProximos(A)])]),
     h('div', { class: 'g12' }, [cartaoAtividade(A), cartaoPipelineHoje(A)])
   ]);
