@@ -41,7 +41,7 @@ ${parte_tabelas}
 .msgs{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(340px,100%),1fr));gap:16px}
 .msg{border:1px solid var(--line);border-radius:18px;overflow:hidden;background:var(--solid);box-shadow:var(--shadow);--m:#2d3050;display:flex;flex-direction:column}
 .msg.pisca{animation:pisca 1.6s ease}
-.per-barra{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:12px 14px;margin:0 0 18px;padding:10px 12px;border-radius:18px;border:1px solid var(--line);background:color-mix(in srgb,var(--solid) 70%,transparent);backdrop-filter:blur(10px)}
+.per-barra{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:10px 12px;margin:0 0 14px}.per-atalhos{background:color-mix(in srgb,var(--solid) 70%,transparent);border:1px solid var(--line);backdrop-filter:blur(10px)}
 .per-esq,.per-dir{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px}.per-dir{justify-content:flex-end}
 .per-trig{display:flex;align-items:center;gap:10px;padding:8px 14px 8px 12px;border-radius:14px;border:1px solid var(--line2,var(--line));background:var(--card2);color:var(--ink);cursor:pointer;text-align:left;transition:border-color .15s,box-shadow .15s}.per-trig:hover,.per-trig[aria-expanded="true"]{border-color:var(--cy);box-shadow:0 0 0 3px color-mix(in srgb,var(--cy) 18%,transparent)}
 .per-trig svg{color:var(--cy);flex:none}.per-t{display:flex;flex-direction:column;line-height:1.2}.per-t b{font-size:14px}.per-t small{color:var(--mut);font-size:12px}.per-seta{color:var(--mut);font-size:12px;margin-left:4px}.per-trig.mini{padding:6px 12px 6px 10px}
