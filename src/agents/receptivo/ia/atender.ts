@@ -173,6 +173,14 @@ export async function atenderComIA(p: {
   const comboPendente = Object.values(mem.etapas ?? {}).some((e) => !e.feita);
   if (c.saida.confirmacoes.length) texto = [...c.saida.confirmacoes, /\bpix\b/i.test(texto) || (comboPendente && /\b(etapa|combo)\b/i.test(texto)) ? texto : ''].filter(Boolean).join('\n\n');
   if (!c.saida.encerrar && !c.saida.handoff && !c.saida.confirmacoes.length && DESPEDIDA.test(c.ultimaDoPaciente ?? '') && /\b(qualquer coisa|estou a disposicao|estou à disposição|e so chamar|é só chamar|ate (mais|logo)|até (mais|logo)|boa sorte|tenha um (otimo|ótimo|bom))\b/i.test(texto) && !/\?\s*$/.test(texto)) c.saida.encerrar = true;
+  // foto IMPRESSA lida e valores informados: a conversa vai para a equipe montar o orçamento (regra da clínica)
+  if (mem.fotoOrcamento && !c.saida.handoff && /R\$\s?\d/.test(texto)) {
+    mem.fotoOrcamento = false;
+    c.saida.handoff = { motivo: `Orçamento a partir de foto (texto impresso). A Amanda já informou os valores da tabela; montar o orçamento. Resumo enviado ao paciente: ${texto.replace(/\s+/g, ' ').slice(0, 700)}` };
+    // a conversa vai para a equipe: tira a pergunta final ("quer agendar a coleta?") e a frase solta sobre a equipe, e fecha com o aviso certo
+    texto = texto.split(/\n{2,}/).filter((p) => !/\?\s*$/.test(p.trim()) && !/\bequipe\b/i.test(p)).join('\n\n').trim();
+    texto += '\n\nAgora a nossa equipe vai montar o seu orçamento e já te chama por aqui.';
+  }
   // 2 tentativas sem entender/ler e a terceira igual: passa para a equipe (caso real: 4 vezes "não consegui ler a foto")
   const NAO_ENTENDI = /n[aã]o consegui (ler|identificar|entender|ouvir)/i;
   if (!c.saida.handoff && NAO_ENTENDI.test(texto) && conversa.filter((m) => m.role === 'assistant').slice(-2).filter((m) => NAO_ENTENDI.test(m.content)).length >= 2) {
