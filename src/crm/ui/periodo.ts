@@ -108,7 +108,7 @@ function barraPeriodo() {
   var aba = S.aba, p = perGet(aba), n = perDias(aba);
   var trig = h('button', { type: 'button', class: 'per-trig', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', title: 'Escolher o período', onclick: function () { abrirPeriodo(trig, aba); } }, [
     ico('calendar', 18),
-    h('span', { class: 'per-t' }, [h('b', { text: p.id === 'custom' ? 'Personalizado' : perRotuloPreset(p.id) }), h('small', { text: perTexto(aba) + (p.id !== 'tudo' ? ' · ' + n + ' ' + plural(n, 'dia', 'dias') : '') })]),
+    h('span', { class: 'per-t' }, [h('b', { text: p.id === 'custom' ? 'Personalizado' : perRotuloPreset(p.id) }), h('small', { text: perTexto(aba) + (p.id === 'custom' ? ' · ' + n + ' ' + plural(n, 'dia', 'dias') : '') })]),
     h('span', { class: 'per-seta', 'aria-hidden': 'true', text: '▾' })
   ]);
   var atalhos = h('div', { class: 'per-atalhos', role: 'group', 'aria-label': 'Atalhos de período' }, [['hoje', 'Hoje'], ['7d', '7 dias'], ['30d', '30 dias'], ['mes', 'Este mês'], ['tudo', 'Tudo']].map(function (a) {
