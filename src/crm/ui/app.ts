@@ -33,7 +33,12 @@ function desenhar(manter) {
   if (!S.D) return;
   var y = window.scrollY;
   limpar(raiz);
-  kids(raiz, [avisoArmazenamento(), barraPeriodo(), telaAtual()]);
+  var tela = telaAtual(), barra = barraPeriodo(), cab = tela && tela.querySelector ? tela.querySelector(':scope > .tela-h') : null;
+  if (cab) { /* a barra de período vai para o lado direito do cabeçalho da página, em vez de ocupar uma linha só para ela */
+    var dir = h('div', { class: 'tela-dir' }), ac = cab.querySelector(':scope > .tela-ac');
+    if (ac) { cab.insertBefore(dir, ac); dir.appendChild(barra); dir.appendChild(ac); } else { cab.appendChild(dir); dir.appendChild(barra); }
+    kids(raiz, [avisoArmazenamento(), tela]);
+  } else kids(raiz, [avisoArmazenamento(), barra, tela]);
   navEl.querySelectorAll('.nav-i').forEach(function (b) { b.setAttribute('aria-current', b.getAttribute('data-aba') === S.aba ? 'page' : 'false'); });
   var bd = navEl.querySelector('[data-aba="hoje"] .nav-b');
   if (bd) { var n = S.D.tarefas.length; bd.textContent = n ? String(n) : ''; bd.style.display = n ? '' : 'none'; }
