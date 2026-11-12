@@ -98,5 +98,6 @@ ${p.unidades.map((u) => `  • ${u.nome}${u.endereco ? `: ${u.endereco}` : ''}${
 - REGRA DE OURO: só cite profissional, valor, unidade com agenda ou horário que veio de uma ferramenta (ou da MEMÓRIA abaixo). Se o paciente perguntar algo que não está lá, chame a ferramenta antes de responder. Toda resposta é conferida pelo sistema: nome ou valor inventado é bloqueado.
 - Nunca invente preço, horário, médico, endereço, preparo ou política. Se não souber, diga que vai confirmar com a equipe.
 - Nunca mencione Clinilink, sistema, ferramentas ou ids (servico_id, horario_id) ao paciente.
+- servico_id e horario_id: use SEMPRE exatamente os que as ferramentas devolveram. Nunca monte um id. Se o paciente escolher uma opção da lista pelo nome ("Cardio 2 teste ergométrico"), use o servico_id dessa opção. Antes de dizer que não encontrou um serviço ou combo, tente buscar_servico de novo com outras palavras.
 ${memoria ? `\nMEMÓRIA DESTA CONVERSA (dados reais já consultados)\n${memoria}` : ''}`;
 }

@@ -29,6 +29,7 @@ export type MemoriaIA = {
   pix?: { valor?: number; transacao?: string; em: string };
   fotoOrcamento?: boolean; // o paciente mandou foto IMPRESSA: depois de informar os valores, a conversa vai para a equipe montar o orçamento // comprovante de pix conferido (só com ele o agendamento pago por pix é gravado)
   combosVistos?: string[];
+  ultimasOpcoes?: { id: string; nome: string }[]; // a última lista de opções mostrada (para abrir pelo nome, se o id vier errado)
   combosOferecidos?: { combo: string; total: string; economia: string }[]; // combos já citados (o valor deles é dado real) // serviços cujos combos já foram consultados (a sugestão é feita uma vez só)
 };
 export const memoriaNova = (): MemoriaIA => ({ v: 1, servicos: {}, slots: {}, proxSlot: 1, agendados: [] });
@@ -167,6 +168,20 @@ async function comCombos(r: any, c: Contexto): Promise<unknown> {
 /** Despedida ou "não preciso de mais nada" (o atendimento só é finalizado com isso). */
 export const DESPEDIDA = /\b(so isso|era (so )?isso|e (so )?isso|mais nada|nada mais|nao (preciso|precisa|quero) (de )?mais|tchau|ate (mais|logo|amanha|breve)|valeu|obrigad[oa]|brigad[oa]|agradec\w*|grat[oa]|tenha um bom|bom dia pra voce|flw|falou)\b/;
 
+/** A opção cujo nome tem TODAS as palavras do pedido (sem acento, sem palavras vazias). Com "unica", só se for uma só. Sem "unica", a de mais palavras em comum. */
+function opcaoPeloNome(pedido: string, opcoes: { id: string; nome: string }[], unica: boolean): { id: string; nome: string } | undefined {
+  const VAZIAS = new Set(['combo', 'o', 'a', 'de', 'do', 'da', 'e', 'quero', 'fazer', 'agendar', 'marcar', 'exame', 'consulta', 'com', 'pra', 'para', 'um', 'uma']);
+  const palavras = (x: string) => norm(x).replace(/\(.*?\)|r\$[^,)]*|economiza[^,)]*/g, (m) => (m.startsWith('(') ? m : '')).replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter((w) => w && !VAZIAS.has(w));
+  const q = palavras(pedido);
+  if (!q.length) return undefined;
+  const nomeCurto = (o: { nome: string }) => o.nome.split(':')[0];
+  const pontos = opcoes.map((o) => { const w = new Set(palavras(nomeCurto(o))); return { o, hits: q.filter((x) => w.has(x) || [...w].some((y) => y.length > 4 && (y.startsWith(x) || x.startsWith(y)))).length }; });
+  const todas = pontos.filter((p) => p.hits === q.length);
+  if (unica) return todas.length === 1 ? todas[0].o : undefined;
+  const melhor = pontos.sort((a, b) => b.hits - a.hits)[0];
+  return melhor && melhor.hits > 0 && pontos.filter((p) => p.hits === melhor.hits).length === 1 ? melhor.o : undefined;
+}
+
 const acharServico = async (id: string, c: Contexto): Promise<Servico | undefined> => {
   if (c.mem.servicos[id]) return c.mem.servicos[id];
   const d = await c.fonte.resolver(id).catch(() => undefined);
@@ -212,10 +227,24 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
       case 'buscar_servico': {
         const t = norm(String(args.pedido ?? ''));
         if (!t) return { erro: 'pedido vazio' };
-        return comCombos(await descobertaParaModelo(await f.descobrir(t, true), c), c);
+        let d = await f.descobrir(t, true);
+        // várias opções, mas só UMA tem todas as palavras do pedido ("cardio 2 teste ergometrico" -> Cardio 2 (Teste Ergométrico)): abre direto
+        if (d && 'opcoes' in d) {
+          c.mem.ultimasOpcoes = d.opcoes.map((o) => ({ id: o.id, nome: o.nome }));
+          const unica = opcaoPeloNome(t, d.opcoes, true);
+          if (unica) { const aberto = await f.resolver(unica.id); if (aberto && 'servico' in aberto) d = aberto; }
+        }
+        return comCombos(await descobertaParaModelo(d, c), c);
       }
       case 'abrir_servico': {
-        const d = await f.resolver(String(args.servico_id));
+        let id = String(args.servico_id);
+        let d = await f.resolver(id).catch(() => undefined);
+        // id que não existe (caso real: a IA inventou "combo:cardio2-teste-ergometrico"): acha pelo nome entre as opções mostradas
+        if (!d && c.mem.ultimasOpcoes?.length) {
+          const pelaNome = opcaoPeloNome(norm(id.replace(/^combo:/, '').replace(/[-_]+/g, ' ').replace(/(\d)([a-z])|([a-z])(\d)/g, '$1$3 $2$4')), c.mem.ultimasOpcoes, false);
+          if (pelaNome) { id = pelaNome.id; d = await f.resolver(id).catch(() => undefined); }
+        }
+        if (!d) return { erro: 'servico_id inválido: use EXATAMENTE um servico_id devolvido pela busca', opcoes_validas: c.mem.ultimasOpcoes?.map((o) => ({ servico_id: o.id, nome: o.nome })) };
         return comCombos(await descobertaParaModelo(d, c), c);
       }
       case 'servico_com_profissional': {
@@ -430,7 +459,10 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
         const valorEtapa = itens.reduce((soma, i) => soma + (i.preco ?? 0), 0) || undefined;
         const medicosDaEtapa = plano.medicos[n];
         (c.mem.etapas ??= {})[chave] = { combo: pac.id, comboServicoId: sv!.id, comboRotulo: pac.rotulo, etapa: n + 1, de: plano.etapas.length, rotulo: itens.map((i) => i.nome).join(' + '), valor: valorEtapa, medicos: medicosDaEtapa };
-        const r = await resumoServico(et, c, chave);
+        // etapa juntada (ex.: consulta + eletro + ergométrico): só aparecem os profissionais que fazem TODOS os serviços dela
+        const soQuemFaz = medicosDaEtapa?.length ? new Set(medicosDaEtapa.map((x) => norm(x))) : undefined;
+        const etFiltrada = soQuemFaz ? { ...et, unidades: et.unidades.map((u) => ({ ...u, profissionais: (u.profissionais ?? []).filter((x) => soQuemFaz.has(norm(x))) })).filter((u) => u.profissionais.length) } : et;
+        const r = await resumoServico(etFiltrada.unidades.length ? etFiltrada : et, c, chave);
         return { ...r, resultado: 'servico', etapa: n + 1, de: plano.etapas.length, ...(medicosDaEtapa?.length ? { mesmo_agendamento: `Os serviços desta etapa (${itens.map((i) => i.nome).join(' + ')}) são feitos juntos, no mesmo agendamento, por: ${nomesMedicos(medicosDaEtapa).join(', ')}.` } : {}), preco: valorEtapa ? `Dentro do combo esta etapa sai por ${reais(valorEtapa)} (o combo inteiro: ${pac.total ? reais(pac.total) : 'ver combo'}).` : r.preco, orientacao: 'Agende esta etapa (ver_horarios com este servico_id). Depois de agendada, siga para a próxima etapa até completar o combo.' };
       }
       case 'conferir_comprovante': {
