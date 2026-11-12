@@ -14,7 +14,7 @@ const TITULO = '*Amanda S. (Clinex):*';
 const fonte: Fonte = {
   ...fonteClinilink,
   async gerarOS(id) { console.log(`   [gerarOS] agendamento=${id}`); return { ok: true, id: "os-teste-1" }; },
-  async reservar(p) { console.log(`   [reservar] combo=${p.comboId ?? "-"} proc=${p.servico.nome} paciente=${p.pacienteId ?? "novo"} cadastro=${JSON.stringify(p.cadastro ?? null)}`); return { ok: true, hora: p.slot.inicio, cadastrou: !p.pacienteId, pacienteId: p.pacienteId ?? 'novo-123', agendamentoId: 'ag-teste-1', profissional: p.slot.profissional, profissionalBruto: p.slot.profissionalBruto }; },
+  async reservar(p) { console.log(`   [reservar] combo=${p.comboId ?? "-"} itens=${(p.servico.combo?.itens ?? []).map((i) => i.nome).join("+") || "-"} proc=${p.servico.nome} paciente=${p.pacienteId ?? "novo"} cadastro=${JSON.stringify(p.cadastro ?? null)}`); return { ok: true, hora: p.slot.inicio, cadastrou: !p.pacienteId, pacienteId: p.pacienteId ?? 'novo-123', agendamentoId: 'ag-teste-1', profissional: p.slot.profissional, profissionalBruto: p.slot.profissionalBruto }; },
 };
 
 const CASOS: Record<string, string[]> = {
@@ -24,6 +24,9 @@ const CASOS: Record<string, string[]> = {
   sangue: ['quero fazer exame de sangue', 'hemograma, glicose e colesterol total', 'quero agendar a coleta'],
   preco: ['quanto custa a consulta com cardiologista?', 'e qual o endereço do guamá?'],
   resultado: ['quero saber o resultado do meu exame de ontem'],
+  fem2: ['quero o combo feminino 1', 'guamá', 'o primeiro', 'Josy Teste Fonseca 17/02/1980, pode ser esse número', 'sim, correto', 'feminino', 'dinheiro', 'sim', 'o primeiro', 'sim', 'o primeiro', 'obrigada, só isso'],
+  cardio: ['quero o combo cardio 1', 'guamá', 'o primeiro', 'Carlos Teste Lima 03/03/1970, pode ser esse número', 'sim, correto', 'masculino', 'dinheiro', 'sim'],
+  comboTodo: ['quero fazer o combo feminino 1', 'guamá', 'o primeiro horário', 'Josy Teste Fonseca 17/02/1980, pode ser esse número', 'sim, está certo', 'feminino', 'dinheiro', 'sim, vamos agendar a próxima etapa', 'o primeiro', 'dinheiro também', 'sim, a próxima', 'o primeiro', 'dinheiro', 'sim', 'pode ser o primeiro', 'dinheiro', 'só isso, obrigada'],
   fotoimp: ['quanto fica esses exames?', '[foto:C:/Users/g1ova/AppData/Local/Temp/claude/ec0b50bfd8805ed7/26300803-91a3-43d5-ace0-a4bff1389569/scratchpad/pedido-impresso.jpg]'],
   fotoman: ['quanto fica esses exames?', '[foto:C:/Users/g1ova/AppData/Local/Temp/claude/ec0b50bfd8805ed7/26300803-91a3-43d5-ace0-a4bff1389569/scratchpad/pedido-manuscrito.jpg]'],
   feminino1: ['quero fazer o combo feminino 1', 'guamá', 'pode ser o primeiro horário', 'Josy Teste Fonseca 17/02/1980, pode ser esse número', 'sim, está certo', 'feminino', 'dinheiro', 'sim, quero agendar a próxima'],
