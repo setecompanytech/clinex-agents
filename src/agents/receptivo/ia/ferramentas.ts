@@ -1,6 +1,6 @@
 /**
  * Amanda IA: as FERRAMENTAS que o modelo usa. O modelo conduz a conversa; as regras da clínica ficam aqui, em código, e ele não tem como
- * desobedecer: só existe horário que veio do Clinilink (por id), exame só de manhã (a fonte já filtra), nada de horário que já passou,
+ * desobedecer: só existe horário que veio do Clinilink (por id), agendas de manhã e de tarde (exame só de manhã voltou a ser opcional: EXAMES_SO_MANHA), nada de horário que já passou,
  * cadastro só com nome, nascimento e sexo (CPF opcional), agendamento só de horário oferecido e conferido de novo na hora de gravar.
  */
 import type { Comprovante } from '../../../lib/comprovante.js';
@@ -282,6 +282,7 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
             c.mem.slots[id] = { servicoId: String(args.servico_id), unidade: un.nome, slot: s };
             return { horario_id: id, dia: dataFalada(s.ymd, hoje), data: s.ymd, periodo: s.turno, a_partir_das: horaFalada(s.inicio), profissional: s.profissional ? exibir(s.profissional) : undefined };
           }),
+          ...(sv.preparo ? { preparo_cadastrado: sv.preparo, orientacao_preparo: 'Este serviço tem preparo cadastrado: informe o preparo ao paciente (resumido, em linhas curtas) junto com os horários. Ele também vai completo na confirmação.' } : {}),
           lembrete: 'Atendimento por ordem de chegada: diga "a partir das Xh". Não invente horários fora desta lista.',
         };
       }
