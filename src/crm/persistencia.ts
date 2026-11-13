@@ -199,38 +199,59 @@ export function agendarGravacao(estado: Estado) {
 /** Espera tudo o que está pendente (usado em testes e no desligamento). */
 export async function esvaziar(estado: Estado) { if (timer) { clearTimeout(timer); timer = null; } await gravarMudancas(estado); }
 
-let leadsLidosEm = 0;
-let leadsRelendo: Promise<void> | null = null;
+let baseLidaEm = 0;
+let baseRelendo: Promise<void> | null = null;
+/** O que muda durante o atendimento e precisa estar igual em todas as instâncias: leads e tudo do Pipelines (funis, cards, extras, follow-ups, contatos). */
+const FRESCAS = (): ColAny[] => [leads, funis, atribuicoes, extras, followups, contatos] as unknown as ColAny[];
+
+/** Tem mudança em memória que ainda não foi para o banco? (aí não dá para trocar a memória pelo que veio do banco) */
+function temPendencia(c: ColAny, estado: Estado): boolean {
+  const antes = noBanco.get(c.tabela) ?? new Map<string, string>();
+  const itens = (c.lista as (e: Estado) => unknown[])(estado);
+  if (itens.length !== antes.size) return true;
+  for (const x of itens) { const l = (c.paraLinha as (x: unknown) => Linha)(x); if (antes.get(chaveDe(c, l)) !== JSON.stringify(l)) return true; }
+  return false;
+}
+/** Troca a lista pelo que veio do banco mantendo o MESMO objeto de quem já existia (requisição em andamento segue mexendo no certo). */
+function fundirLista(c: ColAny, estado: Estado, novos: unknown[]) {
+  const atuais = (c.lista as (e: Estado) => unknown[])(estado);
+  const porChave = new Map(atuais.map((x) => [chaveDe(c, (c.paraLinha as (x: unknown) => Linha)(x)), x as Record<string, unknown>]));
+  (c.definir as (e: Estado, xs: unknown[]) => void)(estado, novos.map((n) => {
+    const antigo = porChave.get(chaveDe(c, (c.paraLinha as (x: unknown) => Linha)(n)));
+    if (!antigo || c === extras) return n;
+    for (const k of Object.keys(antigo)) delete antigo[k];
+    return Object.assign(antigo, n as Record<string, unknown>);
+  }));
+}
 /**
- * Relê os leads do banco. Na Vercel cada instância tem a sua memória e só lia o banco ao subir: o envio de WhatsApp gravado
- * numa instância não aparecia na outra (o lead "continuava em Em aberto", o botão voltava a pedir o mesmo passo) e uma edição
- * feita numa cópia velha sobrescrevia o envio. Grava o que está pendente antes (nunca sobrescreve mudança não enviada) e
- * atualiza os objetos NO LUGAR, para que uma requisição em andamento continue mexendo no lead certo. Se falhar, segue com a memória.
+ * Relê do banco o que muda no atendimento. Na Vercel cada instância tem a sua memória e só lia o banco ao subir: o que uma
+ * instância gravava (envio de WhatsApp, card movido para outra coluna) não aparecia na outra, e o card "saía do No-show e logo
+ * voltava". Grava o que está pendente antes (nunca sobrescreve mudança não enviada), lê tudo junto e só troca a memória se nada
+ * mudou aqui nesse meio tempo. Se falhar, segue com a memória.
  */
 export async function atualizarLeads(estado: Estado, ttlMs = 1500) {
-  if (!baseLida || ausentes.has(leads.tabela)) return;
-  if (leadsRelendo) return leadsRelendo;
-  if (Date.now() - leadsLidosEm < ttlMs) return;
-  leadsRelendo = (async () => {
+  if (!baseLida) return;
+  if (baseRelendo) return baseRelendo;
+  if (Date.now() - baseLidaEm < ttlMs) return;
+  baseRelendo = (async () => {
     await esvaziar(estado);
     if (ultimoErro) return;
     try {
-      const linhas = await sbLer<Linha>(leads.tabela, { ordem: leads.ordem });
-      const novos = linhas.map((r) => leads.deLinha(r) as Lead);
-      const porId = new Map(estado.leads.map((l) => [l.id, l]));
-      estado.leads = novos.map((n) => {
-        const antigo = porId.get(n.id);
-        if (!antigo) return n;
-        for (const k of Object.keys(antigo)) delete (antigo as unknown as Record<string, unknown>)[k];
-        return Object.assign(antigo, n);
+      const cols = FRESCAS().filter((c) => !ausentes.has(c.tabela));
+      const lidas = await Promise.all(cols.map((c) => sbLer<Linha>(c.tabela, { ordem: c.ordem })));
+      if (cols.some((c) => temPendencia(c, estado))) return; // alguém mexeu enquanto lia: tenta de novo na próxima
+      cols.forEach((c, k) => {
+        const novos = lidas[k].map((r) => c.deLinha(r));
+        if (c === funis && !novos.length) return; // banco sem funis: mantém os padrões da memória
+        fundirLista(c, estado, novos);
+        const m = new Map<string, string>();
+        for (const x of (c.lista as (e: Estado) => unknown[])(estado)) { const l = (c.paraLinha as (x: unknown) => Linha)(x); m.set(chaveDe(c, l), JSON.stringify(l)); }
+        noBanco.set(c.tabela, m);
       });
-      const m = new Map<string, string>();
-      for (const x of estado.leads) { const l = leads.paraLinha(x); m.set(chaveDe(leads, l), JSON.stringify(l)); }
-      noBanco.set(leads.tabela, m);
-      leadsLidosEm = Date.now();
-    } catch (e) { console.error(`[crm] não consegui reler os leads do banco: ${(e as Error).message}`); }
-  })().finally(() => { leadsRelendo = null; });
-  return leadsRelendo;
+      baseLidaEm = Date.now();
+    } catch (e) { console.error(`[crm] não consegui reler os dados do banco: ${(e as Error).message}`); }
+  })().finally(() => { baseRelendo = null; });
+  return baseRelendo;
 }
 
 let usuariosLidosEm = 0;

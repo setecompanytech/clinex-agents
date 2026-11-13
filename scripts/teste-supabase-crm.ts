@@ -199,6 +199,29 @@ await teste('outra instância da Vercel mexeu no lead: a releitura traz a mudan�
   pedidos.length = 0; await gravarMudancas(c);
   assert.equal(reqs('POST').length + reqs('DELETE').length, 0, 'depois da releitura não há nada a regravar');
 });
+await teste('card movido por outra instância: a releitura mostra a coluna nova (não volta para o No-show) e não perde mudança daqui', async () => {
+  const c = novo(); c.usuarios = []; await carregarDoBanco(c);
+  const card = c.pipelines.atribuicoes[0]; const outraEtapa = f.stages.find((e) => e.id !== card.stageId)!.id;
+  const chave = `${card.funilId}|${card.cardId}`;
+  const linha = tab('pipeline_card_assignments').get(chave)!;
+  assert.notEqual(linha.stage_id, outraEtapa);
+  // a "outra instância" move o card direto no banco
+  tab('pipeline_card_assignments').set(chave, { ...linha, stage_id: outraEtapa, historico: [...(linha.historico as unknown[]), { stageId: outraEtapa, em: '2026-11-02T13:00:00.000Z', manual: true, por: 'Vanuza' }] });
+  assert.notEqual(card.stageId, outraEtapa, 'sem releitura a memória segue velha (o defeito)');
+  await atualizarLeads(c, 0);
+  const depois = c.pipelines.atribuicoes.find((x) => x.cardId === card.cardId)!;
+  assert.equal(depois, card, 'mesmo objeto');
+  assert.equal(depois.stageId, outraEtapa, 'o card está na coluna nova');
+  assert.equal(depois.historico.length, 3);
+  assert.equal(c.pipelines.atribuicoes.length, 450, 'nenhum card sumiu nem duplicou');
+  // mudança local ainda não gravada: a releitura grava antes e não pisa nela
+  c.pipelines.extras[card.cardId] = { responsavel: 'Bruno' };
+  await atualizarLeads(c, 0);
+  assert.equal(c.pipelines.extras[card.cardId]?.responsavel, 'Bruno', 'o responsável definido aqui sobreviveu');
+  assert.equal(tab('lead_extras').get(card.cardId)?.responsavel, 'Bruno', 'e foi para o banco');
+  pedidos.length = 0; await gravarMudancas(c);
+  assert.equal(reqs('POST').length + reqs('DELETE').length, 0, 'depois da releitura não há nada a regravar');
+});
 console.log = log;
 console.log(`${ok} testes passaram.`);
 servidor.close(); process.exit(process.exitCode ?? 0);

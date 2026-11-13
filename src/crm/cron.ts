@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import { Router } from 'express';
-import { bancoFora, estado, pronto, tentarVoltarAoBanco } from './banco.js';
+import { atualizarLeadsDoBanco, bancoFora, estado, pronto, tentarVoltarAoBanco } from './banco.js';
 import { clinilinkConfigurado } from './clinilink.js';
 import { esvaziar } from './persistencia.js';
 import { rodarAutomacoesDosFunis, rodarSincronizacao } from './pipeline/api.js';
@@ -22,6 +22,7 @@ cron.get('/crm', (req, res, next) => {
   (async () => {
     await pronto();
     await tentarVoltarAoBanco();
+    await atualizarLeadsDoBanco(); // a rotina (e as automações dos funis) parte do que o banco tem agora, não da memória desta instância
     if (bancoFora()) return void res.status(503).json({ erro: 'banco', mensagem: 'O banco não respondeu: a rotina foi adiada para não gravar sobre dados não lidos.' });
     const automacoes = rodarAutomacoesDosFunis(new Date());
     const r = await rodarSincronizacao();
