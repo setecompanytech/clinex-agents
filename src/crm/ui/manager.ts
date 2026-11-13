@@ -299,7 +299,7 @@ function telaIAManager() {
   mgPedir(false);
   var cab = cabecalhoTela('IA Manager', 'O centro de controle da IA de disparo: Power, horário de cada gatilho, condições, parâmetros e limites, e tudo o que os pacientes responderam. O guia continua mandando: a IA só pode estreitar as regras, nunca ampliar.');
   var abas = h('div', { class: 'tabs-an', role: 'tablist' }, [['controle', 'Controle'], ['respostas', 'Respostas e fila']].map(function (t) {
-    return h('button', { type: 'button', role: 'tab', class: 'tab-an', 'aria-selected': String(MG.aba === t[0]), text: t[1], onclick: function () { MG.aba = t[0]; gravarLS('crm-mgaba', t[0]); desenhar(); } });
+    return h('button', { type: 'button', role: 'tab', class: 'tab-an', 'aria-selected': String(MG.aba === t[0]), text: t[1], onclick: function () { MG.aba = t[0]; desenhar(); } });
   }));
   if (MG.aba === 'respostas') return h('div', { class: 'tela mg' }, [cab, abas, corpoIA(), mgBarraSalvar()]);
   if (!MG.d || !MG.c) return h('div', { class: 'tela mg' }, [cab, abas, esqueleto()]);

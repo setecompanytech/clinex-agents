@@ -53,7 +53,7 @@ function desenhar(manter) {
 function ir(aba) {
   perFechar();
   S.aba = aba; history.replaceState(null, '', '#' + aba);
-  MG.entrou = false;
+  MG.entrou = false; if (aba === 'iamanager') MG.aba = 'controle';
   S.q = ''; S.fStatus = ''; S.fAtend = '';
   desenhar(); window.scrollTo(0, 0);
 }
@@ -163,7 +163,7 @@ function identificar() {
   var tema = lerLS('crm-tema'); if (tema === 'dark' || tema === 'light') document.documentElement.setAttribute('data-theme', tema);
   construirChrome();
   var hs = location.hash.replace('#', '').split('/');
-  if (hs[0] === 'ia') { hs[0] = 'iamanager'; MG.aba = 'respostas'; } else if (lerLS('crm-mgaba') === 'respostas') MG.aba = 'respostas';
+  if (hs[0] === 'ia') { hs[0] = 'iamanager'; MG.aba = 'respostas'; }
   if (ABAS.some(function (a) { return a.id === hs[0]; })) S.aba = hs[0];
   if (hs[0] === 'fluxo' && /^ns-/.test(hs[1] || '')) S.fluxoTab = 'noshow';
   identificar().then(function () { return carregar(); }).then(function () {
