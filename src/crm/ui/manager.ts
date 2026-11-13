@@ -1,7 +1,7 @@
 // JavaScript do CRM (navegador): página "IA Manager", o painel de controle da IA de disparo. Dados de /painel/crm/api/ia-manager.
 // Dentro dele não usar crases nem "dollar-chave".
 export const manager = String.raw`
-var MG = { d: null, c: null, base: null, car: false, t: 0, erro: '', salvando: false, entrou: false, simQ: '', sim: null, simCar: false };
+var MG = { aba: 'controle', d: null, c: null, base: null, car: false, t: 0, erro: '', salvando: false, entrou: false, simQ: '', sim: null, simCar: false };
 var MG_PAL = ['#4cc9f0', '#a78bfa', '#f5b942', '#fb7185', '#2ee6a6'];
 var MG_DIAS = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'], MG_DIAS_L = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
 var MG_TXT = {
@@ -297,9 +297,13 @@ function mgBarraSalvar() {
 }
 function telaIAManager() {
   mgPedir(false);
-  var cab = cabecalhoTela('IA Manager', 'O centro de controle da IA de disparo: Power, horário de cada gatilho, condições, parâmetros e limites. O guia continua mandando: a IA só pode estreitar as regras, nunca ampliar.', h('div', { class: 'tela-ac' }, [botao('Respostas e fila', '', function () { ir('ia'); }, 'list')]));
-  if (!MG.d || !MG.c) return h('div', { class: 'tela mg' }, [cab, esqueleto()]);
+  var cab = cabecalhoTela('IA Manager', 'O centro de controle da IA de disparo: Power, horário de cada gatilho, condições, parâmetros e limites, e tudo o que os pacientes responderam. O guia continua mandando: a IA só pode estreitar as regras, nunca ampliar.');
+  var abas = h('div', { class: 'tabs-an', role: 'tablist' }, [['controle', 'Controle'], ['respostas', 'Respostas e fila']].map(function (t) {
+    return h('button', { type: 'button', role: 'tab', class: 'tab-an', 'aria-selected': String(MG.aba === t[0]), text: t[1], onclick: function () { MG.aba = t[0]; gravarLS('crm-mgaba', t[0]); desenhar(); } });
+  }));
+  if (MG.aba === 'respostas') return h('div', { class: 'tela mg' }, [cab, abas, corpoIA(), mgBarraSalvar()]);
+  if (!MG.d || !MG.c) return h('div', { class: 'tela mg' }, [cab, abas, esqueleto()]);
   MG.animar = !MG.entrou; MG.entrou = true;
-  return h('div', { class: 'tela mg' + (MG.animar ? ' mg-anim' : '') + ' mg-' + MG.d.modo }, [cab, mgHero(MG.d), mgLinha(MG.d), mgGatilhos(MG.d), mgGlobais(MG.d), mgSimulador(MG.d), mgHistorico(MG.d), mgBarraSalvar()]);
+  return h('div', { class: 'tela mg' + (MG.animar ? ' mg-anim' : '') + ' mg-' + MG.d.modo }, [cab, abas, mgHero(MG.d), mgLinha(MG.d), mgGatilhos(MG.d), mgGlobais(MG.d), mgSimulador(MG.d), mgHistorico(MG.d), mgBarraSalvar()]);
 }
 `;

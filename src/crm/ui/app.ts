@@ -3,7 +3,7 @@
 export const app = String.raw`
 var ABAS = [
   { id: 'hoje', r: 'Hoje', i: 'home' }, { id: 'pipelines', r: 'Pipelines', i: 'kanban' }, { id: 'analises', r: 'Análises', i: 'chart' }, { id: 'funil', r: 'Funil', i: 'funil' }, { id: 'leads', r: 'Leads', i: 'users' },
-  { id: 'fluxo', r: 'Fluxo', i: 'flow' }, { id: 'calendario', r: 'Calendário', i: 'calendar' }, { id: 'mensagens', r: 'Mensagens', i: 'message' }, { id: 'ia', r: 'IA de disparo', i: 'bolt' }, { id: 'iamanager', r: 'IA Manager', i: 'star' }, { id: 'regras', r: 'Regras', i: 'shield' }
+  { id: 'fluxo', r: 'Fluxo', i: 'flow' }, { id: 'calendario', r: 'Calendário', i: 'calendar' }, { id: 'mensagens', r: 'Mensagens', i: 'message' }, { id: 'iamanager', r: 'IA Manager', i: 'star' }, { id: 'regras', r: 'Regras', i: 'shield' }
 ];
 var raiz = document.getElementById('main');
 var navEl = document.getElementById('nav');
@@ -19,7 +19,6 @@ function telaAtual() {
     case 'fluxo': return telaFluxo();
     case 'calendario': return telaCalendario();
     case 'mensagens': return telaMensagens();
-    case 'ia': return telaIA();
     case 'iamanager': return telaIAManager();
     case 'regras': return telaRegras();
     default: return telaHoje();
@@ -35,7 +34,7 @@ function desenhar(manter) {
   if (!S.D) return;
   var y = window.scrollY;
   limpar(raiz);
-  var tela = telaAtual(), barra = S.aba === 'iamanager' ? null : barraPeriodo(), cab = tela && tela.querySelector ? tela.querySelector(':scope > .tela-h') : null;
+  var tela = telaAtual(), barra = S.aba === 'iamanager' && MG.aba !== 'respostas' ? null : barraPeriodo(), cab = tela && tela.querySelector ? tela.querySelector(':scope > .tela-h') : null;
   if (!barra) { kids(raiz, [avisoArmazenamento(), tela]); }
   else if (cab) { /* a barra de período vai para o lado direito do cabeçalho da página, em vez de ocupar uma linha só para ela */
     var dir = h('div', { class: 'tela-dir' }), ac = cab.querySelector(':scope > .tela-ac');
@@ -164,6 +163,7 @@ function identificar() {
   var tema = lerLS('crm-tema'); if (tema === 'dark' || tema === 'light') document.documentElement.setAttribute('data-theme', tema);
   construirChrome();
   var hs = location.hash.replace('#', '').split('/');
+  if (hs[0] === 'ia') { hs[0] = 'iamanager'; MG.aba = 'respostas'; } else if (lerLS('crm-mgaba') === 'respostas') MG.aba = 'respostas';
   if (ABAS.some(function (a) { return a.id === hs[0]; })) S.aba = hs[0];
   if (hs[0] === 'fluxo' && /^ns-/.test(hs[1] || '')) S.fluxoTab = 'noshow';
   identificar().then(function () { return carregar(); }).then(function () {
