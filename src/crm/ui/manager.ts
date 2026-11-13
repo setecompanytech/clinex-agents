@@ -99,32 +99,55 @@ function mgHero(D) {
 
 /* ------------------------------------------------------------------ linha do tempo do dia */
 function mgLinha(D) {
-  var C = MG.c, INI = 360, FIM = 1260, pc = function (min) { return Math.max(0, Math.min(100, (min - INI) / (FIM - INI) * 100)); };
-  var hm = function (s) { return Number(s.slice(0, 2)) * 60 + Number(s.slice(3)); };
-  var trilho = h('div', { class: 'mg-trilho' }, [
-    h('div', { class: 'mg-t-guia', style: 'left:' + pc(D.guia.inicio * 60) + '%;width:' + (pc(D.guia.fim * 60) - pc(D.guia.inicio * 60)) + '%', title: 'Regra do guia: contato só entre ' + D.guia.inicio + 'h e ' + D.guia.fim + 'h' }),
-    h('div', { class: 'mg-t-ia', style: 'left:' + pc(C.janela.inicio * 60) + '%;width:' + (pc(C.janela.fim * 60) - pc(C.janela.inicio * 60)) + '%', title: 'Janela da IA: ' + C.janela.inicio + 'h às ' + C.janela.fim + 'h' })
-  ]);
+  var C = MG.c, INI = 420, FIM = 1200, hm = function (s) { return Number(s.slice(0, 2)) * 60 + Number(s.slice(3)); };
+  var pc = function (min) { return Math.max(0, Math.min(100, (min - INI) / (FIM - INI) * 100)); };
+  var agoraMin = D.agoraBrt.minutos, iaIni = C.janela.inicio * 60, iaFim = C.janela.fim * 60;
   var pausaHoje = C.pausas.filter(function (x) { return D.agoraBrt.hoje >= x.de && D.agoraBrt.hoje <= x.ate; })[0];
-  var diaOk = C.diasSemana.indexOf(new Date(D.agoraBrt.hoje + 'T12:00:00Z').getUTCDay()) >= 0;
-  if (pausaHoje || !diaOk) trilho.appendChild(h('div', { class: 'mg-t-pausa', text: pausaHoje ? 'Em pausa' + (pausaHoje.motivo ? ': ' + pausaHoje.motivo : '') : 'A IA não envia na ' + D.agoraBrt.dia }));
-  var ticks = [];
-  for (var hh = 6; hh <= 21; hh += (hh % 3 === 0 ? 1 : 1)) ticks.push(h('span', { class: 'mg-tick' + (hh % 3 === 0 ? ' g' : ''), style: 'left:' + pc(hh * 60) + '%' }, hh % 3 === 0 ? h('em', { text: String(hh).padStart(2, '0') + 'h' }) : null));
-  var marcadores = [], usados = [];
+  var dow = new Date(D.agoraBrt.hoje + 'T12:00:00Z').getUTCDay(), diaOk = C.diasSemana.indexOf(dow) >= 0;
+  var fechado = !!pausaHoje || !diaOk, naJanela = !fechado && agoraMin >= iaIni && agoraMin < iaFim;
+  var ligados = D.gatilhos.filter(function (g) { return C.gatilhos[g.id].ativo; }).length;
+  var frase;
+  if (pausaHoje) frase = ['pausa', 'Hoje a IA não envia: ' + (pausaHoje.motivo ? pausaHoje.motivo : 'pausa programada') + '.'];
+  else if (!diaOk) frase = ['pausa', 'Hoje (' + D.agoraBrt.dia + ') a IA não envia: o dia está desligado nos ajustes.'];
+  else if (!ligados) frase = ['pausa', 'Todos os gatilhos estão desligados: a IA não envia nada.'];
+  else if (naJanela) frase = ['ok', 'Agora são ' + D.agoraBrt.hora + ' e a janela da IA está aberta, até as ' + C.janela.fim + 'h.'];
+  else if (agoraMin < iaIni) frase = ['espera', 'Agora são ' + D.agoraBrt.hora + '. A janela da IA abre às ' + C.janela.inicio + 'h.'];
+  else frase = ['espera', 'Agora são ' + D.agoraBrt.hora + '. A janela da IA fechou às ' + C.janela.fim + 'h e só reabre amanhã.'];
+
+  var horas = [];
+  for (var hh = 8; hh <= 19; hh++) horas.push(h('span', { class: 'mg-ag-hr' + (hh % 2 === 0 ? ' g' : ''), style: 'left:' + pc(hh * 60) + '%' }, hh % 2 === 0 ? h('em', { text: String(hh).padStart(2, '0') + 'h' }) : null));
+  var fundo = [
+    h('div', { class: 'mg-ag-fora e', style: 'left:0;width:' + pc(iaIni) + '%', title: 'Fora da janela da IA: ela não envia' }),
+    h('div', { class: 'mg-ag-fora d', style: 'left:' + pc(iaFim) + '%;right:0', title: 'Fora da janela da IA: ela não envia' }),
+    h('div', { class: 'mg-ag-jan', style: 'left:' + pc(iaIni) + '%;width:' + (pc(iaFim) - pc(iaIni)) + '%' })
+  ];
+  var nomes = [], areas = [], status = [];
   D.gatilhos.forEach(function (g, i) {
-    var gc = C.gatilhos[g.id], x = pc(hm(gc.hora)), linha = 0;
-    while (usados.some(function (u) { return u.l === linha && Math.abs(u.x - x) < 11; })) linha++;
-    usados.push({ x: x, l: linha });
-    var passou = hm(gc.hora) <= D.agoraBrt.minutos, feito = g.enviadosHoje + g.simuladosHoje > 0;
-    marcadores.push(h('div', { class: 'mg-pino' + (gc.ativo ? '' : ' off') + (passou ? ' passou' : ''), style: 'left:' + x + '%;--gc:' + MG_PAL[i] + ';--l:' + linha }, [
-      h('div', { class: 'mg-pino-r' }, [h('b', { text: 'Msg ' + g.msg }), h('span', { text: g.rotulo }), h('small', { text: gc.hora + (feito ? ' · ' + g.enviadosHoje + ' env' : g.fila.prontos ? ' · ' + g.fila.prontos + ' prontos' : g.fila.esperando ? ' · ' + g.fila.esperando + ' aguardando' : '') })]),
-      h('i', { class: 'mg-pino-h' }), h('i', { class: 'mg-pino-p' })
-    ]));
+    var gc = C.gatilhos[g.id], cor = MG_PAL[i % MG_PAL.length], t = hm(gc.hora), f = g.fila;
+    var ini = Math.max(t, iaIni), temBarra = gc.ativo && ini < iaFim, ate = Math.min(agoraMin, iaFim);
+    var feito = temBarra && ate > ini, ativoAgora = temBarra && naJanela && agoraMin >= t;
+    var st, stc;
+    if (!gc.ativo) { st = 'Desligado'; stc = 'off'; }
+    else if (g.enviadosHoje > 0) { st = g.enviadosHoje + (g.enviadosHoje === 1 ? ' enviado hoje' : ' enviados hoje'); stc = 'env'; }
+    else if (f.prontos > 0) { st = f.prontos + (f.prontos === 1 ? ' pronto para enviar' : ' prontos para enviar'); stc = 'pronto'; }
+    else if (f.esperando > 0) { st = f.esperando + ' aguardando o horário'; stc = 'espera'; }
+    else { st = 'Sem leads agora'; stc = 'vazio'; }
+    nomes.push(h('div', { class: 'mg-ag-n' + (gc.ativo ? '' : ' off'), style: '--gc:' + cor }, [h('span', { class: 'mg-ag-num', text: String(g.msg) }), h('div', null, [h('b', { text: g.rotulo }), h('small', { text: 'Msg ' + g.msg + ' · dispara às ' + gc.hora })])]));
+    var barra = temBarra ? h('div', { class: 'mg-ag-bar', style: 'left:' + pc(ini) + '%;width:' + (pc(iaFim) - pc(ini)) + '%;--d:' + (i * 90 + 500) + 'ms', title: g.rotulo + ': a IA pode enviar das ' + gc.hora + ' até as ' + C.janela.fim + 'h' }, feito ? h('i', { class: 'mg-ag-feito' + (ativoAgora ? ' vivo' : ''), style: 'width:' + ((pc(ate) - pc(ini)) / Math.max(.1, pc(iaFim) - pc(ini)) * 100) + '%' }) : null) : null;
+    var pino = h('div', { class: 'mg-ag-pino' + (gc.ativo ? '' : ' off') + (stc === 'pronto' ? ' pulsa' : ''), style: 'left:' + pc(t) + '%;--d:' + (i * 90 + 350) + 'ms' }, [h('i'), h('b', { text: gc.hora })]);
+    areas.push(h('div', { class: 'mg-ag-l' + (gc.ativo ? '' : ' off'), style: '--gc:' + cor }, [barra, pino, !gc.ativo ? h('span', { class: 'mg-ag-desl', text: 'gatilho desligado' }) : null]));
+    status.push(h('div', { class: 'mg-ag-s st-' + stc, style: '--gc:' + cor }, [h('b', null, [h('i'), st]), h('small', { text: f.prontos + ' prontos · ' + f.esperando + ' aguardando · ' + f.pulados + ' fora' })]));
   });
-  var agora = h('div', { class: 'mg-agora', style: 'left:' + pc(D.agoraBrt.minutos) + '%' }, [h('em', { text: D.agoraBrt.hora }), h('i')]);
+  var agora = h('div', { class: 'mg-ag-agora', style: 'left:' + pc(agoraMin) + '%' }, [h('em', { text: D.agoraBrt.hora + ' agora' }), h('i')]);
+  var leg = h('div', { class: 'mg-leg' }, [h('span', { class: 'p', text: 'Horário do gatilho' }), h('span', { class: 'b', text: 'IA pode enviar' }), h('span', { class: 'f', text: 'Fora da janela: não envia' }), h('span', { class: 'a', text: 'Agora' })]);
   return h('section', { class: 'mg-sec mg-linha', style: '--i:1' }, [
-    h('header', { class: 'mg-sh' }, [h('div', null, [h('h3', { text: 'Agenda de hoje' }), h('p', { text: 'Cada gatilho no seu horário. A faixa clara é a janela do guia (8h às 19h); a brilhante é a janela da IA.' })]), h('div', { class: 'mg-leg' }, [h('span', { class: 'g', text: 'Guia' }), h('span', { class: 'i', text: 'Janela da IA' }), h('span', { class: 'a', text: 'Agora' })])]),
-    h('div', { class: 'mg-lin-w' }, [h('div', { class: 'mg-lin' }, [trilho].concat(ticks, marcadores, [agora]))])
+    h('header', { class: 'mg-sh' }, [h('div', null, [h('h3', { text: 'O que a IA faz hoje' }), h('p', { text: 'Cada linha é um gatilho. A bolinha marca o horário em que ele dispara e a barra mostra até quando a IA pode enviar aquele passo. A linha vermelha é o agora.' })]), leg]),
+    h('div', { class: 'mg-ag-frase f-' + frase[0] }, [h('i'), frase[1]]),
+    h('div', { class: 'mg-ag-w' }, [h('div', { class: 'mg-ag' }, [
+      h('div', { class: 'mg-ag-c1' }, [h('div', { class: 'mg-ag-sp' })].concat(nomes)),
+      h('div', { class: 'mg-ag-area' }, [h('div', { class: 'mg-ag-eixo' }, horas)].concat(fundo, [h('div', { class: 'mg-ag-linhas' }, horas.map(function (x) { return x.cloneNode(false); }))], areas, [agora])),
+      h('div', { class: 'mg-ag-c3' }, [h('div', { class: 'mg-ag-sp' })].concat(status))
+    ])])
   ]);
 }
 
