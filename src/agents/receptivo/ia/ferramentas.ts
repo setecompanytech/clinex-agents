@@ -182,6 +182,26 @@ function opcaoPeloNome(pedido: string, opcoes: { id: string; nome: string }[], u
   return melhor && melhor.hits > 0 && pontos.filter((p) => p.hits === melhor.hits).length === 1 ? melhor.o : undefined;
 }
 
+/** A chave lida no comprovante é a chave pix da clínica? Aceita a máscara do banco ("cli***@gmail.com"): as partes visíveis têm de bater. */
+export function chaveDaClinica(lida: string, chaveClinica = env.pixKey): boolean {
+  const limpa = (x: string) => x.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, '');
+  const l = limpa(lida), k = limpa(chaveClinica);
+  if (!l || !k) return false;
+  if (l === k) return true;
+  // só números (telefone/CPF/CNPJ): compara os dígitos
+  if (/^[\d().+\-/]+$/.test(l) && l.replace(/\D/g, '') === k.replace(/\D/g, '')) return true;
+  // máscara do banco: * ou • escondem parte; o que aparece tem de estar na mesma ordem e cobrir o começo e o fim
+  if (/[*•]/.test(l)) {
+    const partes = l.split(/[*•]+/).filter(Boolean);
+    // o começo da chave tem de aparecer ("***@gmail.com" serviria para qualquer e-mail) e pelo menos 6 caracteres visíveis
+    if (k.includes('@') && (l.split(/[*•]/)[0] ?? '').length < 3) return false; // e-mail: ao menos 3 letras do começo visíveis
+    if (/^[*•]/.test(l) || !partes.length || partes.join('').length < 6) return false;
+    const re = new RegExp('^' + l.split(/[*•]+/).map((p) => p.replace(/[.*+?^$()|[\]\\{}]/g, '\\$&')).join('.+') + '$');
+    return re.test(k);
+  }
+  return false;
+}
+
 const acharServico = async (id: string, c: Contexto): Promise<Servico | undefined> => {
   if (c.mem.servicos[id]) return c.mem.servicos[id];
   const d = await c.fonte.resolver(id).catch(() => undefined);
@@ -469,11 +489,15 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
       case 'conferir_comprovante': {
         const cp = await c.lerComprovante?.();
         if (!cp || cp.tipo !== 'comprovante') return { erro: 'a imagem não parece um comprovante de pix' };
-        const receb = env.pixRecebedor.split(',').map((x) => norm(x)).filter(Boolean);
-        const okReceb = receb.some((r) => norm(`${cp.destinatario ?? ''} ${cp.chave ?? ''}`).includes(r)) || norm(cp.chave ?? '') === norm(env.pixKey);
-        const valido = okReceb && cp.status !== 'falhou' && cp.status !== 'agendado';
+        // REGRA DA CLÍNICA: a CHAVE PIX de destino tem de ser lida e tem de ser a da clínica (o nome do recebedor sozinho não basta)
+        const chaveLida = String(cp.chave ?? '').trim();
+        const okChave = chaveDaClinica(chaveLida);
+        const okReceb = okChave;
+        const valido = okChave && cp.status !== 'falhou' && cp.status !== 'agendado';
         if (valido) c.mem.pix = { valor: cp.valor ?? undefined, transacao: cp.transacao ?? undefined, em: new Date().toISOString() };
-        return { valor: cp.valor != null ? reais(cp.valor) : 'não legível', recebedor_confere: okReceb, status: cp.status ?? 'desconhecido', orientacao: valido ? 'Comprovante conferido: agora chame agendar com pagamento pix (com os dados do paciente) para reservar.' : !okReceb ? 'O recebedor não parece ser a clínica: peça para conferir, sem acusar. Não agende.' : 'O pix não aparece como concluído (agendado ou falhou): peça o comprovante do pix já feito. Não agende.' };
+        if (!chaveLida) return { valor: cp.valor != null ? reais(cp.valor) : 'não legível', chave_lida: null, orientacao: `O comprovante não mostra a chave pix de destino. NÃO agende. Peça ao paciente o comprovante completo, em que apareça a chave (${env.pixKey}). Se ele não conseguir, transfira para a equipe conferir.` };
+        if (!okChave) return { valor: cp.valor != null ? reais(cp.valor) : 'não legível', chave_lida: chaveLida, chave_confere: false, orientacao: `A chave do comprovante (${chaveLida}) não é a chave da clínica (${env.pixKey}). NÃO agende. Avise com gentileza, sem acusar, que o pix parece ter ido para outra chave, e passe a chave certa. Se ele insistir que está certo, transfira para a equipe conferir.` };
+        return { valor: cp.valor != null ? reais(cp.valor) : 'não legível', chave_lida: chaveLida, chave_confere: true, recebedor_confere: okReceb, status: cp.status ?? 'desconhecido', orientacao: valido ? 'Comprovante conferido: agora chame agendar com pagamento pix (com os dados do paciente) para reservar.' : !okReceb ? 'O recebedor não parece ser a clínica: peça para conferir, sem acusar. Não agende.' : 'O pix não aparece como concluído (agendado ou falhou): peça o comprovante do pix já feito. Não agende.' };
       }
       case 'transferir_para_humano': {
         c.saida.handoff = { motivo: String(args.motivo ?? 'pedido do paciente'), urgente: Boolean(args.urgente) };
