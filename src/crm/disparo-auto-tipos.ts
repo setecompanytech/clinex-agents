@@ -18,4 +18,30 @@ export type Rodada = {
   detalhes: DetalheRodada[];
 };
 
-export type DisparoAutoCfg = { modo: ModoAuto; alteradoPor?: string; alteradoEm?: string; ultimaRodada?: Rodada };
+/** Um gatilho = um passo da cadência do guia que a IA pode enviar sozinha, com o que o gerente pode ajustar. */
+export type GatilhoCfg = {
+  ativo: boolean;
+  /** hora do disparo (HH:MM, entre 08:00 e 18:59): a IA só envia depois dela, no dia em que o passo vence */
+  hora: string;
+  /** condições: só envia se o lead cumprir todas (vazio = sem restrição) */
+  valorMin?: number; valorMax?: number; unidades?: string[];
+  /** parâmetros do texto da mensagem (só os gatilhos que têm essa variável) */
+  desconto?: '10%' | '5%'; prazo?: 'hoje' | 'esta semana' | 'este mês';
+};
+
+export type PausaCfg = { id: string; de: string; ate: string; motivo: string };
+
+/** Configuração da IA. O guia continua mandando: janela de 8h às 19h e 2 contatos por dia por lead não dá para ampliar, só estreitar. */
+export type ConfigAuto = {
+  janela: { inicio: number; fim: number };
+  /** 0 = domingo … 6 = sábado: dias em que a IA pode enviar */
+  diasSemana: number[];
+  limites: { porRodada: number; porDia: number };
+  pausas: PausaCfg[];
+  /** disjuntor: se a Inovstar recusar N envios seguidos numa rodada, a IA se desliga sozinha */
+  disjuntor: { ativo: boolean; erros: number };
+  gatilhos: Record<string, GatilhoCfg>;
+  historico: { quando: string; quem: string; resumo: string }[];
+};
+
+export type DisparoAutoCfg = { modo: ModoAuto; alteradoPor?: string; alteradoEm?: string; ultimaRodada?: Rodada; config?: Partial<ConfigAuto> };

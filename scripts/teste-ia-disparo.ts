@@ -23,7 +23,7 @@ process.env.INOVSTAR_TOKEN = 'token-de-teste';
 process.env.DISPARO_WHATSAPP = 'true'; process.env.DISPARO_LIBERADO = 'true';
 delete process.env.DISPARO_LIMITE_DIA; delete process.env.DISPARO_AUTO; delete process.env.DISPARO_NUMEROS;
 
-const { rodarDisparoAuto, definirModoDisparoAuto, modoDisparoAuto, avaliarLead } = await import('../src/crm/ia-disparo.js');
+const { rodarDisparoAuto, definirModoDisparoAuto, modoDisparoAuto, avaliarLead, configAuto, configPadrao, validarConfigAuto, salvarConfigAuto, checagens } = await import('../src/crm/ia-disparo.js');
 const { classificarResposta, registrarResposta } = await import('../src/crm/rastreio.js');
 const { criarLead, aplicar, somaDias, hojeDe } = await import('../src/crm/motor.js');
 const { regrasPadrao } = await import('../src/crm/automacoes.js');
@@ -192,6 +192,96 @@ await teste('resposta depois de 14 dias do disparo não é atribuída', async ()
   pedidos.length = 0; const e = novo(); lead(e, 'MARIA SILVA', '91988887777'); definirModoDisparoAuto(e, 'ligado', 'Ana', MANHA); await rodarDisparoAuto(e, MANHA);
   assert.equal(registrarResposta(e, { telefone: '91988887777', texto: 'oi', messageId: 'tarde' }, em(somaDias(HOJE, 20), '10:00')).registrado, false);
 });
+
+console.log('IA Manager (configuração dos gatilhos)');
+const cfgDe = (e: Estado, mudar: Record<string, unknown>, quem = 'Gerente') => salvarConfigAuto(e, validarConfigAuto(mudar, configAuto(e)), quem, MANHA);
+const ligada = () => { const e = novo(); definirModoDisparoAuto(e, 'ligado', 'Ana', MANHA); return e; };
+await teste('padrões: os 5 gatilhos ligados, nos horários do guia, janela 8h–19h, todos os dias', () => {
+  const c = configPadrao();
+  assert.deepEqual(Object.keys(c.gatilhos), ['primeiro', 'tentativa', 'desconto', 'encerramento', 'noshow']);
+  assert.deepEqual([c.gatilhos.primeiro.hora, c.gatilhos.tentativa.hora, c.gatilhos.desconto.hora, c.gatilhos.encerramento.hora, c.gatilhos.noshow.hora], ['08:30', '11:30', '16:00', '16:00', '08:30']);
+  assert.equal(c.gatilhos.desconto.desconto, '10%'); assert.equal(c.gatilhos.tentativa.prazo, 'esta semana');
+  assert.deepEqual(c.janela, { inicio: 8, fim: 19 }); assert.equal(c.diasSemana.length, 7); assert.equal(c.disjuntor.ativo, true);
+});
+await teste('validação: o guia só pode ser estreitado e as mensagens de erro são claras', () => {
+  const base = configAuto(novo()); const erro = (x: unknown) => { try { validarConfigAuto(x, base); } catch (e) { return (e as Error).message; } return ''; };
+  assert.match(erro({ janela: { inicio: 7, fim: 19 } }), /nunca ampliar/); assert.match(erro({ janela: { inicio: 8, fim: 20 } }), /nunca ampliar/); assert.match(erro({ janela: { inicio: 12, fim: 10 } }), /antes do fim/);
+  assert.match(erro({ gatilhos: { primeiro: { hora: '07:30' } } }), /entre 8:00 e 18:59/); assert.match(erro({ gatilhos: { primeiro: { hora: '19:00' } } }), /entre 8:00 e 18:59/); assert.match(erro({ gatilhos: { primeiro: { hora: '8h30' } } }), /inválido/);
+  assert.match(erro({ diasSemana: [] }), /pelo menos um dia/); assert.match(erro({ diasSemana: [9] }), /inválidos/);
+  assert.match(erro({ gatilhos: { primeiro: { valorMin: 500, valorMax: 100 } } }), /mínimo é maior/); assert.match(erro({ gatilhos: { inexistente: {} } }), /desconhecido/);
+  assert.match(erro({ gatilhos: { desconto: { desconto: '20%' } } }), /10% ou 5%/); assert.match(erro({ limites: { porRodada: 0 } }), /1 a 200/); assert.match(erro({ pausas: [{ de: '2026-11-10', ate: '2026-11-01' }] }), /início é depois do fim/);
+  const ok = validarConfigAuto({ janela: { inicio: 9, fim: 17 }, gatilhos: { primeiro: { hora: '09:15', valorMin: 100, unidades: ['CLINEX GUAMÁ'] } }, diasSemana: [1, 2, 3] }, base);
+  assert.equal(ok.janela.inicio, 9); assert.equal(ok.gatilhos.primeiro.hora, '09:15'); assert.deepEqual(ok.gatilhos.primeiro.unidades, ['CLINEX GUAMÁ']); assert.equal(base.janela.inicio, 8, 'não altera a configuração anterior');
+});
+await teste('gatilho desligado não envia; os outros continuam', async () => {
+  pedidos.length = 0; const e = ligada(); lead(e, 'MARIA SILVA', '91988887777'); cfgDe(e, { gatilhos: { primeiro: { ativo: false } } });
+  const r = await rodarDisparoAuto(e, MANHA);
+  assert.equal(r.enviados, 0); assert.ok(Object.keys(r.pulados).some((m) => /desligado no IA Manager/.test(m)));
+  cfgDe(e, { gatilhos: { primeiro: { ativo: true } } }); assert.equal((await rodarDisparoAuto(e, MANHA)).enviados, 1);
+});
+await teste('horário do gatilho e janela da IA: só envia depois do horário e dentro da janela', async () => {
+  pedidos.length = 0; const e = ligada(); const l = lead(e, 'MARIA SILVA', '91988887777'); cfgDe(e, { gatilhos: { primeiro: { hora: '10:00' } } });
+  assert.equal(avaliarLead(e, l, MANHA)?.tipo, 'espera'); assert.equal((await rodarDisparoAuto(e, MANHA)).enviados, 0);
+  cfgDe(e, { gatilhos: { primeiro: { hora: '08:30' } }, janela: { inicio: 10, fim: 17 } });
+  assert.equal(avaliarLead(e, l, MANHA)?.tipo, 'espera', 'antes da janela (9h)'); assert.equal(avaliarLead(e, l, NOITE)?.tipo, 'espera', 'depois da janela');
+  assert.equal(avaliarLead(e, l, TARDE)?.tipo, 'pronto', '16:30 está dentro de 10h–17h'); assert.equal((await rodarDisparoAuto(e, TARDE)).enviados, 1);
+});
+await teste('dia da semana e pausa programada (feriado)', async () => {
+  pedidos.length = 0; const e = ligada(); const l = lead(e, 'MARIA SILVA', '91988887777'); // 09/11/2026 é segunda
+  cfgDe(e, { diasSemana: [0, 2, 3, 4, 5, 6] }); const a = avaliarLead(e, l, MANHA);
+  assert.equal(a?.tipo, 'pulado'); assert.match((a as { motivo: string }).motivo, /não envia na segunda/);
+  cfgDe(e, { diasSemana: [0, 1, 2, 3, 4, 5, 6], pausas: [{ id: 'p', de: HOJE, ate: HOJE, motivo: 'Feriado' }] });
+  const b = avaliarLead(e, l, MANHA); assert.equal(b?.tipo, 'pulado'); assert.match((b as { motivo: string }).motivo, /Em pausa: Feriado/);
+  assert.equal((await rodarDisparoAuto(e, MANHA)).enviados, 0);
+  cfgDe(e, { pausas: [] }); assert.equal((await rodarDisparoAuto(e, MANHA)).enviados, 1);
+});
+await teste('condições: valor mínimo/máximo e unidades', async () => {
+  pedidos.length = 0; const e = ligada(); const barato = lead(e, 'BARATO', '91988881111', { valor: 150 }); const caro = lead(e, 'CARO', '91988882222', { valor: 900 }); const naz = lead(e, 'NAZARE', '91988883333', { unidade: 'CLINEX NAZARÉ' });
+  cfgDe(e, { gatilhos: { primeiro: { valorMin: 200, valorMax: 600, unidades: ['clinex guamá'] } } });
+  assert.match((avaliarLead(e, barato, MANHA) as { motivo: string }).motivo, /fora do intervalo/); assert.match((avaliarLead(e, caro, MANHA) as { motivo: string }).motivo, /fora do intervalo/);
+  assert.match((avaliarLead(e, naz, MANHA) as { motivo: string }).motivo, /não está na lista/);
+  const ok = lead(e, 'OK', '91988884444', { valor: 300 }); assert.equal(avaliarLead(e, ok, MANHA)?.tipo, 'pronto', 'valor no intervalo e unidade na lista (sem diferenciar maiúsculas)');
+  cfgDe(e, { gatilhos: { primeiro: { valorMin: null, valorMax: null, unidades: [] } } }); assert.equal(avaliarLead(e, barato, MANHA)?.tipo, 'pronto', 'limpar as condições libera de novo');
+});
+await teste('parâmetros da mensagem: desconto 5% recalcula o valor; prazo da nova tentativa', () => {
+  const e = ligada(); const l = lead(e, 'ROSA LIMA', '91988886666', { valor: 400 }, somaDias(HOJE, -4));
+  l.status = 'sem_retorno'; l.statusDesde = somaDias(HOJE, -1); l.faseId = 'sem_retorno:1';
+  l.eventos.push({ id: 'tent', quando: em(somaDias(HOJE, -1), '11:30').toISOString(), tipo: 'contato', canal: 'whatsapp', passo: 'tentativa', fase: l.faseId, texto: 'WhatsApp · Nova tentativa' });
+  cfgDe(e, { gatilhos: { desconto: { desconto: '5%' } } });
+  const a = avaliarLead(e, l, TARDE) as { tipo: string; parametros: string[] }; assert.equal(a.tipo, 'pronto'); assert.deepEqual(a.parametros, ['Rosa', '5%', 'Ultrassom', 'R$ 400,00', 'R$ 380,00']);
+  const m = lead(e, 'ANA', '91988885555', { valor: 300 }, somaDias(HOJE, -3)); m.status = 'sem_retorno'; m.statusDesde = somaDias(HOJE, 0); m.faseId = 'sem_retorno:1';
+  cfgDe(e, { gatilhos: { tentativa: { prazo: 'hoje' } } });
+  const b = avaliarLead(e, m, TARDE) as { tipo: string; parametros: string[] }; assert.equal(b.tipo, 'pronto'); assert.deepEqual(b.parametros, ['Ana', 'Ultrassom', 'hoje']);
+});
+await teste('limite diário da IA e máximo por rodada vindos da configuração', async () => {
+  pedidos.length = 0; const e = ligada(); for (let i = 0; i < 6; i++) lead(e, `LEAD ${i}`, `9196666${1000 + i}`); cfgDe(e, { limites: { porRodada: 4, porDia: 5 } });
+  const r1 = await rodarDisparoAuto(e, MANHA); assert.equal(r1.enviados, 4);
+  const r2 = await rodarDisparoAuto(e, MANHA); assert.equal(r2.enviados, 1, 'só falta 1 para o limite do dia (5)'); assert.ok(Object.keys(r2.pulados).some((m) => /Limite diário da IA atingido \(5\)/.test(m)));
+});
+await teste('disjuntor: depois de N erros seguidos a IA se desliga sozinha e anota no histórico; desativado, ela insiste', async () => {
+  pedidos.length = 0; recusar = true; const e = ligada(); for (let i = 0; i < 6; i++) lead(e, `LEAD ${i}`, `9195555${1000 + i}`); cfgDe(e, { disjuntor: { ativo: true, erros: 3 } });
+  const r = await rodarDisparoAuto(e, MANHA);
+  assert.equal(r.erros, 3); assert.equal(envios().length, 3, 'parou no 3º erro'); assert.equal(modoDisparoAuto(e), 'desligado');
+  assert.ok(configAuto(e).historico.some((h) => h.quem === 'Disjuntor' && /3 envios seguidos recusados/.test(h.resumo)));
+  const e2 = ligada(); for (let i = 0; i < 6; i++) lead(e2, `LEAD ${i}`, `9194444${1000 + i}`); cfgDe(e2, { disjuntor: { ativo: false } });
+  pedidos.length = 0; const r2 = await rodarDisparoAuto(e2, MANHA); recusar = false;
+  assert.equal(r2.erros, 6); assert.equal(modoDisparoAuto(e2), 'ligado');
+});
+await teste('histórico de mudanças: quem mudou o quê (inclusive Power); configuração inválida guardada volta ao padrão', () => {
+  const e = novo(); definirModoDisparoAuto(e, 'ligado', 'Ana', MANHA); cfgDe(e, { gatilhos: { primeiro: { hora: '09:00' }, desconto: { ativo: false } }, janela: { inicio: 9, fim: 18 } }, 'Carla');
+  const h = configAuto(e).historico; assert.equal(h[0].quem, 'Carla'); assert.match(h[0].resumo, /Primeiro contato: horário 08:30 → 09:00/); assert.match(h[0].resumo, /Desconto desligado/); assert.match(h[0].resumo, /janela 8h–19h → 9h–18h/);
+  assert.ok(h.some((x) => x.quem === 'Ana' && /ligada/.test(x.resumo)));
+  const sujo = novo(); sujo.disparoAuto = { modo: 'sombra', config: { janela: { inicio: 3, fim: 30 }, diasSemana: [], gatilhos: { primeiro: { hora: 'abc', ativo: 'sim' as never } }, limites: { porRodada: -5 } as never } as never };
+  const c = configAuto(sujo); assert.deepEqual(c.janela, { inicio: 8, fim: 19 }); assert.equal(c.gatilhos.primeiro.hora, '08:30'); assert.equal(c.gatilhos.primeiro.ativo, true); assert.equal(c.limites.porRodada, 20);
+});
+await teste('simulador: lista todas as checagens, na ordem, com o motivo de cada falha', () => {
+  const e = ligada(); const l = lead(e, 'MARIA SILVA', '91988887777'); const r = checagens(e, l, CEDO, configAuto(e));
+  assert.ok(r.aplicavel); const ids = r.checks.map((c) => c.id);
+  assert.deepEqual(ids, ['lead', 'passo', 'optout', 'gatilho', 'vence', 'whatsapp', 'dia', 'pausa', 'hora', 'janela', 'valor', 'unidade', 'telefone', 'dados', 'travas']);
+  const falhas = r.checks.filter((c) => !c.ok).map((c) => c.id); assert.deepEqual(falhas.sort(), ['hora', 'janela', 'travas'].sort());
+  const demo = lead(e, 'DEMO', '91988880000'); demo.demo = true; assert.equal(checagens(e, demo, MANHA, configAuto(e)).aplicavel, false);
+});
+
 void hojeDe;
 
 console.log(`\n${ok} testes passaram${process.exitCode ? ', COM FALHAS' : ''}.`);

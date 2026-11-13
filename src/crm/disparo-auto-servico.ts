@@ -1,10 +1,10 @@
 import { estadoAtivo, travaCurta } from '../lib/estado.js';
 import { atualizarLeadsDoBanco, bancoFora, estado, gravarAntesDeResponder, pronto, salvar, tentarVoltarAoBanco } from './banco.js';
-import { diaDoInstante, hojeDe } from './motor.js';
-import { MENSAGENS } from './modelo.js';
+import { diaDoInstante, hojeDe, horaDe } from './motor.js';
+import { MENSAGENS, PASSOS } from './modelo.js';
 import type { Janela } from './periodo.js';
 import type { Rodada } from './disparo-auto-tipos.js';
-import { fila, modoDisparoAuto, rodarDisparoAuto } from './ia-disparo.js';
+import { GATILHOS_AUTO, NOMES_DIA, checagens, configAuto, enviadosPelaIAHoje, fila, modoDisparoAuto, rodarDisparoAuto } from './ia-disparo.js';
 import { registrarResposta, ROTULO_INTENCAO, type RespostaRecebida } from './rastreio.js';
 import { chaveFone, ehEnvio, statusDisparo } from './whatsapp.js';
 
@@ -38,6 +38,64 @@ export async function registrarRespostaWhatsApp(r: RespostaRecebida) {
   const res = registrarResposta(estado, r, new Date());
   if (res.registrado) { salvar(); await gravarAntesDeResponder(); }
   return res;
+}
+
+/** Tudo da tela "IA Manager": o painel de controle da IA (Power, gatilhos, horários, condições, janela, limites, pausas, histórico). */
+export function dadosManager(agora: Date) {
+  const cfg = configAuto(estado), modo = modoDisparoAuto(estado), hoje = hojeDe(agora), t = horaDe(agora), minAgora = t.h * 60 + t.m;
+  const itens = fila(estado, agora, { ignorarLista: true }, cfg);
+  const ultima = estado.disparoAuto?.ultimaRodada ?? null;
+  const gatilhos = GATILHOS_AUTO.map((id) => {
+    const p = PASSOS.find((x) => x.id === id)!, g = cfg.gatilhos[id], meus = itens.filter((x) => x.av.passo.id === id);
+    const motivos = new Map<string, number>(); for (const x of meus) if (x.av.tipo === 'pulado') motivos.set(x.av.motivo, (motivos.get(x.av.motivo) ?? 0) + 1);
+    let enviadosHoje = 0, simuladosHoje = 0, respostasHoje = 0;
+    for (const l of estado.leads) for (const e of l.eventos) {
+      if (diaDoInstante(e.quando) !== hoje) continue;
+      if (e.tipo === 'contato' && e.auto === true && e.passo === id && ehEnvio(e.texto)) enviadosHoje++;
+      else if (e.tipo === 'nota' && e.texto.startsWith('IA (sombra)') && e.texto.includes(`Msg ${p.msg} `)) simuladosHoje++;
+      else if (e.tipo === 'resposta' && e.msgId && e.msg === p.msg) respostasHoje++;
+    }
+    const msg = MENSAGENS.find((m) => m.n === p.msg);
+    return {
+      id, rotulo: p.rotulo, msg: p.msg, quando: msg?.quando ?? p.desc, desc: p.desc, horaGuia: p.hora, ...g,
+      fila: { prontos: meus.filter((x) => x.av.tipo === 'pronto').length, esperando: meus.filter((x) => x.av.tipo === 'espera').length, pulados: meus.filter((x) => x.av.tipo === 'pulado').length },
+      motivos: [...motivos].map(([motivo, n]) => ({ motivo, n })).sort((a, b) => b.n - a.n).slice(0, 3), enviadosHoje, simuladosHoje, respostasHoje,
+    };
+  });
+  // próximo disparo: agora (tem lead pronto), hoje (algum gatilho ligado com lead esperando o horário) ou o primeiro de amanhã
+  let proximo: { tipo: 'agora' | 'hoje' | 'amanha' | 'nenhum'; gatilho?: string; hora?: string; minutos?: number } = { tipo: 'nenhum' };
+  const ativos = gatilhos.filter((g) => g.ativo);
+  const pronto = ativos.find((g) => g.fila.prontos > 0);
+  if (pronto) proximo = { tipo: 'agora', gatilho: pronto.rotulo, hora: pronto.hora, minutos: 0 };
+  else {
+    const futuros = ativos.filter((g) => g.fila.esperando > 0 && Number(g.hora.slice(0, 2)) * 60 + Number(g.hora.slice(3)) > minAgora).sort((a, b) => a.hora.localeCompare(b.hora));
+    if (futuros[0]) proximo = { tipo: 'hoje', gatilho: futuros[0].rotulo, hora: futuros[0].hora, minutos: Number(futuros[0].hora.slice(0, 2)) * 60 + Number(futuros[0].hora.slice(3)) - minAgora };
+    else if (ativos.length) { const a = [...ativos].sort((x, y) => x.hora.localeCompare(y.hora))[0]; proximo = { tipo: 'amanha', gatilho: a.rotulo, hora: a.hora }; }
+  }
+  const respostasHoje = gatilhos.reduce((s, g) => s + g.respostasHoje, 0);
+  return {
+    modo, forcadoPeloAmbiente: process.env.DISPARO_AUTO === 'desligado', alteradoPor: estado.disparoAuto?.alteradoPor, alteradoEm: estado.disparoAuto?.alteradoEm,
+    config: cfg, guia: { inicio: 8, fim: 19 }, disparo: statusDisparo(estado, agora), ultimaRodada: ultima,
+    agoraBrt: { hora: String(t.h).padStart(2, '0') + ':' + String(t.m).padStart(2, '0'), dia: NOMES_DIA[new Date(`${hoje}T12:00:00Z`).getUTCDay()], minutos: minAgora, hoje },
+    hoje: { enviadosIA: enviadosPelaIAHoje(estado, agora), limiteDia: Math.min(cfg.limites.porDia, statusDisparo(estado, agora).limiteDia), simulados: gatilhos.reduce((s, g) => s + g.simuladosHoje, 0), respostas: respostasHoje, fila: itens.filter((x) => x.av.tipo === 'pronto').length },
+    gatilhos, proximo, unidades: [...new Map(estado.leads.map((l) => (l.unidade ?? '').trim()).filter(Boolean).sort().map((u) => [u.toUpperCase(), u] as const)).values()],
+    minutosDesdeUltimaRodada: ultima ? Math.round((agora.getTime() - Date.parse(ultima.quando)) / 60_000) : null,
+  };
+}
+
+/** Simulador da tela: por que a IA enviaria (ou não) a este lead agora, checagem por checagem, e como ficaria a mensagem. */
+export function simularLead(leadId: string, agora: Date) {
+  const l = estado.leads.find((x) => x.id === leadId);
+  if (!l) return null;
+  const r = checagens(estado, l, agora, configAuto(estado), { ignorarLista: true });
+  const passo = 'passo' in r ? r.passo : undefined, parametros = 'parametros' in r ? r.parametros : undefined;
+  let mensagem: { msg: number; texto: string; botoes: string[] } | null = null;
+  if (passo?.msg && parametros) {
+    const m = MENSAGENS.find((x) => x.n === passo.msg); let i = 0;
+    if (m) mensagem = { msg: m.n, texto: m.corpo.replace(/\[[^\]]*\]/g, (c) => parametros[i++] ?? c), botoes: m.botoes ?? [] };
+  }
+  const falhou = r.checks.find((c) => !c.ok);
+  return { lead: { id: l.id, nome: l.nome, telefone: l.telefone, valor: l.valor, unidade: l.unidade ?? '', status: l.status, atendente: l.atendente ?? '' }, aplicavel: r.aplicavel, checks: r.checks, enviaria: r.aplicavel && !falhou, primeiraFalha: falhou ?? null, passo: passo ? { id: passo.id, rotulo: passo.rotulo, msg: passo.msg, hora: passo.hora } : null, mensagem };
 }
 
 /** Tudo da tela "IA de disparo": modo, rodada, fila de agora, números do período e as respostas dos pacientes. */

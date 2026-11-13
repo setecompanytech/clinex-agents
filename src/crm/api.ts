@@ -11,8 +11,8 @@ import { DisparoError, enviarModelo, MODELOS as MODELOS_WA, modelosParaLead, sta
 import { analisarHoje } from './analise.js';
 import { analisarTempo } from './tempo.js';
 import { janelaDaQuery } from './periodo.js';
-import { dadosDisparoAuto, rodarAgora } from './disparo-auto-servico.js';
-import { definirModoDisparoAuto } from './ia-disparo.js';
+import { dadosDisparoAuto, dadosManager, rodarAgora, simularLead } from './disparo-auto-servico.js';
+import { configAuto, definirModoDisparoAuto, salvarConfigAuto, validarConfigAuto } from './ia-disparo.js';
 import { analisarExecutivo, analisarTime, detalhePessoa, meuReport } from './executivo.js';
 import { analisarEtapa } from './etapa.js';
 import { analisarNoShow, dadosNoShow } from './noshow.js';
@@ -332,6 +332,18 @@ router.put('/disparo-auto', (req, res) => {
   const modo = String((req.body ?? {}).modo ?? '');
   try { definirModoDisparoAuto(estado, modo as 'desligado', req.sessao?.nome ?? 'painel', new Date()); } catch (e) { if (e instanceof DisparoError) return void res.status(e.status).json({ erro: e.codigo, mensagem: e.message }); throw e; }
   salvar(); res.json({ modo: estado.disparoAuto?.modo });
+});
+/** IA Manager: o painel de controle da IA (gatilhos, horários, condições, janela, limites, pausas e histórico). */
+router.get('/ia-manager', (_req, res) => { res.json(dadosManager(new Date())); });
+router.put('/ia-manager', (req, res) => {
+  try { salvarConfigAuto(estado, validarConfigAuto((req.body ?? {}).config, configAuto(estado)), req.sessao?.nome ?? 'painel', new Date()); }
+  catch (e) { if (e instanceof DisparoError) return void res.status(e.status).json({ erro: e.codigo, mensagem: e.message }); throw e; }
+  salvar(); res.json(dadosManager(new Date()));
+});
+router.get('/ia-manager/simular', (req, res) => {
+  const r = simularLead(String(req.query.lead ?? ''), new Date());
+  if (!r) return void res.status(404).json({ erro: 'nao_encontrado', mensagem: 'Lead não encontrado.' });
+  res.json(r);
 });
 router.post('/disparo-auto/rodar', (_req, res, next) => { rodarAgora().then((r) => res.json(r)).catch(next); });
 
