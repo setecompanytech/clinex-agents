@@ -27,11 +27,19 @@ const DIA_OK = /^\d{4}-\d{2}-\d{2}$/;
 // ------------------------------------------------------------------------------------------------ tipos
 
 export type TipoEvento = 'criado' | 'contato' | 'resposta' | 'etapa' | 'agendamento' | 'retorno' | 'descarte' | 'nota' | 'automacao' | 'edicao' | 'recepcao' | 'comparecimento';
-export type EventoLead = { id: string; quando: string; tipo: TipoEvento; texto: string; atendente?: string; canal?: Canal; msg?: number; passo?: string; fase?: string; auto?: boolean };
+export type EventoLead = {
+  id: string; quando: string; tipo: TipoEvento; texto: string; atendente?: string; canal?: Canal; msg?: number; passo?: string; fase?: string; auto?: boolean;
+  /** resposta do paciente: o que ele quis dizer (agendar, valor_horario, duvida, sem_interesse, ja_fez, ainda_quer, reagendar, outro) e o id da mensagem na Inovstar (para não registrar duas vezes) */
+  intencao?: string; msgId?: string;
+  /** o que o paciente escreveu (ou o texto do botão), como veio */
+  resp?: string;
+};
 
 export type Lead = {
   id: string; nome: string; telefone: string; exame: string; valor: number;
   origem?: string; unidade?: string; atendente?: string; obs?: string; demo?: boolean;
+  /** pediu para não receber mais mensagens: a IA de disparo nunca mais escreve para este lead */
+  semDisparoAuto?: boolean;
   /** card do funil de Orçamentos (Clinilink) que originou este lead, quando veio de lá */
   cardId?: string; fonte?: 'clinilink';
   criadoEm: string;
@@ -191,8 +199,8 @@ export function podeContatar(lead: Lead, agora: Date): { ok: boolean; motivo?: s
 // ------------------------------------------------------------------------------------------------ ações
 
 export type Acao =
-  | { tipo: 'contato'; canal: Canal; naoFoiRecepcao: boolean; passo?: string; msg?: number; texto?: string; atendente?: string }
-  | { tipo: 'resposta'; botao?: string; atendente?: string }
+  | { tipo: 'contato'; canal: Canal; naoFoiRecepcao: boolean; passo?: string; msg?: number; texto?: string; atendente?: string; auto?: boolean }
+  | { tipo: 'resposta'; botao?: string; atendente?: string; texto?: string; intencao?: string; msgId?: string; msg?: number; soRegistrar?: boolean }
   | { tipo: 'agendou'; data: string; hora?: string; exame?: string; atendente?: string }
   | { tipo: 'retorno'; data: string; atendente?: string }
   | { tipo: 'parou'; atendente?: string }
@@ -223,7 +231,7 @@ export function aplicar(lead: Lead, a: Acao, agora: Date): void {
         passo = prox.passo.id;
       }
       const def = passo ? passoPorId(passo) : undefined;
-      ev({ tipo: 'contato', canal: a.canal, msg: a.msg ?? def?.msg, passo, texto: a.texto?.trim().slice(0, 1500) || `${a.canal === 'whatsapp' ? 'WhatsApp' : 'Ligação'}${def ? ` · ${def.rotulo}` : ' · contato livre'}` });
+      ev({ tipo: 'contato', canal: a.canal, msg: a.msg ?? def?.msg, passo, auto: a.auto || undefined, texto: a.texto?.trim().slice(0, 1500) || `${a.canal === 'whatsapp' ? 'WhatsApp' : 'Ligação'}${def ? ` · ${def.rotulo}` : ' · contato livre'}` });
       if (passo === 'noshow') lead.noShow = undefined;
       if (passo === 'retorno') lead.retornoData = undefined;
       if (passo === 'reativacao') lead.reativacaoTentada = hoje;
@@ -232,18 +240,21 @@ export function aplicar(lead: Lead, a: Acao, agora: Date): void {
     case 'resposta': {
       if (ehTerminal(lead.status)) throw erro('estado', 'Este lead já converteu.');
       const botao = a.botao ? ` (botão: ${a.botao})` : '';
+      const citado = a.texto ? `: “${a.texto.replace(/\s+/g, ' ').trim().slice(0, 300)}”` : '';
+      const extra = { intencao: a.intencao, msgId: a.msgId, msg: a.msg, resp: a.texto ? a.texto.slice(0, 500) : undefined };
+      if (a.soRegistrar) { ev({ tipo: 'resposta', texto: `O paciente respondeu${botao}${citado}.`, ...extra }); return; }
       if (lead.status === 'aberto' || lead.status === 'sem_retorno') {
-        ev({ tipo: 'resposta', texto: `O paciente respondeu${botao}. Segue para Em negociação.` });
+        ev({ tipo: 'resposta', texto: `O paciente respondeu${botao}${citado}. Segue para Em negociação.`, ...extra });
         entrar(lead, 'negociacao', hoje);
         ev({ tipo: 'etapa', texto: 'Entrou em Em negociação (D0 da negociação).' });
       } else if (lead.status === 'descarte') {
         if (!lead.reativacaoTentada) throw erro('estado', 'Lead descartado: só responde depois da reativação.');
-        ev({ tipo: 'resposta', texto: `O paciente respondeu à reativação${botao}. Volta para Em negociação.` });
+        ev({ tipo: 'resposta', texto: `O paciente respondeu à reativação${botao}${citado}. Volta para Em negociação.`, ...extra });
         lead.descarte = undefined;
         entrar(lead, 'negociacao', hoje);
         ev({ tipo: 'etapa', texto: 'Reativado: voltou para Em negociação.' });
       } else {
-        ev({ tipo: 'resposta', texto: `O paciente respondeu${botao}.` });
+        ev({ tipo: 'resposta', texto: `O paciente respondeu${botao}${citado}.`, ...extra });
       }
       return;
     }

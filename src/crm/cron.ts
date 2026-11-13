@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { atualizarLeadsDoBanco, bancoFora, estado, pronto, tentarVoltarAoBanco } from './banco.js';
 import { clinilinkConfigurado } from './clinilink.js';
 import { esvaziar } from './persistencia.js';
+import { rodarAgora } from './disparo-auto-servico.js';
 import { rodarAutomacoesDosFunis, rodarSincronizacao } from './pipeline/api.js';
 
 /**
@@ -13,6 +14,21 @@ import { rodarAutomacoesDosFunis, rodarSincronizacao } from './pipeline/api.js';
 export const cron = Router();
 
 const igual = (a: string, b: string) => { const x = Buffer.from(a), y = Buffer.from(b); return x.length === y.length && timingSafeEqual(x, y); };
+
+/**
+ * GET /cron/disparo: uma rodada da IA de disparo (Bearer CRON_SECRET, o mesmo da rotina do Clinilink). Quem chama define de
+ * quanto em quanto tempo (Vercel Cron, GitHub Actions, outro agendador): a rodada é segura para repetir, tem trava para nunca
+ * haver duas ao mesmo tempo, só envia no horário de contato e passa pelas mesmas travas do envio manual.
+ */
+cron.get('/disparo', (req, res, next) => {
+  const segredo = process.env.CRON_SECRET;
+  if (!segredo) return void res.status(503).json({ erro: 'cron', mensagem: 'CRON_SECRET não está configurado.' });
+  if (!igual(String(req.headers.authorization ?? ''), `Bearer ${segredo}`)) return void res.status(401).json({ erro: 'auth' });
+  rodarAgora().then((r) => {
+    if (r.rodada) console.log(`[disparo-auto] modo ${r.rodada.modo}: enviados ${r.rodada.enviados}, sombra ${r.rodada.sombra}, erros ${r.rodada.erros}, avaliados ${r.rodada.avaliados}`);
+    res.json(r);
+  }).catch(next);
+});
 
 cron.get('/crm', (req, res, next) => {
   const segredo = process.env.CRON_SECRET;

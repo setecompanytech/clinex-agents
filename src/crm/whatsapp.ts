@@ -74,14 +74,14 @@ export const MODELOS: Modelo[] = [
 
 // ------------------------------------------------------------------------------------------------ configuração e travas
 
-const chaveFone = (v: string) => { let n = v.replace(/\D/g, ''); if (n.length >= 12 && n.startsWith('55')) n = n.slice(2); return n.slice(0, 2) + n.slice(-8); };
+export const chaveFone = (v: string) => { let n = v.replace(/\D/g, ''); if (n.length >= 12 && n.startsWith('55')) n = n.slice(2); return n.slice(0, 2) + n.slice(-8); };
 export const disparoAtivo = () => process.env.DISPARO_WHATSAPP === 'true';
 export const disparoLiberado = () => process.env.DISPARO_LIBERADO === 'true';
 export const limiteDia = () => Number(process.env.DISPARO_LIMITE_DIA) || 100;
 const numerosDeTeste = () => (process.env.DISPARO_NUMEROS ?? '').split(',').map((n) => n.trim()).filter(Boolean);
 const numeroPermitido = (tel: string) => disparoLiberado() || numerosDeTeste().some((a) => chaveFone(a) === chaveFone(tel));
-const MARCA = 'WhatsApp · modelo ';
-const ehEnvio = (t: string) => t.startsWith(MARCA);
+export const MARCA = 'WhatsApp · modelo ';
+export const ehEnvio = (t: string) => t.startsWith(MARCA);
 
 export function enviadosHoje(estado: Estado, agora: Date): number {
   const hoje = hojeDe(agora);
@@ -106,9 +106,25 @@ const motivoDaInovstar = (e: Error) => {
   try { const j = JSON.parse(corpo) as { error?: { message?: string } | string; message?: string }; return (typeof j.error === 'object' ? j.error?.message : j.error) ?? j.message ?? corpo; } catch { return corpo; }
 };
 
-export type PedidoEnvio = { modelo: string; parametros?: unknown; passo?: string; msg?: number; atendente?: string };
+export type PedidoEnvio = { modelo: string; parametros?: unknown; passo?: string; msg?: number; atendente?: string; auto?: boolean };
 
 /** Valida tudo, envia e registra o contato no lead. Lança DisparoError com mensagem pronta para a tela. */
+/**
+ * Todas as travas de um envio a este lead, numa função só (o envio manual e a IA de disparo usam a mesma): devolve o erro que
+ * impede o envio, ou null se pode enviar. `ignorarLista` serve ao modo sombra, que mostra o que iria em produção liberada.
+ */
+export function checarEnvio(estado: Estado, l: Lead, modeloId: string, agora: Date, opcoes: { ignorarLista?: boolean } = {}): DisparoError | null {
+  if (l.status === 'convertido_ativo' || l.status === 'convertido_organico' || l.status === 'descarte') return new DisparoError('estado', 'Este lead já foi encerrado: não dá para enviar mensagem.', 409);
+  if (!paraE164Brasil(l.telefone)) return new DisparoError('telefone', 'Telefone inválido: confira o número do lead (DDD + número).', 400);
+  if (!opcoes.ignorarLista && !numeroPermitido(l.telefone)) return new DisparoError('fora_da_lista', 'Este número não está liberado para disparo (fase de testes: só os números de DISPARO_NUMEROS).', 403);
+  const vista = vistaDoLead(l, agora).contato;
+  if (!vista.ok) return new DisparoError('regra', vista.motivo ?? 'Fora das regras de contato.', 409);
+  const marca = `${MARCA}${modeloId}`;
+  if (l.eventos.some((e) => e.tipo === 'contato' && e.texto.startsWith(marca) && agora.getTime() - Date.parse(e.quando) < 24 * 3_600_000)) return new DisparoError('duplicado', 'Este modelo já foi enviado a este lead nas últimas 24 horas.', 409);
+  if (enviadosHoje(estado, agora) >= limiteDia()) return new DisparoError('limite', `Limite de ${limiteDia()} envios por dia atingido.`, 429);
+  return null;
+}
+
 export async function enviarModelo(estado: Estado, l: Lead, p: PedidoEnvio, agora: Date): Promise<{ lead: Lead; mensagemId?: string }> {
   if (!disparoAtivo()) throw new DisparoError('desligado', 'O disparo de WhatsApp está desligado neste ambiente (DISPARO_WHATSAPP).', 403);
   if (!env.inovstarToken) throw new DisparoError('config', 'O envio de WhatsApp não está configurado neste ambiente.', 503);
@@ -116,25 +132,17 @@ export async function enviarModelo(estado: Estado, l: Lead, p: PedidoEnvio, agor
   if (!modelo) throw new DisparoError('modelo', 'Modelo desconhecido.', 400);
   const params = Array.isArray(p.parametros) ? p.parametros.map((x) => String(x ?? '').trim()) : [];
   if (params.length !== modelo.variaveis.length || params.some((x) => !x)) throw new DisparoError('parametros', `Preencha as ${modelo.variaveis.length} variáveis do modelo (${modelo.variaveis.map((v) => v.rotulo).join(', ')}).`, 400);
-  if (l.status === 'convertido_ativo' || l.status === 'convertido_organico' || l.status === 'descarte') throw new DisparoError('estado', 'Este lead já foi encerrado: não dá para enviar mensagem.', 409);
-
-  const to = paraE164Brasil(l.telefone);
-  if (!to) throw new DisparoError('telefone', 'Telefone inválido: confira o número do lead (DDD + número).', 400);
-  if (!numeroPermitido(l.telefone)) throw new DisparoError('fora_da_lista', 'Este número não está liberado para disparo (fase de testes: só os números de DISPARO_NUMEROS).', 403);
-
-  const vista = vistaDoLead(l, agora).contato;
-  if (!vista.ok) throw new DisparoError('regra', vista.motivo ?? 'Fora das regras de contato.', 409);
-  const marca = `${MARCA}${modelo.id}`;
-  if (l.eventos.some((e) => e.tipo === 'contato' && e.texto.startsWith(marca) && agora.getTime() - Date.parse(e.quando) < 24 * 3_600_000)) throw new DisparoError('duplicado', 'Este modelo já foi enviado a este lead nas últimas 24 horas.', 409);
-  if (enviadosHoje(estado, agora) >= limiteDia()) throw new DisparoError('limite', `Limite de ${limiteDia()} envios por dia atingido.`, 429);
+  const bloqueio = checarEnvio(estado, l, modelo.id, agora);
+  if (bloqueio) throw bloqueio;
+  const to = paraE164Brasil(l.telefone)!;
 
   let r: { messageId?: string };
   try { r = await sendTemplate({ to, nome: modelo.id, idioma: modelo.idioma, parametros: params, clientMessageId: `clinex-crm-${l.id}-${modelo.id}-${agora.getTime()}` }); }
   catch (e) { throw new DisparoError('envio', `O WhatsApp recusou o envio: ${motivoDaInovstar(e as Error)}`, 502); }
 
   // o envio já aconteceu: se o registro do contato não couber nas regras, vira nota (nunca fica sem rastro)
-  const texto = `${marca} (${modelo.idioma}) para ${mascarar(to)}${r.messageId ? ` · id ${r.messageId}` : ''}\n${modelo.variaveis.map((v, i) => `${v.rotulo}: ${params[i]}`).join('\n')}`;
-  try { aplicar(l, { tipo: 'contato', canal: 'whatsapp', naoFoiRecepcao: true, passo: p.passo, msg: p.msg, texto, atendente: p.atendente }, agora); }
+  const texto = `${MARCA}${modelo.id} (${modelo.idioma}) para ${mascarar(to)}${r.messageId ? ` · id ${r.messageId}` : ''}\n${modelo.variaveis.map((v, i) => `${v.rotulo}: ${params[i]}`).join('\n')}`;
+  try { aplicar(l, { tipo: 'contato', canal: 'whatsapp', naoFoiRecepcao: true, passo: p.passo, msg: p.msg, texto, atendente: p.atendente, auto: p.auto }, agora); }
   catch { aplicar(l, { tipo: 'nota', texto, atendente: p.atendente }, agora); }
   automatizar(l, agora);
   return { lead: l, mensagemId: r.messageId };

@@ -94,8 +94,8 @@ const logAuto = docs<LogAuto>('crm_log_auto', (e) => e.logAuto, (e, xs) => { e.l
 type Cfg = { id: string; valor: unknown };
 const config: Col<Cfg> = {
   tabela: 'crm_config', chave: ['chave'], ordem: 'chave',
-  lista: (e) => [{ id: 'atendentes', valor: e.atendentes }, { id: 'rotina', valor: e.pipelines.rotina }],
-  definir: (e, xs) => { for (const x of xs) { if (x.id === 'atendentes' && Array.isArray(x.valor)) e.atendentes = x.valor as string[]; if (x.id === 'rotina' && x.valor && typeof x.valor === 'object') e.pipelines.rotina = x.valor as Estado['pipelines']['rotina']; } },
+  lista: (e) => [{ id: 'atendentes', valor: e.atendentes }, { id: 'rotina', valor: e.pipelines.rotina }, ...(e.disparoAuto ? [{ id: 'disparoAuto', valor: e.disparoAuto }] : [])],
+  definir: (e, xs) => { for (const x of xs) { if (x.id === 'atendentes' && Array.isArray(x.valor)) e.atendentes = x.valor as string[]; if (x.id === 'disparoAuto' && x.valor && typeof x.valor === 'object') e.disparoAuto = x.valor as NonNullable<Estado['disparoAuto']>; if (x.id === 'rotina' && x.valor && typeof x.valor === 'object') e.pipelines.rotina = x.valor as Estado['pipelines']['rotina']; } },
   paraLinha: (x) => ({ chave: x.id, valor: x.valor }), deLinha: (r) => ({ id: r.chave as string, valor: r.valor }),
 };
 
@@ -201,8 +201,8 @@ export async function esvaziar(estado: Estado) { if (timer) { clearTimeout(timer
 
 let baseLidaEm = 0;
 let baseRelendo: Promise<void> | null = null;
-/** O que muda durante o atendimento e precisa estar igual em todas as instâncias: leads e tudo do Pipelines (funis, cards, extras, follow-ups, contatos). */
-const FRESCAS = (): ColAny[] => [leads, funis, atribuicoes, extras, followups, contatos] as unknown as ColAny[];
+/** O que muda durante o atendimento e precisa estar igual em todas as instâncias: leads, tudo do Pipelines (funis, cards, extras, follow-ups, contatos) e a configuração (inclui o modo da IA de disparo: pausar numa instância tem que valer em todas). */
+const FRESCAS = (): ColAny[] => [leads, funis, atribuicoes, extras, followups, contatos, config] as unknown as ColAny[];
 
 /** Tem mudança em memória que ainda não foi para o banco? (aí não dá para trocar a memória pelo que veio do banco) */
 function temPendencia(c: ColAny, estado: Estado): boolean {
@@ -218,7 +218,7 @@ function fundirLista(c: ColAny, estado: Estado, novos: unknown[]) {
   const porChave = new Map(atuais.map((x) => [chaveDe(c, (c.paraLinha as (x: unknown) => Linha)(x)), x as Record<string, unknown>]));
   (c.definir as (e: Estado, xs: unknown[]) => void)(estado, novos.map((n) => {
     const antigo = porChave.get(chaveDe(c, (c.paraLinha as (x: unknown) => Linha)(n)));
-    if (!antigo || c === extras) return n;
+    if (!antigo || c === extras || c === config) return n;
     for (const k of Object.keys(antigo)) delete antigo[k];
     return Object.assign(antigo, n as Record<string, unknown>);
   }));

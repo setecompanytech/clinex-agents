@@ -8,7 +8,7 @@ var PER_PRESETS = [
   { id: 'trim', r: 'Este trimestre' }, { id: 'ano', r: 'Este ano' }, { id: 'tudo', r: 'Todo o período' }
 ];
 /* período inicial de cada página: as de análise partem de 30 dias; as de lista mostram tudo até a pessoa filtrar */
-var PER_PADRAO = { hoje: '30d', pipelines: 'tudo', analises: '30d', funil: 'tudo', leads: 'tudo', fluxo: '30d', calendario: 'tudo', mensagens: '30d', regras: '30d' };
+var PER_PADRAO = { hoje: '30d', pipelines: 'tudo', analises: '30d', funil: 'tudo', leads: 'tudo', fluxo: '30d', calendario: 'tudo', mensagens: '30d', ia: '7d', regras: '30d' };
 var PER_CAMPOS = [['entrada', 'Entrada do lead'], ['contato', 'Último contato'], ['agendamento', 'Agendamento']];
 var PER_MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 var PER = {};

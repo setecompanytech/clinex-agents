@@ -6,6 +6,7 @@ import { migrarGuia, regrasPadrao, type LogAuto, type Regra } from './automacoes
 import { funisPadrao } from './pipeline/regras.js';
 import type { EstadoFunis } from './pipeline/tipos.js';
 import { supabaseConfigurado } from '../lib/supabase.js';
+import type { DisparoAutoCfg } from './disparo-auto-tipos.js';
 import { agendarGravacao, atualizarLeads, atualizarUsuarios, carregarDoBanco, erroDoBanco, esvaziar } from './persistencia.js';
 
 /**
@@ -14,7 +15,7 @@ import { agendarGravacao, atualizarLeads, atualizarUsuarios, carregarDoBanco, er
  * de hoje. Na Vercel o disco é só leitura: lá o CRM funciona só na memória da instância e a tela avisa.
  * CRM_ARQUIVO muda o local; CRM_PERSISTIR=false desliga a gravação.
  */
-export type Estado = { versao: 1; atendentes: string[]; leads: Lead[]; automacoes: Regra[]; logAuto: LogAuto[]; pipelines: EstadoFunis; usuarios: Usuario[] };
+export type Estado = { versao: 1; atendentes: string[]; leads: Lead[]; automacoes: Regra[]; logAuto: LogAuto[]; pipelines: EstadoFunis; usuarios: Usuario[]; disparoAuto?: DisparoAutoCfg };
 
 const ARQUIVO = process.env.CRM_ARQUIVO || '.data/crm.json';
 /** Com SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY o banco é o Supabase (CRM_ARMAZENAMENTO=arquivo força o arquivo). */

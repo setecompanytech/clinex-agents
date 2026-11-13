@@ -11,6 +11,8 @@ import { DisparoError, enviarModelo, MODELOS as MODELOS_WA, modelosParaLead, sta
 import { analisarHoje } from './analise.js';
 import { analisarTempo } from './tempo.js';
 import { janelaDaQuery } from './periodo.js';
+import { dadosDisparoAuto, rodarAgora } from './disparo-auto-servico.js';
+import { definirModoDisparoAuto } from './ia-disparo.js';
 import { analisarExecutivo, meuReport } from './executivo.js';
 import { analisarEtapa } from './etapa.js';
 import { analisarNoShow, dadosNoShow } from './noshow.js';
@@ -300,6 +302,15 @@ router.post('/leads/:id/whatsapp', (req, res, next) => {
     .then((r) => { salvar(); res.json({ ...r.lead, v: vistaDoLead(r.lead, agora), mensagemId: r.mensagemId }); })
     .catch((e) => { if (e instanceof DisparoError) return void res.status(e.status).json({ erro: e.codigo, mensagem: e.message }); next(e); });
 });
+
+/** IA de disparo: o que ela está fazendo, a fila de agora e o que os pacientes responderam. */
+router.get('/disparo-auto', (req, res) => { const agora = new Date(); res.json(dadosDisparoAuto(agora, janelaDaQuery(req.query, agora))); });
+router.put('/disparo-auto', (req, res) => {
+  const modo = String((req.body ?? {}).modo ?? '');
+  try { definirModoDisparoAuto(estado, modo as 'desligado', req.sessao?.nome ?? 'painel', new Date()); } catch (e) { if (e instanceof DisparoError) return void res.status(e.status).json({ erro: e.codigo, mensagem: e.message }); throw e; }
+  salvar(); res.json({ modo: estado.disparoAuto?.modo });
+});
+router.post('/disparo-auto/rodar', (_req, res, next) => { rodarAgora().then((r) => res.json(r)).catch(next); });
 
 router.get('/exportar.csv', (_req, res) => {
   const esc = (v: unknown) => { const t = String(v ?? ''); return /[",;\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };

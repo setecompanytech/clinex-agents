@@ -3,7 +3,7 @@
 export const app = String.raw`
 var ABAS = [
   { id: 'hoje', r: 'Hoje', i: 'home' }, { id: 'pipelines', r: 'Pipelines', i: 'kanban' }, { id: 'analises', r: 'Análises', i: 'chart' }, { id: 'funil', r: 'Funil', i: 'funil' }, { id: 'leads', r: 'Leads', i: 'users' },
-  { id: 'fluxo', r: 'Fluxo', i: 'flow' }, { id: 'calendario', r: 'Calendário', i: 'calendar' }, { id: 'mensagens', r: 'Mensagens', i: 'message' }, { id: 'regras', r: 'Regras', i: 'shield' }
+  { id: 'fluxo', r: 'Fluxo', i: 'flow' }, { id: 'calendario', r: 'Calendário', i: 'calendar' }, { id: 'mensagens', r: 'Mensagens', i: 'message' }, { id: 'ia', r: 'IA de disparo', i: 'bolt' }, { id: 'regras', r: 'Regras', i: 'shield' }
 ];
 var raiz = document.getElementById('main');
 var navEl = document.getElementById('nav');
@@ -19,6 +19,7 @@ function telaAtual() {
     case 'fluxo': return telaFluxo();
     case 'calendario': return telaCalendario();
     case 'mensagens': return telaMensagens();
+    case 'ia': return telaIA();
     case 'regras': return telaRegras();
     default: return telaHoje();
   }

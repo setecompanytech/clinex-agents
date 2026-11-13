@@ -5,6 +5,7 @@ import { MODELO } from './modelo.js';
 import { LOGO_CLINEX } from './ui/logo.js';
 import { base } from './ui/base.js';
 import { periodoUi } from './ui/periodo.js';
+import { ia } from './ui/ia.js';
 import { graficos } from '../ui/graficos.js';
 import { graficos2 } from '../ui/graficos2.js';
 import { graficos3 } from '../ui/graficos3.js';
@@ -39,7 +40,7 @@ const router = Router();
 router.use(painelAuth, exigirModulo('crm'));
 
 const CSP = "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
-const clientJs = `(function () {\n'use strict';\nvar M = ${JSON.stringify(MODELO)};\n${base}\n${periodoUi}\n${graficos}\n${graficos2}\n${graficos3}\n${graficos4}\n${fluxo}\n${etapa}\n${pipeline}\n${funis}\n${funis2}\n${funis3}\n${telas}\n${hoje}\n${analises}\n${executivo}\n${report}\n${leadUi}\n${agente}\n${selectModerno}\n${dataModerna}\n${app}\n})();`;
+const clientJs = `(function () {\n'use strict';\nvar M = ${JSON.stringify(MODELO)};\n${base}\n${periodoUi}\n${graficos}\n${graficos2}\n${graficos3}\n${graficos4}\n${fluxo}\n${etapa}\n${pipeline}\n${funis}\n${funis2}\n${funis3}\n${telas}\n${hoje}\n${analises}\n${executivo}\n${report}\n${ia}\n${leadUi}\n${agente}\n${selectModerno}\n${dataModerna}\n${app}\n})();`;
 
 router.use('/api', exigirEscrita, api);
 
