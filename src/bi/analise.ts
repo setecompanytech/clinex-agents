@@ -39,14 +39,12 @@ const dd = (n: number) => String(n).padStart(2, '0');
 
 // ----------------------------------------------------------------------------------------------- conversas
 
+/** Funil único (roteiro e Amanda IA): o caminho do agendamento, igual ao fluxo do monitor de conversas. Índice = `estagio` da conversa. */
 export const ETAPAS_FUNIL = [
   'Iniciou a conversa',
-  'Serviço entendido',
-  'Serviço confirmado',
-  'Unidade escolhida',
-  'Horário escolhido',
+  'Serviço identificado',
+  'Horários oferecidos',
   'Dados do paciente',
-  'Pagamento definido',
   'Agendamento confirmado',
 ];
 
@@ -129,7 +127,7 @@ export function construirConversas(eventos: Evento[], ate: number): Conversa[] {
     };
     c.estagio = estagioDoFluxo(c, evs);
     c.status = c.agendada ? 'agendada' : c.urgente ? 'emergencia' : c.transferida ? 'transferida'
-      : ultimo.etapa.includes('concluída') ? 'finalizada' : ate - c.fim > ABANDONO_MS ? 'abandonada' : 'andamento';
+      : ultimo.etapa.includes('concluída') || ultimo.etapa === 'IA: encerrou' ? 'finalizada' : ate - c.fim > ABANDONO_MS ? 'abandonada' : 'andamento';
     out.push(c);
   }
   return out;
@@ -205,12 +203,33 @@ function termos(frases: string[]): { nome: string; n: number }[] {
 function categoriaMotivo(motivo: string, urgente: boolean): string {
   const m = motivo.toLowerCase();
   if (urgente || /urg[eê]ncia|emerg[eê]ncia|crise|seguran[cç]a/.test(m)) return 'Segurança (emergência/crise)';
+  if (/trava de veracidade/.test(m)) return 'Trava de veracidade (dado não confirmado)';
+  if (/escrito [àa] m[aã]o|manuscrit/.test(m)) return 'Pedido escrito à mão';
+  if (/or[cç]amento/.test(m)) return 'Orçamento (equipe monta)';
+  if (/link de cr[eé]dito/.test(m)) return 'Pagamento por link de crédito';
+  if (/n[aã]o conseguiu entender|2 tentativas/.test(m)) return 'Não entendeu após 2 tentativas';
+  if (/resultado|remarc|cancel|laudo|atestado|documento/.test(m)) return 'Resultado, remarcação ou documentos';
+  if (/conv[eê]nio|extern/.test(m)) return 'Convênio ou serviço externo';
   if (/bloqueio|falha|clinilink|erro|n[aã]o consegu/.test(m)) return 'Falha técnica';
   if (/humano|atendente|pessoa|equipe|pediu/.test(m)) return 'Paciente pediu atendente';
   if (/comprovante|pix|pagamento/.test(m)) return 'Pagamento / comprovante';
   if (/cadastro|cpf|paciente/.test(m)) return 'Cadastro / identificação';
   if (/n[aã]o entend|confus|repet/.test(m)) return 'Não entendeu o paciente';
   return 'Outros motivos';
+}
+
+/** Por que a Amanda não entrou numa conversa. null = detalhe interno (mensagem juntada, resposta já enviada), não é falta de cobertura. */
+function categoriaIgnorado(motivo: string): string | null {
+  const m = motivo.toLowerCase();
+  if (/a amanda assume|o.s. gerada|j[aá] estava no setor de destino|lembrete|retomou/.test(m)) return null;
+  if (/mensagem mais nova|j[aá] [eé] de sa[ií]da|n[aã]o duplica|enquanto a resposta|sem turno|sem mensagens|roteiro sem resposta|ia sem resposta|demorou demais/.test(m)) return null;
+  if (/atendente humano/.test(m)) return 'Atendente humano já atribuído';
+  if (/setor .*!= setor da ia|fora da whitelist|n[aã]o atende ningu/.test(m)) return 'Fora do setor da IA';
+  if (/mensagem autom[aá]tica/.test(m)) return 'Resposta a mensagem automática da clínica';
+  if (/equipe|fila da equipe|transferida a pedido/.test(m)) return 'Conversa já com a equipe';
+  if (/grupo/.test(m)) return 'Grupo';
+  if (/agradecimento depois da despedida|encerrou|finalizado/.test(m)) return null;
+  return 'Outros';
 }
 
 // ----------------------------------------------------------------------------------------------- insights
@@ -265,7 +284,7 @@ export function analisar(todos: Evento[], o: Opcoes) {
   for (const c of convs) { const d = local(c.inicio); horas[d.getUTCHours()]++; calor[d.getUTCDay()][d.getUTCHours()]++; }
 
   // ---- funil
-  const alcance = convs.map((c) => (c.agendada ? ETAPAS_FUNIL.length - 1 : c.maxEtapa));
+  const alcance = convs.map((c) => (c.agendada ? ETAPAS_FUNIL.length - 1 : c.estagio));
   const funil = ETAPAS_FUNIL.map((etapa, i) => {
     const chegaram = i === 0 ? convs.length : alcance.filter((a) => a >= i).length;
     return { etapa, chegaram, pct: arred(porcento(chegaram, convs.length)) };
@@ -273,7 +292,8 @@ export function analisar(todos: Evento[], o: Opcoes) {
 
   // ---- como terminam / onde param
   const status = ranking(convs, (c) => c.status, 6);
-  const paradas = ranking(convs.filter((c) => c.status === 'abandonada'), (c) => c.etapaFinal || 'sem etapa', 8);
+  const ondeParou = (c: Conversa) => (c.motor === 'ia' ? `Parou em "${ETAPAS_FUNIL[c.estagio]}"` : c.etapaFinal || 'sem etapa');
+  const paradas = ranking(convs.filter((c) => c.status === 'abandonada'), ondeParou, 8);
 
   // ---- mensagens por conversa
   const faixas: [string, (n: number) => boolean][] = [['1', (x) => x === 1], ['2', (x) => x === 2], ['3', (x) => x === 3], ['4-5', (x) => x >= 4 && x <= 5], ['6-8', (x) => x >= 6 && x <= 8], ['9+', (x) => x >= 9]];
@@ -283,7 +303,7 @@ export function analisar(todos: Evento[], o: Opcoes) {
   const trans = convs.filter((c) => c.transferida);
   const categorias = ranking(trans, (c) => categoriaMotivo(c.motivo ?? '', c.urgente), 8);
   const motivos = ranking(trans, (c) => (c.motivo ?? 'sem motivo registrado').replace(/\s+/g, ' ').slice(0, 110), 8);
-  const transEtapa = ranking(trans, (c) => c.etapaFinal ? c.turnos.map((t) => t.etapa).filter((e) => posicaoEtapa(e) >= 0).pop() ?? 'antes de qualquer etapa' : undefined, 6);
+  const transEtapa = ranking(trans, (c) => ETAPAS_FUNIL[c.agendada ? 4 : c.estagio], 6);
 
   // ---- integrações
   const por = (nome: string) => naJanela.filter((e) => e.evt === nome);
@@ -331,7 +351,55 @@ export function analisar(todos: Evento[], o: Opcoes) {
   const demanda = { naoEncontrados, precosInvalidos, termos: termos(primeiras) };
 
   // ---- ignorados e falhas
-  const ignorados = ranking(por('ignorado'), (e) => txt(e.motivo).slice(0, 100) || undefined, 8);
+  const ignorados = ranking(por('ignorado'), (e) => categoriaIgnorado(txt(e.motivo)) ?? 'Mensagem juntada ou já respondida (interno)', 8);
+
+  // ---- cobertura: de todos os atendimentos que chegaram, em quantos a Amanda entrou (e por que não nos outros)
+  const porAtendimento = new Map<string, { respondeu: boolean; motivos: string[]; atendentes: string[] }>();
+  for (const e of naJanela) {
+    if (!e.atendimento || (e.evt !== 'ignorado' && e.evt !== 'resposta')) continue;
+    const a = porAtendimento.get(String(e.atendimento)) ?? { respondeu: false, motivos: [], atendentes: [] };
+    if (e.evt === 'resposta') a.respondeu = true;
+    else { const cat = categoriaIgnorado(txt(e.motivo)); if (cat) a.motivos.push(cat); const u = /"user":"([^"]+)"/.exec(txt(e.motivo))?.[1]; if (u) a.atendentes.push(u); }
+    porAtendimento.set(String(e.atendimento), a);
+  }
+  const atendimentos = [...porAtendimento.values()].filter((a) => a.respondeu || a.motivos.length);
+  const semIA = atendimentos.filter((a) => !a.respondeu);
+  const maisComum = (l: string[]) => ranking(l, (x) => x, 1)[0]?.nome;
+  const cobertura = {
+    atendimentos: atendimentos.length,
+    comIA: atendimentos.length - semIA.length,
+    pct: atendimentos.length ? arred(porcento(atendimentos.length - semIA.length, atendimentos.length)) : null,
+    motivos: ranking(semIA, (a) => maisComum(a.motivos), 8),
+    atendentes: ranking(semIA.filter((a) => a.atendentes.length), (a) => maisComum(a.atendentes), 8),
+  };
+
+  // ---- Amanda IA: tempo, ferramentas, travas, lembretes, finalizações e O.S.
+  const respIA = respostas.filter((e) => e.motor === 'ia');
+  const msIA = respIA.map((e) => num(e.ms_ia)).filter((v): v is number => v !== undefined);
+  const usos = respIA.flatMap((e) => (Array.isArray(e.ferramentas) ? (e.ferramentas as { nome?: string; res?: string; ms?: number }[]) : []));
+  const porFerramenta = new Map<string, { n: number; erros: number; ms: number[] }>();
+  for (const f of usos) {
+    const nome = txt(f.nome); if (!nome) continue;
+    const x = porFerramenta.get(nome) ?? { n: 0, erros: 0, ms: [] };
+    x.n++; if (/^\{"erro"/.test(txt(f.res))) x.erros++; const v = num(f.ms); if (v !== undefined) x.ms.push(v);
+    porFerramenta.set(nome, x);
+  }
+  const msgErro = (re: RegExp) => naJanela.filter((e) => e.evt === 'erro' && re.test(txt(e.mensagem))).length;
+  const motivoIgn = (re: RegExp) => naJanela.filter((e) => e.evt === 'ignorado' && re.test(txt(e.motivo))).length;
+  const convIA = convs.filter((c) => c.motor === 'ia');
+  const ia = {
+    respostas: respIA.length,
+    conversas: convIA.length,
+    agendadas: convIA.filter((c) => c.agendada).length,
+    msP50: percentil(msIA, 50), msP95: percentil(msIA, 95),
+    modelos: ranking(respIA, (e) => txt(e.gpt_motivo).split(':')[0] || undefined, 3),
+    ferramentas: [...porFerramenta.entries()].map(([nome, x]) => ({ nome, n: x.n, erros: x.erros, p50: percentil(x.ms, 50) })).sort((a, b) => b.n - a.n),
+    semFerramenta: respIA.filter((e) => !Array.isArray(e.ferramentas) || !(e.ferramentas as unknown[]).length).length,
+    trava: { refeitas: msgErro(/resposta com dado que n[aã]o veio/), bloqueadas: msgErro(/insistiu em dado/) },
+    lembretes: por('lembrete').length,
+    finalizados: motivoIgn(/atendimento finalizado/),
+    os: { geradas: motivoIgn(/O\.S\. gerada/), falhas: msgErro(/O\.S\. n[aã]o foi gerada/) },
+  };
   const falhas = naJanela
     .filter((e) => e.evt === 'erro' || ((e.evt === 'clinilink' || e.evt === 'inovstar') && e.ok === false) || (e.evt === 'gpt' && e.status === 'falhou') || (e.evt === 'comprovante' && e.erro))
     .sort((a, b) => quando(b) - quando(a)).slice(0, 30)
@@ -344,7 +412,7 @@ export function analisar(todos: Evento[], o: Opcoes) {
 
   // ---- conversas recentes (com a transcrição para o detalhe)
   const conversas = [...convs].sort((a, b) => b.fim - a.fim).slice(0, 80).map((c) => ({
-    id: c.id.slice(-6), inicio: c.inicio, fim: c.fim, status: c.status, mensagens: c.turnos.length, etapaFinal: c.etapaFinal,
+    id: c.id.slice(-6), inicio: c.inicio, fim: c.fim, status: c.status, mensagens: c.turnos.length, etapaFinal: c.motor === 'ia' ? ETAPAS_FUNIL[c.agendada ? 4 : c.estagio] : c.etapaFinal, motor: c.motor,
     duracaoMin: arred((c.fim - c.inicio) / 60_000), motivo: c.motivo, problemas: c.problemas, retomou: c.retomou, simulada: c.simulada,
     turnos: c.turnos.slice(0, 40).map((t) => ({ t: t.t, paciente: t.paciente.slice(0, 320), amanda: t.amanda.slice(0, 520), etapa: t.etapa, gpt: t.gpt, transferiu: t.transferiu, motivo: t.motivo?.slice(0, 200) })),
   }));
@@ -393,6 +461,10 @@ export function analisar(todos: Evento[], o: Opcoes) {
   if (rej && totalGpt >= 20 && porcento(rej.n, totalGpt) >= 12) add('atencao', 'O GPT está sendo rejeitado com frequência', `${f0(porcento(rej.n, totalGpt))}% das reescritas foram descartadas pela validação e a Amanda usou o texto fixo do roteiro.`, `${rej.n} rejeitadas`);
   const compProb = comprovantes.status.filter((s) => s.nome !== 'concluído' && s.nome !== 'concluido' && s.nome !== 'ok');
   if (comprovantes.total >= 5 && porcento(soma(compProb.map((x) => x.n)), comprovantes.total) >= 30) add('atencao', 'Muitos comprovantes de pix não passam na leitura', `${f0(porcento(soma(compProb.map((x) => x.n)), comprovantes.total))}% das leituras não validaram (ilegível, valor ou data divergente). Esses pacientes caem na equipe.`, `${soma(compProb.map((x) => x.n))} de ${comprovantes.total}`);
+  if (cobertura.atendimentos >= 10 && cobertura.pct !== null && cobertura.pct < 50) add('atencao', 'A Amanda entra em poucas conversas', `Ela atendeu ${cobertura.comIA} de ${cobertura.atendimentos} atendimentos que chegaram (${f0(cobertura.pct)}%). Principal motivo de não entrar: ${cobertura.motivos[0]?.nome ?? 'não registrado'}.`, `${f0(cobertura.pct)}% de cobertura`);
+  if (ia.trava.bloqueadas > 0) add('atencao', 'Respostas bloqueadas pela trava de veracidade', `${ia.trava.bloqueadas} resposta(s) da IA citavam médico, valor ou horário que não veio do Clinilink e foram trocadas por transferência para a equipe.`, `${ia.trava.bloqueadas} bloqueadas`);
+  const ferrErro = ia.ferramentas.filter((f) => f.n >= 5 && f.erros / f.n >= 0.3)[0];
+  if (ferrErro) add('info', `Ferramenta "${ferrErro.nome}" com muitas recusas`, `${ferrErro.erros} de ${ferrErro.n} chamadas devolveram erro (regras da clínica barrando, dado faltando ou id errado). Vale olhar as conversas.`, `${ferrErro.erros} recusas`);
   if (k.erros > 0) add(k.erros >= 5 ? 'atencao' : 'info', `${k.erros} ${k.erros === 1 ? 'erro registrado' : 'erros registrados'}`, `Veja a lista em "Falhas recentes" para entender a causa.`, `${k.erros} erros`);
   if (nC >= 10 && !insights.some((i) => i.nivel === 'critico' || i.nivel === 'atencao')) add('bom', 'Nenhum alerta no período', 'Funil, transferências e integrações dentro do esperado.');
   insights.sort((a, b) => ORDEM[a.nivel] - ORDEM[b.nivel]);
@@ -404,7 +476,7 @@ export function analisar(todos: Evento[], o: Opcoes) {
     kpis: { atual: k, anterior: kAnt },
     serie, horas, calor, funil, status, paradas, msgsDist,
     transferencias: { total: trans.length, categorias, motivos, porEtapa: transEtapa },
-    integracoes, detalhes, gpt, comprovantes, interpretador, demanda, ignorados, falhas,
+    integracoes, detalhes, gpt, comprovantes, interpretador, demanda, ignorados, falhas, cobertura, ia,
     conversas, insights,
   };
 }

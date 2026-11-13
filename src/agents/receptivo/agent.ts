@@ -500,6 +500,7 @@ async function responderComIA(ev: MessageReceivedEvent, history: InovstarMessage
   const fonte = env.clinilinkKey ? fonteClinilink : fonteSimulada;
   const ultimaImagem = [...history].reverse().find((m) => m.direction === 'in' && (m.type === 'image' || m.type === 'document'));
   const pacienteDisse = [...history].reverse().find((m) => m.direction === 'in' && m.type !== 'system');
+  const t0IA = Date.now();
   let a: Awaited<ReturnType<typeof atenderComIA>>;
   try {
     a = await atenderComIA({
@@ -528,6 +529,7 @@ async function responderComIA(ev: MessageReceivedEvent, history: InovstarMessage
     roteiro: texto,
     enviado: msg,
     gpt: 'ia',
+    ms_ia: Date.now() - t0IA, // tempo para pensar e consultar (sem a espera do paciente digitar)
     gpt_motivo: `${a.resposta.modelo}: ${a.resposta.ferramentas.map((f) => `${f.nome}(${f.ms}ms)`).join(', ') || 'sem ferramenta'}`,
     ferramentas: a.resposta.ferramentas.map((f) => ({ nome: f.nome, args: f.args, res: f.res, ms: f.ms })),
     retomou_da_fila: naFilaDaEquipe,
