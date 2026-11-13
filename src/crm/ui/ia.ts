@@ -67,7 +67,7 @@ function mensagensIA(D) {
 function corpoIA() {
   var D = pedirIA();
   if (!D) return esqueleto();
-  return h('div', { class: 'hoje' }, [kpisIA(D),
+  return h('div', { class: 'mg-resp' }, [kpisIA(D),
     h('div', { class: 'g12' }, [listaRespostasIA(D), h('div', { class: 'col-dir sp5' }, [filaIA(D), mensagensIA(D)])])
   ]);
 }
