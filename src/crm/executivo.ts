@@ -369,3 +369,129 @@ export function meuReport(todos: Lead[], agora: Date, per: Periodo | Janela, nom
   };
 }
 export type MeuReport = ReturnType<typeof meuReport>;
+
+// ------------------------------------------------------------------------------------------------ Time: todos os vendedores lado a lado
+
+/**
+ * Aba "Time" de Análises: cada responsável (dono dos leads) com atividade (contatos, respostas, agendamentos), resultado
+ * (convertidos, receita, ticket, conversão, ciclo), velocidade (dias até o 1º contato), carteira de agora e a evolução no
+ * tempo, mais o total do time, a IA de disparo à parte e o funil do período. Mesmas regras do "Meu Report" (atividade = o que a
+ * pessoa FEZ; resultado = leads sob a responsabilidade dela). Função pura.
+ */
+export function analisarTime(todos: Lead[], agora: Date, per: Periodo | Janela, tarefas: Tarefa[], vistas: Map<string, Vista>) {
+  const J = janela(per, agora), dias = J.dias, hoje = J.ate, ini = J.de, ini0 = somaDias(ini, -dias), fim0 = somaDias(ini, -1), hojeReal = hojeDe(agora);
+  const marcos = new Map<string, Marcos>(todos.map((l) => [l.id, marcosDe(l)]));
+  const mk = (l: Lead) => marcos.get(l.id)!;
+  const nomes = [...new Set(todos.map(dono))].sort();
+  const ativoSt = (l: Lead) => (ATIVOS as string[]).includes(l.status);
+  const ganhoAgora = (l: Lead) => l.status === 'convertido_ativo' || l.status === 'convertido_organico';
+  const diaGanho = (l: Lead) => mk(l).compareceu ?? mk(l).organico;
+  const IA = 'IA';
+
+  // atividade por quem fez; resultado por dono. nome === null = todo o time (qualquer autor, qualquer dono)
+  const metricas = (nome: string | null, a: string, b: string) => {
+    const meus = nome === null ? todos : todos.filter((l) => dono(l) === nome);
+    let contatos = 0, respostas = 0, agend = 0;
+    for (const l of todos) for (const e of l.eventos) {
+      if (nome !== null && quem(e, l) !== nome) continue;
+      const d = diaDoInstante(e.quando); if (d < a || d > b) continue;
+      if (e.tipo === 'contato') contatos++; else if (e.tipo === 'resposta') respostas++; else if (e.tipo === 'agendamento') agend++;
+    }
+    const ganhos = meus.filter((l) => dentro(diaGanho(l), a, b));
+    const recebidos = meus.filter((l) => l.d0 >= a && l.d0 <= b);
+    const comContato = recebidos.filter((l) => !!mk(l).contatado);
+    const ciclos = ganhos.map((l) => diffDias(l.d0, diaGanho(l)!));
+    const receita = soma(ganhos.map((l) => l.valor));
+    return {
+      recebidos: recebidos.length, contatos, respostas, agendamentos: agend, taxaResposta: pc(respostas, contatos),
+      convertidos: ganhos.length, receita, ticket: ganhos.length ? Math.round(receita / ganhos.length) : null,
+      conversao: pc(recebidos.filter(ganhoAgora).length, recebidos.length), ciclo: mediana(ciclos),
+      primeiroContato: mediana(comContato.map((l) => Math.max(0, diffDias(l.d0, mk(l).contatado!)))), semContato: recebidos.length - comContato.length,
+      descartes: meus.filter((l) => l.status === 'descarte' && dentro(mk(l).descartou, a, b)).length,
+    };
+  };
+
+  const equipe = nomes.map((n) => {
+    const atual = metricas(n, ini, hoje), anterior = metricas(n, ini0, fim0);
+    const meus = todos.filter((l) => dono(l) === n), cart = meus.filter(ativoSt), ids = new Set(cart.map((l) => l.id));
+    const ns = casosNoShow(meus, ini, hoje), rc = ns.filter((c) => c.etapa === 'Recuperado');
+    return {
+      nome: n, ...atual, anterior: { receita: anterior.receita, convertidos: anterior.convertidos, contatos: anterior.contatos, conversao: anterior.conversao, recebidos: anterior.recebidos },
+      carteira: { n: cart.length, valor: soma(cart.map((l) => l.valor)), atrasadas: tarefas.filter((t) => t.situacao === 'atrasada' && ids.has(t.leadId)).length, foraDoLimite: cart.filter((l) => vistas.get(l.id)?.limite?.excedido).length },
+      noshow: { entraram: ns.length, recuperados: rc.length, valorRecuperado: soma(rc.map((c) => c.valor)) },
+    };
+  }).sort((a, b) => b.receita - a.receita || b.contatos - a.contatos || a.nome.localeCompare(b.nome));
+  const totalAtual = metricas(null, ini, hoje), totalAnterior = metricas(null, ini0, fim0);
+
+  // ---- evolução no tempo: o time todo, a IA e cada pessoa (as 8 que mais movimentam)
+  const P = pontos(hoje, dias, ini);
+  const zero = () => Array<number>(P.n).fill(0);
+  const nova = () => ({ contatos: zero(), respostas: zero(), agendamentos: zero(), convertidos: zero(), receita: zero(), recebidos: zero() });
+  const total = nova(), ia = nova(), porPessoa = new Map<string, ReturnType<typeof nova>>(nomes.map((n) => [n, nova()]));
+  const heat = Array.from({ length: 7 }, () => Array<number>(24).fill(0));
+  const msgs = new Map<number, { env: number; resp: number }>();
+  for (const l of todos) {
+    const meu = porPessoa.get(dono(l))!;
+    const i0 = P.idx(l.d0); if (i0 >= 0) { total.recebidos[i0]++; meu.recebidos[i0]++; }
+    const dg = diaGanho(l); if (dg) { const i = P.idx(dg); if (i >= 0) { total.convertidos[i]++; total.receita[i] += l.valor; meu.convertidos[i]++; meu.receita[i] += l.valor; } }
+    const evs = [...l.eventos].sort((a, b) => a.quando.localeCompare(b.quando));
+    evs.forEach((e, k) => {
+      const dia = diaDoInstante(e.quando), i = P.idx(dia); if (i < 0) return;
+      const autor = quem(e, l), s = porPessoa.get(autor), eIA = e.auto === true || autor === IA;
+      const campo = e.tipo === 'contato' ? 'contatos' : e.tipo === 'resposta' ? 'respostas' : e.tipo === 'agendamento' ? 'agendamentos' : null;
+      if (!campo) return;
+      total[campo][i]++; if (eIA && campo === 'contatos') ia.contatos[i]++; if (s) s[campo][i]++;
+      if (campo === 'contatos') {
+        heat[new Date(`${dia}T12:00:00Z`).getUTCDay()][horaDe(new Date(e.quando)).h]++;
+        if (e.msg) {
+          const x = msgs.get(e.msg) ?? { env: 0, resp: 0 }; x.env++; const t0 = Date.parse(e.quando);
+          for (let j = k + 1; j < evs.length; j++) { if (evs[j].tipo === 'contato') break; if (evs[j].tipo === 'resposta') { if (Date.parse(evs[j].quando) - t0 <= 72 * 3_600_000) x.resp++; break; } }
+          msgs.set(e.msg, x);
+        }
+      }
+    });
+  }
+  const principais = equipe.filter((e) => e.nome !== 'Sem responsável').slice(0, 8).map((e) => e.nome);
+  const pessoas: Record<string, ReturnType<typeof nova>> = {}; for (const n of principais) pessoas[n] = porPessoa.get(n)!;
+
+  // ---- funil do período (leads recebidos por todo o time), unidades e mensagens
+  const rec = todos.filter((l) => l.d0 >= ini && l.d0 <= hoje);
+  const mf = (f: (x: Marcos) => boolean) => rec.filter((l) => f(mk(l))).length;
+  const funil = [['Leads recebidos', rec.length], ['Contatados', mf((x) => !!x.contatado)], ['Responderam', mf((x) => !!x.respondeu)], ['Agendaram', mf((x) => !!x.agendou)], ['Convertidos', rec.filter(ganhoAgora).length]]
+    .map(([etapa, n], i, a) => ({ etapa: etapa as string, n: n as number, pct: pc(n as number, a[0][1] as number) ?? 0, perda: i && (a[i - 1][1] as number) ? r1(100 - ((n as number) / (a[i - 1][1] as number)) * 100) ?? 0 : 0 }));
+  const unidades = [...new Set(todos.map(un))].sort().map((u) => {
+    const ls = todos.filter((l) => un(l) === u), r = ls.filter((l) => l.d0 >= ini && l.d0 <= hoje), g = ls.filter((l) => dentro(diaGanho(l), ini, hoje));
+    return { nome: u, recebidos: r.length, convertidos: g.length, receita: soma(g.map((l) => l.valor)), conversao: pc(r.filter(ganhoAgora).length, r.length) };
+  }).filter((u) => u.recebidos || u.convertidos).sort((a, b) => b.receita - a.receita);
+  const mensagens = MENSAGENS.map((ms) => { const x = msgs.get(ms.n) ?? { env: 0, resp: 0 }; return { n: ms.n, titulo: ms.titulo, enviadas: x.env, respostas: x.resp, taxa: pc(x.resp, x.env) }; }).filter((x) => x.enviadas > 0);
+  const semDono = todos.filter((l) => dono(l) === 'Sem responsável' && ativoSt(l));
+
+  // ---- destaques em frases
+  const destaques: { nivel: 'bom' | 'atencao' | 'info'; texto: string }[] = [];
+  const add = (nivel: 'bom' | 'atencao' | 'info', texto: string) => destaques.push({ nivel, texto });
+  const comNome = equipe.filter((e) => e.nome !== 'Sem responsável');
+  const topReceita = comNome[0];
+  if (topReceita && topReceita.receita > 0) add('bom', `${topReceita.nome} lidera em receita convertida: ${brl(topReceita.receita)} com ${topReceita.convertidos} ${topReceita.convertidos === 1 ? 'conversão' : 'conversões'}.`);
+  const melhorConv = comNome.filter((e) => e.recebidos >= 5 && e.conversao !== null).sort((a, b) => b.conversao! - a.conversao!)[0];
+  if (melhorConv) add('bom', `${melhorConv.nome} tem a melhor conversão entre quem recebeu 5 leads ou mais: ${fmt(melhorConv.conversao!, 0)}%.`);
+  const subiu = comNome.map((e) => ({ e, d: e.receita - e.anterior.receita })).filter((x) => x.e.anterior.receita > 0 && x.d > 0).sort((a, b) => b.d - a.d)[0];
+  if (subiu) add('bom', `${subiu.e.nome} foi quem mais cresceu em receita sobre o período anterior: +${brl(subiu.d)}.`);
+  const caiu = comNome.map((e) => ({ e, d: e.receita - e.anterior.receita })).filter((x) => x.e.anterior.receita >= 500 && x.d < 0).sort((a, b) => a.d - b.d)[0];
+  if (caiu) add('atencao', `${caiu.e.nome} teve a maior queda de receita sobre o período anterior: −${brl(Math.abs(caiu.d))}.`);
+  const maisAtrasos = comNome.filter((e) => e.carteira.atrasadas > 0).sort((a, b) => b.carteira.atrasadas - a.carteira.atrasadas)[0];
+  if (maisAtrasos) add('atencao', `${maisAtrasos.nome} tem ${maisAtrasos.carteira.atrasadas} ${maisAtrasos.carteira.atrasadas === 1 ? 'passo atrasado' : 'passos atrasados'} na carteira (${brl(maisAtrasos.carteira.valor)} em andamento).`);
+  const lentos = comNome.filter((e) => e.primeiroContato !== null && e.recebidos >= 5).sort((a, b) => b.primeiroContato! - a.primeiroContato!)[0];
+  if (lentos && lentos.primeiroContato! >= 2) add('atencao', `${lentos.nome} leva em média ${fmt(lentos.primeiroContato!, 0)} dias para o primeiro contato (mediana). Quanto antes, mais o lead responde.`);
+  if (semDono.length) add('atencao', `${semDono.length} ${semDono.length === 1 ? 'lead ativo está' : 'leads ativos estão'} sem responsável (${brl(soma(semDono.map((l) => l.valor)))}). Defina quem atende.`);
+  const iaTotal = soma(ia.contatos);
+  if (iaTotal) add('info', `A IA de disparo fez ${iaTotal} de ${totalAtual.contatos} contatos do período (${fmt((iaTotal / Math.max(1, totalAtual.contatos)) * 100, 0)}%).`);
+  if (!destaques.length) add('info', 'Ainda não há movimento suficiente no período para destacar alguém.');
+
+  return {
+    dias, hoje, de: ini, ate: hoje, ...fraseJanela(J, hojeReal), semanal: P.semanal, rotulos: P.rotulos, titulos: P.titulos,
+    equipe, totais: { atual: totalAtual, anterior: totalAnterior },
+    series: { total, ia, pessoas, principais }, heat, funil, unidades, mensagens, destaques,
+    semResponsavel: { n: semDono.length, valor: soma(semDono.map((l) => l.valor)) },
+  };
+}
+export type AnaliseTime = ReturnType<typeof analisarTime>;

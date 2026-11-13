@@ -5,7 +5,7 @@ var BRL2 = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }
 function brl2(v) { return BRL2.format(v || 0); }
 var COR_ORC = 'var(--c-aberto)', COR_NS = 'var(--warn)';
 var CORES_CAT = ['var(--g1)', 'var(--g5)', 'var(--g2)', 'var(--g3)', 'var(--g4)', 'var(--g6)'];
-var ABAS_AN = [['executivo', 'Visão executiva'], ['evolucao', 'Evolução'], ['report', 'Meu Report']];
+var ABAS_AN = [['executivo', 'Visão executiva'], ['evolucao', 'Evolução'], ['time', 'Time'], ['report', 'Meu Report']];
 var ETAPAS_ORC = ['Em aberto', 'Primeiro contato', 'Nova tentativa', 'Desconto', 'Sem retorno', 'Retorno personalizado', 'Em negociação', 'Agendado'];
 var ETAPAS_NS = ['No-show', 'Retomada', 'Agendado', 'Sem retorno'];
 
@@ -33,7 +33,7 @@ function cabecalhoAnalises() {
     controles.push(h('select', { class: 'in', 'aria-label': 'Unidade', onchange: function (e) { S.unidade = e.target.value; desenhar(true); } }, [h('option', { value: '', text: 'Todas as unidades' })].concat(un.map(function (u) { return h('option', { value: u, text: u, selected: S.unidade === u ? 'selected' : null }); }))));
   }
   controles.push(h('button', { class: 'btn', type: 'button', title: 'Recalcular com os dados mais recentes', onclick: function () { carregar().then(function () { aviso('Dados atualizados.', 'ok'); }); } }, [ico('bolt', 16), 'Atualizar']));
-  var sub = S.anTab === 'executivo' ? 'Receita, previsão, riscos e gargalos do comercial. Todos os números vêm do CRM.' : S.anTab === 'evolucao' ? 'Como o atendimento evolui no tempo.' : 'Sua performance individual, pronta para compartilhar com a diretoria.';
+  var sub = S.anTab === 'executivo' ? 'Receita, previsão, riscos e gargalos do comercial. Todos os números vêm do CRM.' : S.anTab === 'evolucao' ? 'Como o atendimento evolui no tempo.' : S.anTab === 'time' ? 'Todos os vendedores lado a lado: performance, volume, vendas e atendimento ao longo do tempo.' : 'Sua performance individual, pronta para compartilhar com a diretoria.';
   return [
     h('header', { class: 'tela-h' }, [h('div', null, [h('h1', { text: 'Análises' }), h('p', { text: sub })]), h('div', { class: 'tela-ac' }, controles)]),
     h('div', { class: 'tabs-an', role: 'tablist' }, ABAS_AN.map(function (a) {
@@ -43,7 +43,7 @@ function cabecalhoAnalises() {
 }
 function telaAnalises() {
   if (!S.D.leads.length) return h('div', { class: 'tela' }, [cabecalhoTela('Análises', 'A evolução do atendimento no tempo.'), boasVindas()]);
-  var corpo = S.anTab === 'report' ? corpoReport() : S.anTab === 'evolucao' ? corpoEvolucao() : corpoExecutivo();
+  var corpo = S.anTab === 'report' ? corpoReport() : S.anTab === 'evolucao' ? corpoEvolucao() : S.anTab === 'time' ? corpoTime() : corpoExecutivo();
   return h('div', { class: 'tela hoje analises' + (S.anTab === 'executivo' ? ' modo-exe' : S.anTab === 'report' ? ' modo-exe modo-rep' : '') }, [cabecalhoAnalises(), corpo]);
 }
 

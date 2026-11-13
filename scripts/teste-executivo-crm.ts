@@ -2,7 +2,7 @@
  * Testa a Visão executiva e o Meu Report (src/crm/executivo.ts). Rodar: npx tsx scripts/teste-executivo-crm.ts
  */
 import assert from 'node:assert/strict';
-import { analisarExecutivo, meuReport } from '../src/crm/executivo.js';
+import { analisarExecutivo, analisarTime, meuReport } from '../src/crm/executivo.js';
 import { gerarExemplos } from '../src/crm/exemplos.js';
 import { aplicar, criarLead, hojeDe, somaDias, tarefasDoDia, vistaDoLead, type Lead, type NovoLead } from '../src/crm/motor.js';
 
@@ -193,6 +193,61 @@ teste('exemplos: relatório de cada responsável fecha com o total da equipe', (
   assert.ok(nomes.length >= 3);
   const soma = nomes.reduce((s, n) => s + report(demo, n, 30).atual.receita, 0);
   assert.equal(soma, exec(demo, 30).kpis.receita.valor);
+});
+
+
+console.log('Aba Time (todos os vendedores)');
+const time = (leads: Lead[], d: 14 | 30 | 90 | { de: string; ate: string; dias: number } = 14) => { const c = ctx(leads); return analisarTime(leads, AGORA, d, c.tarefas, c.vistas); };
+teste('uma linha por responsável, ordenadas por receita, batendo com o Meu Report de cada pessoa', () => {
+  const t = time(TODOS);
+  assert.deepEqual(t.equipe.map((e) => e.nome).sort(), ['Amanda', 'Bruno', 'Carla']);
+  for (let i = 1; i < t.equipe.length; i++) assert.ok(t.equipe[i - 1].receita >= t.equipe[i].receita, 'ordem por receita');
+  for (const e of t.equipe) {
+    const r = report(TODOS, e.nome).atual;
+    assert.equal(e.receita, r.receita, e.nome + ' receita'); assert.equal(e.convertidos, r.convertidos, e.nome + ' convertidos');
+    assert.equal(e.contatos, r.contatos, e.nome + ' contatos'); assert.equal(e.recebidos, r.recebidos, e.nome + ' recebidos');
+    assert.equal(e.conversao, r.conversao, e.nome + ' conversão'); assert.equal(e.descartes, r.descartes, e.nome + ' descartes');
+  }
+});
+teste('o total do time é a soma das pessoas e as séries somam o total', () => {
+  const t = time(TODOS), soma = (x: number[]) => x.reduce((a, b) => a + b, 0);
+  assert.equal(t.totais.atual.receita, t.equipe.reduce((a, e) => a + e.receita, 0));
+  assert.equal(t.totais.atual.convertidos, t.equipe.reduce((a, e) => a + e.convertidos, 0));
+  assert.equal(t.totais.atual.recebidos, t.equipe.reduce((a, e) => a + e.recebidos, 0));
+  assert.equal(soma(t.series.total.receita), t.totais.atual.receita); assert.equal(soma(t.series.total.convertidos), t.totais.atual.convertidos);
+  assert.equal(soma(t.series.total.contatos), t.totais.atual.contatos); assert.equal(soma(t.series.total.recebidos), t.totais.atual.recebidos);
+  for (const n of t.series.principais) assert.equal(soma(t.series.pessoas[n].receita), t.equipe.find((e) => e.nome === n)!.receita, n + ' série = linha');
+  assert.equal(t.series.total.contatos.length, t.rotulos.length);
+});
+teste('o período anterior tem o mesmo tamanho; custom (de/ate) e 90 dias (semanal) funcionam e a carteira reflete o agora', () => {
+  const t = time(TODOS);
+  assert.ok(t.equipe.some((e) => e.anterior.receita >= 0));
+  const c = time(TODOS, { de: dia(10), ate: dia(3), dias: 8 });
+  assert.equal(c.dias, 8); assert.equal(c.rotulos.length, 8); assert.equal(c.ate, dia(3));
+  const t90 = time(TODOS, 90); assert.equal(t90.semanal, true);
+  const amanda = t.equipe.find((e) => e.nome === 'Amanda')!;
+  assert.equal(amanda.carteira.n, TODOS.filter((l) => l.atendente === 'Amanda' && ['aberto', 'sem_retorno', 'negociacao', 'agendado'].includes(l.status)).length);
+});
+teste('lead sem responsável aparece como linha própria e vira alerta; sem dados não quebra', () => {
+  const sem = novo('Sem Dono', dia(1), 700, { unidade: 'Guamá' });
+  const t = time([...TODOS, sem]);
+  assert.ok(t.equipe.some((e) => e.nome === 'Sem responsável')); assert.equal(t.semResponsavel.n, 1); assert.equal(t.semResponsavel.valor, 700);
+  assert.ok(t.destaques.some((d) => /sem responsável/.test(d.texto)));
+  const vazio = time([]); assert.deepEqual(vazio.equipe, []); assert.ok(vazio.destaques.length >= 1);
+  assert.ok(!JSON.stringify(t).includes('NaN') && !JSON.stringify(vazio).includes('NaN'));
+});
+teste('contatos da IA aparecem à parte e entram no total', () => {
+  const l = novo('Ia Teste', dia(1), 300, { unidade: 'Guamá', atendente: 'Amanda' });
+  aplicar(l, { tipo: 'contato', canal: 'whatsapp', naoFoiRecepcao: true, atendente: 'IA', auto: true }, em(dia(1), '09:00'));
+  const t = time([...TODOS, l]);
+  assert.equal(t.series.ia.contatos.reduce((a, b) => a + b, 0), 1);
+  assert.ok(t.destaques.some((d) => /IA de disparo/.test(d.texto)));
+  assert.equal(t.totais.atual.contatos, time(TODOS).totais.atual.contatos + 1);
+});
+teste('exemplos do CRM: o time fecha com a visão executiva', () => {
+  const t = time(demo, 30);
+  assert.equal(t.totais.atual.receita, exec(demo, 30).kpis.receita.valor, 'receita do time = receita da visão executiva');
+  assert.ok(t.equipe.length >= 2); assert.ok(t.funil[0].n >= t.funil[4].n);
 });
 
 console.log(`\n${ok} testes passaram${process.exitCode ? ', COM FALHAS' : ''}.`);

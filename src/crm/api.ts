@@ -13,7 +13,7 @@ import { analisarTempo } from './tempo.js';
 import { janelaDaQuery } from './periodo.js';
 import { dadosDisparoAuto, rodarAgora } from './disparo-auto-servico.js';
 import { definirModoDisparoAuto } from './ia-disparo.js';
-import { analisarExecutivo, meuReport } from './executivo.js';
+import { analisarExecutivo, analisarTime, meuReport } from './executivo.js';
 import { analisarEtapa } from './etapa.js';
 import { analisarNoShow, dadosNoShow } from './noshow.js';
 import { pipelines } from './pipeline/api.js';
@@ -96,6 +96,16 @@ router.get('/executivo', (req, res) => {
 });
 
 /** Meu Report: performance individual de um responsável, pronta para a diretoria */
+/** Time: todos os vendedores lado a lado (performance, volume, vendas e atendimento ao longo do tempo) */
+router.get('/time', (req, res) => {
+  const periodo = janelaDaQuery(req.query, new Date());
+  const agora = new Date();
+  automatizarTodos(agora);
+  const tarefas = tarefasDoDia(estado.leads, agora);
+  const vistas = new Map(estado.leads.map((l) => [l.id, vistaDoLead(l, agora)]));
+  res.json(analisarTime(estado.leads, agora, periodo, tarefas, vistas));
+});
+
 router.get('/meu-report', (req, res) => {
   const periodo = janelaDaQuery(req.query, new Date());
   const nome = typeof req.query.nome === 'string' && req.query.nome ? req.query.nome : 'Sem responsável';
