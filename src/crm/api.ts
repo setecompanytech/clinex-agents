@@ -1,4 +1,4 @@
-import { Router, json } from 'express';
+import { Router, json, raw, type Request, type Response } from 'express';
 import { atualizarLeadsDoBanco, bancoFora, estado, infoArmazenamento, pronto, salvar } from './banco.js';
 import { diagnosticarSupabase } from '../lib/supabase.js';
 import { exigirAdmin } from '../lib/painel-auth.js';
@@ -24,6 +24,8 @@ import { cfgDeRegras, logDoGuia, MODELOS, regrasPadrao, rodarRegras, simular, va
 import { MOTIVOS_DESCARTE } from './modelo.js';
 import { responsaveis } from '../lib/usuarios.js';
 import { agenteComIA, alertasDoAgente, responderAgente } from './agente.js';
+import { ErroAgente, PERFIL_ROTULO, ROTULO_PERMISSAO, conversar, executarAcao, permissoesDe, type RespostaChat } from './agente-chat.js';
+import { falar, transcrever, vozDisponivel } from './agente-voz.js';
 
 /**
  * API do CRM (JSON), montada em /painel/crm/api. Toda regra do guia mora no motor; aqui só entra, valida e salva.
@@ -220,6 +222,49 @@ router.post('/agente', async (req, res) => {
   const agora = new Date();
   automatizarTodos(agora);
   res.json(await responderAgente(estado.leads, agora, pergunta, eu, historico));
+});
+
+/**
+ * Chat do Agente Clinex COM controle do sistema (texto e voz). O Claude usa ferramentas; o que muda dados vira um cartão e só roda
+ * quando a pessoa confirma (POST /agente/executar). Permissões por perfil conferidas no servidor (src/crm/agente-chat.ts).
+ */
+const ctxAgente = (req: Request) => ({ estado, agora: new Date(), sessao: req.sessao, salvar });
+const falhaAgente = (res: Response, e: unknown, next: (e?: unknown) => void) => {
+  if (e instanceof ErroAgente) return void res.status(e.status).json({ erro: e.codigo, mensagem: e.message });
+  if (e && typeof e === 'object' && 'status' in e && typeof (e as { status: unknown }).status === 'number') return void res.status(502).json({ erro: 'ia', mensagem: 'Não consegui falar com a IA agora. Tente de novo em instantes.' });
+  next(e);
+};
+router.get('/agente/chat', (req, res) => {
+  res.json({ ia: agenteComIA(), perfil: PERFIL_ROTULO[req.sessao?.perfil ?? ''] ?? '', permissoes: [...permissoesDe(req.sessao)].map((id) => ({ id, rotulo: ROTULO_PERMISSAO[id] })), voz: vozDisponivel() });
+});
+router.post('/agente/chat', async (req, res, next) => {
+  const b = (req.body ?? {}) as { pergunta?: unknown; historico?: unknown; voz?: unknown };
+  const pergunta = typeof b.pergunta === 'string' ? b.pergunta.trim().slice(0, 1500) : '';
+  if (!pergunta) return void res.status(400).json({ erro: 'dados', mensagem: 'Escreva ou fale alguma coisa.' });
+  const historico = (Array.isArray(b.historico) ? b.historico : []).slice(-10).filter((m): m is { papel: 'user' | 'agent'; texto: string } => !!m && typeof m === 'object' && (m.papel === 'user' || m.papel === 'agent') && typeof m.texto === 'string');
+  const c = ctxAgente(req);
+  try {
+    automatizarTodos(c.agora);
+    if (!agenteComIA()) { // sem a chave do Claude: o agente de regras (só consulta)
+      const r = await responderAgente(estado.leads, c.agora, pergunta, req.sessao?.master ? '' : req.sessao?.nome ?? '', historico);
+      const out: RespostaChat = { texto: r.texto, acoes: [], artefatos: [], itens: (r.itens ?? []).map((i) => ({ leadId: i.leadId, titulo: i.titulo, sub: i.sub })), navegar: null, fonte: 'regras', sugestoes: r.sugestoes };
+      return void res.json(out);
+    }
+    res.json(await conversar(c, pergunta, historico, { voz: b.voz === true }));
+  } catch (e) { falhaAgente(res, e, next); }
+});
+router.post('/agente/executar', async (req, res, next) => {
+  const b = (req.body ?? {}) as { ferramenta?: unknown; args?: unknown };
+  try {
+    const r = await executarAcao(ctxAgente(req), String(b.ferramenta ?? ''), (b.args && typeof b.args === 'object' ? b.args : {}) as Record<string, unknown>);
+    res.json({ ok: true, ...r });
+  } catch (e) { falhaAgente(res, e, next); }
+});
+router.post('/agente/voz/transcrever', raw({ type: () => true, limit: '5mb' }), async (req, res, next) => {
+  try { res.json({ texto: await transcrever(Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0), String(req.headers['content-type'] ?? '')) }); } catch (e) { falhaAgente(res, e, next); }
+});
+router.post('/agente/voz/falar', async (req, res, next) => {
+  try { const audio = await falar(String((req.body ?? {}).texto ?? '')); res.setHeader('Cache-Control', 'no-store'); res.type('audio/mpeg').send(audio); } catch (e) { falhaAgente(res, e, next); }
 });
 
 router.get('/leads/:id', (req, res) => {

@@ -43,6 +43,13 @@ export const env = {
   // Chave de ESCRITA (perfil rw), usada só para cadastrar paciente e reservar. Sem ela, usa a chave acima (que pode ser só leitura).
   clinilinkWriteKey: process.env.CLINILINK_API_KEY_ESCRITA || process.env.CLINILINK_API_KEY || '',
   // Humanizador de mensagens (GPT). Sem chave => textos do roteiro como estão.
+  // Chat do Agente Clinex com controle do sistema (modo conversa): Claude com ferramentas; voz: OpenAI (transcrição e fala)
+  agenteChatModelo: process.env.AGENTE_CHAT_MODELO ?? 'claude-opus-5-5',
+  agenteChatEsforco: (process.env.AGENTE_CHAT_ESFORCO ?? 'low') as 'low' | 'medium' | 'high',
+  vozTranscricaoModelo: process.env.VOZ_TRANSCRICAO_MODELO ?? 'gpt-4o-mini-transcribe',
+  vozFalaModelo: process.env.VOZ_FALA_MODELO ?? 'gpt-4o-mini-tts',
+  openaiBase: (process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1').replace(/\/+$/, ''),
+  vozFalaVoz: process.env.VOZ_FALA_VOZ ?? 'nova',
   openaiKey: process.env.OPENAI_API_KEY ?? '',
   openaiModel: process.env.OPENAI_MODEL ?? 'gpt-4o-mini',
   // modelo que LÊ imagens difíceis (pedido médico escrito à mão): mais capaz que o de texto
