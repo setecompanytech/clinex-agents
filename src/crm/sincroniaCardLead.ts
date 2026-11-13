@@ -1,5 +1,5 @@
 import type { Estado } from './banco.js';
-import { acompanharCard, type Lead } from './motor.js';
+import { acompanharCard, type EventoLead, type Lead } from './motor.js';
 import type { Status } from './modelo.js';
 import { classeDaEtapa, etapaDe, moverCard } from './pipeline/regras.js';
 import type { Atribuicao, Etapa, Funil } from './pipeline/tipos.js';
@@ -39,6 +39,25 @@ export function etapaDoStatus(f: Funil, s: Status): Etapa | undefined {
   }
 }
 
+/** Nomes que não são uma pessoa do time: o sistema, a IA, o WhatsApp, o acesso mestre compartilhado. */
+const NAO_PESSOA = new Set(['', 'ia', 'whatsapp', 'crm', 'crm (lead)', 'painel', 'sistema', 'acesso mestre', 'painel (api)']);
+export const ehPessoa = (nome?: string) => !NAO_PESSOA.has((nome ?? '').trim().toLowerCase());
+/** O que conta como "movimentar o lead": contato, resposta, mudança de etapa, agendamento, retorno, descarte, comparecimento e recepção. */
+const MOVIMENTOS = new Set(['contato', 'resposta', 'etapa', 'agendamento', 'retorno', 'descarte', 'comparecimento', 'recepcao']);
+
+/**
+ * Responsável = a PRIMEIRA pessoa que movimentou o lead: o autor do primeiro movimento feito por uma pessoa, olhando os
+ * eventos do lead e os movimentos do card no Pipelines (o 1º registro do histórico do card é a entrada dele, não um movimento).
+ * Quem já tem responsável definido nunca é trocado. Null se ninguém (de verdade) mexeu ainda.
+ */
+export function primeiroResponsavel(l: Lead, a?: Atribuicao): string | null {
+  let melhor: { t: number; nome: string } | null = null;
+  const ver = (quando: string, nome?: string) => { const t = Date.parse(quando); if (t && ehPessoa(nome) && (!melhor || t < melhor.t)) melhor = { t, nome: nome!.trim() }; };
+  for (const e of l.eventos as EventoLead[]) if (MOVIMENTOS.has(e.tipo)) ver(e.quando, e.atendente);
+  if (a) for (const m of a.historico.slice(1)) ver(m.em, m.por);
+  return (melhor as { nome: string } | null)?.nome ?? null;
+}
+
 const quandoDoLead = (l: Lead) => l.eventos.reduce((m, e) => (MUDANCAS.has(e.tipo) ? Math.max(m, Date.parse(e.quando) || 0) : m), 0);
 /** Um card que nunca saiu da entrada não conta como "movido": o horário dele é só o da ingestão. */
 const quandoDoCard = (a: Atribuicao) => (a.historico.length > 1 ? Date.parse(a.enteredAt) || 0 : 0);
@@ -56,7 +75,8 @@ export function alinharCardsELeads(estado: Estado, agora: Date): { leads: number
     if (doCard === l.status) continue; // já dizem a mesma coisa
     const tCard = quandoDoCard(a), tLead = quandoDoLead(l);
     if (tCard > 0 && tCard >= tLead) {
-      if (doCard && acompanharCard(l, doCard, agora, etapa.label)) leads++;
+      const por = a.historico[a.historico.length - 1]?.por;
+      if (doCard && acompanharCard(l, doCard, agora, etapa.label, ehPessoa(por) ? por : undefined)) leads++;
     } else if (tLead > tCard) {
       const alvo = etapaDoStatus(f, l.status);
       try { if (alvo && alvo.id !== a.stageId && moverCard(a, f, alvo.id, agora, { por: 'CRM (lead)', manual: true })) cards++; }
@@ -64,4 +84,20 @@ export function alinharCardsELeads(estado: Estado, agora: Date): { leads: number
     }
   }
   return { leads, cards };
+}
+
+/**
+ * Define o responsável dos leads que ainda não têm: a primeira pessoa que os movimentou (ver primeiroResponsavel). Roda junto
+ * com o alinhamento card e lead, então vale para o que já existe e para tudo que acontecer daqui para frente. Devolve quantos
+ * leads ganharam responsável (quem chama salva se for maior que zero).
+ */
+export function atribuirResponsaveis(estado: Estado): number {
+  const atribs = new Map(estado.pipelines.atribuicoes.map((a) => [a.cardId, a]));
+  let n = 0;
+  for (const l of estado.leads) {
+    if (l.atendente?.trim()) continue;
+    const quem = primeiroResponsavel(l, l.cardId ? atribs.get(l.cardId) : undefined);
+    if (quem) { l.atendente = quem; n++; }
+  }
+  return n;
 }

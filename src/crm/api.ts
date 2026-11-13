@@ -3,7 +3,7 @@ import { atualizarLeadsDoBanco, bancoFora, estado, infoArmazenamento, pronto, sa
 import { diagnosticarSupabase } from '../lib/supabase.js';
 import { exigirAdmin } from '../lib/painel-auth.js';
 import { erroDoBanco, TABELAS_CRM } from './persistencia.js';
-import { alinharCardsELeads } from './sincroniaCardLead.js';
+import { alinharCardsELeads, atribuirResponsaveis } from './sincroniaCardLead.js';
 import { aplicar, automatizar, criarLead, hojeDe, RegraError, resumo, soDigitos, tarefasDoDia, vistaDoLead, type Acao, type Lead, type NovoLead } from './motor.js';
 import { gerarExemplos } from './exemplos.js';
 import { leadsDosOrcamentos } from './leadsOrcamento.js';
@@ -41,6 +41,7 @@ function automatizarTodos(agora: Date) {
   const cfg = cfgDeRegras(estado.automacoes);
   for (const l of estado.leads) mudou += automatizar(l, agora, cfg);
   { const s = alinharCardsELeads(estado, agora); mudou += s.leads + s.cards; } // card e lead sempre dizendo a mesma coisa
+  mudou += atribuirResponsaveis(estado); // responsável = quem movimentou o lead primeiro
   const log = [...logDoGuia(antes, estado.leads, estado.automacoes, agora), ...rodarRegras(estado.leads, estado.automacoes, agora)];
   if (log.length) { estado.logAuto = [...log.reverse(), ...estado.logAuto].slice(0, 300); mudou += log.length; }
   if (mudou) salvar();
@@ -267,6 +268,7 @@ router.post('/leads/:id/acao', (req, res) => {
   if (!acao || typeof acao.tipo !== 'string') return res.status(400).json({ erro: 'dados', mensagem: 'Ação inválida.' });
   aplicar(l, acao, agora);
   automatizar(l, agora);
+  atribuirResponsaveis(estado); // quem movimenta primeiro vira o responsável (se o lead ainda não tem)
   salvar();
   res.json({ ...l, v: vistaDoLead(l, agora) });
 });

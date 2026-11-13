@@ -516,7 +516,7 @@ export function resumo(leads: Lead[], agora: Date) {
  * Leva o lead para um status porque o card do funil de Orçamentos foi para a etapa correspondente (e vice-versa).
  * Não confere as regras do guia (compareceu só depois de agendado etc.): o card já foi movido por uma pessoa, então o lead só acompanha.
  */
-export function acompanharCard(lead: Lead, alvo: Status, agora: Date, etapa: string): boolean {
+export function acompanharCard(lead: Lead, alvo: Status, agora: Date, etapa: string, por?: string): boolean {
   if (lead.status === alvo) return false;
   const hoje = hojeDe(agora);
   const de = lead.status;
@@ -526,6 +526,6 @@ export function acompanharCard(lead: Lead, alvo: Status, agora: Date, etapa: str
   if (alvo === 'descarte') lead.descarte = { motivo: /sem retorno/i.test(etapa) ? 'Sem retorno' : 'Outro', quando: hoje, de, auto: true };
   else lead.descarte = undefined;
   const tipo: TipoEvento = alvo === 'convertido_ativo' ? 'comparecimento' : alvo === 'convertido_organico' ? 'recepcao' : alvo === 'descarte' ? 'descarte' : alvo === 'agendado' ? 'agendamento' : 'etapa';
-  evento(lead, agora, { tipo, texto: nota, auto: true });
+  evento(lead, agora, { tipo, texto: nota, auto: true, ...(por ? { atendente: por } : {}) });
   return true;
 }

@@ -5,7 +5,7 @@ import { clinilinkConfigurado } from '../clinilink.js';
 import { aplicarAutomacoes, atrasado, diaBRT, diasNaEtapa, diffDia, estrelas, funisPadrao, moverCard, recortar, somaDia, validarAutomacoes, validarConfig, valorExibido, visiveis, type FiltroPor, type Recorte } from './regras.js';
 import { sincronizar } from './ingestao.js';
 import { leadsDosOrcamentos } from '../leadsOrcamento.js';
-import { alinharCardsELeads } from '../sincroniaCardLead.js';
+import { alinharCardsELeads, atribuirResponsaveis } from '../sincroniaCardLead.js';
 import { logMovimentacoes, painelExecutivo, relatorio } from './metricas.js';
 import { janelaDaQuery } from '../periodo.js';
 import { FunilError, type Atribuicao, type Dimensao, type Funil } from './tipos.js';
@@ -121,6 +121,7 @@ pipelines.post('/:id/cards/:cardId/mover', (req, res) => {
   const f = achar(req.params.id); const a = atrib(f.id, req.params.cardId);
   moverCard(a, f, String(req.body?.stageId ?? ''), new Date(), { por: txt(req.body?.por, 60) || undefined, manual: true });
   alinharCardsELeads(estado, new Date()); // o lead desse orçamento acompanha o card
+  atribuirResponsaveis(estado); // e o responsável é quem movimentou primeiro
   salvar(); res.json(dto(a, f, new Date()));
 });
 pipelines.post('/:id/cards/:cardId/remover', (req, res) => {

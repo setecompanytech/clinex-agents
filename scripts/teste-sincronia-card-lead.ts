@@ -8,7 +8,7 @@ import { leadsDosOrcamentos } from '../src/crm/leadsOrcamento.js';
 import { aplicar, tarefasDoDia } from '../src/crm/motor.js';
 import { funilDestino, ingerir } from '../src/crm/pipeline/ingestao.js';
 import { funisPadrao, moverCard } from '../src/crm/pipeline/regras.js';
-import { alinharCardsELeads } from '../src/crm/sincroniaCardLead.js';
+import { alinharCardsELeads, atribuirResponsaveis, ehPessoa, primeiroResponsavel } from '../src/crm/sincroniaCardLead.js';
 import type { CardSnap } from '../src/crm/pipeline/tipos.js';
 import type { Estado } from '../src/crm/banco.js';
 
@@ -89,6 +89,49 @@ teste('lead sem card, ou card removido, ficam como estão', () => {
   const c = cenario();
   c.lead().cardId = undefined; assert.deepEqual(alinharCardsELeads(c.e, T1), { leads: 0, cards: 0 });
   const d = cenario(); d.card().caseStatus = 'removido'; moverCard; assert.deepEqual(alinharCardsELeads(d.e, T1), { leads: 0, cards: 0 });
+});
+
+
+console.log('Responsável = a primeira pessoa que movimentou o lead');
+teste('card movido por uma pessoa: ela vira a responsável do lead (e o evento do lead diz quem moveu)', () => {
+  const c = cenario();
+  assert.equal(c.lead().atendente, undefined);
+  assert.equal(atribuirResponsaveis(c.e), 0, 'ninguém mexeu ainda: continua sem responsável');
+  moverCard(c.card(), c.f, c.etapa(/organico/), T1, { por: 'Vanuza' });
+  alinharCardsELeads(c.e, T1);
+  assert.equal(atribuirResponsaveis(c.e), 1); assert.equal(c.lead().atendente, 'Vanuza');
+  assert.equal(c.lead().eventos.find((x) => x.auto && x.tipo === 'recepcao')?.atendente, 'Vanuza');
+  assert.equal(atribuirResponsaveis(c.e), 0, 'idempotente');
+});
+teste('vale a PRIMEIRA pessoa: quem mexer depois não troca o responsável', () => {
+  const c = cenario();
+  moverCard(c.card(), c.f, c.etapa(/negocia/), T1, { por: 'Ana' });
+  assert.equal(atribuirResponsaveis(c.e), 1); assert.equal(c.lead().atendente, 'Ana');
+  moverCard(c.card(), c.f, c.etapa(/organico/), T2, { por: 'Bruno' });
+  alinharCardsELeads(c.e, T2); atribuirResponsaveis(c.e);
+  assert.equal(c.lead().atendente, 'Ana');
+});
+teste('entre uma ação no lead e um movimento do card, vale o que veio antes', () => {
+  const c = cenario();
+  aplicar(c.lead(), { tipo: 'nota', texto: 'só uma anotação', atendente: 'Nota' }, T0);
+  moverCard(c.card(), c.f, c.etapa(/negocia/), T2, { por: 'Depois' });
+  aplicar(c.lead(), { tipo: 'contato', canal: 'whatsapp', naoFoiRecepcao: true, atendente: 'Carla' }, T1);
+  assert.equal(primeiroResponsavel(c.lead(), c.card()), 'Carla', 'a anotação não conta como movimento; o contato de Carla veio antes do card');
+});
+teste('quem já tem responsável não é trocado; sistema, IA, WhatsApp e acesso mestre nunca viram responsável', () => {
+  const c = cenario(2);
+  c.lead(1).atendente = 'Definida'; moverCard(c.card(1), c.f, c.etapa(/negocia/), T1, { por: 'Outra' });
+  moverCard(c.card(2), c.f, c.etapa(/negocia/), T1, { por: 'CRM (lead)' });
+  aplicar(c.lead(2), { tipo: 'contato', canal: 'whatsapp', naoFoiRecepcao: true, atendente: 'IA', auto: true }, T1);
+  aplicar(c.lead(2), { tipo: 'resposta', atendente: 'WhatsApp' }, T1);
+  assert.equal(atribuirResponsaveis(c.e), 0);
+  assert.equal(c.lead(1).atendente, 'Definida'); assert.equal(c.lead(2).atendente, undefined);
+  assert.equal(ehPessoa('Acesso mestre'), false); assert.equal(ehPessoa('Vanuza Gomes'), true);
+});
+teste('o movimento feito pelo próprio lead (contato registrado na tela) também faz a pessoa virar responsável', () => {
+  const c = cenario();
+  aplicar(c.lead(), { tipo: 'contato', canal: 'whatsapp', naoFoiRecepcao: true, atendente: 'Rafaela' }, T1);
+  assert.equal(atribuirResponsaveis(c.e), 1); assert.equal(c.lead().atendente, 'Rafaela');
 });
 
 console.log(process.exitCode ? '\nHouve falhas.' : `\nTodos os ${ok} testes passaram.`);
