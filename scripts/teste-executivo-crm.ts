@@ -2,7 +2,7 @@
  * Testa a Visão executiva e o Meu Report (src/crm/executivo.ts). Rodar: npx tsx scripts/teste-executivo-crm.ts
  */
 import assert from 'node:assert/strict';
-import { analisarExecutivo, analisarTime, meuReport } from '../src/crm/executivo.js';
+import { analisarExecutivo, analisarTime, detalhePessoa, meuReport } from '../src/crm/executivo.js';
 import { gerarExemplos } from '../src/crm/exemplos.js';
 import { analisarTempo, transicoes } from '../src/crm/tempo.js';
 import { acompanharCard, aplicar, criarLead, hojeDe, somaDias, tarefasDoDia, vistaDoLead, type Lead, type NovoLead } from '../src/crm/motor.js';
@@ -271,6 +271,33 @@ teste('card movido para Em negociação (etapa em maiúsculas) é reconhecido na
   assert.equal(acompanharCard(l, 'negociacao', em(dia(2)), 'EM NEGOCIAÇÃO'), true);
   const tr = transicoes(l);
   assert.equal(tr[tr.length - 1].status, 'negociacao');
+});
+
+
+console.log('Detalhe de uma pessoa (modal de Atividade por login)');
+const pessoa = (leads: Lead[], nome: string, d: 14 | 30 | 90 = 14) => { const c = ctx(leads); return detalhePessoa(leads, AGORA, d, nome, c.tarefas, c.vistas); };
+teste('o detalhe fecha com o Meu Report: convertidos, receita e carteira batem com as listas', () => {
+  for (const nome of ['Amanda', 'Bruno', 'Carla']) {
+    const p = pessoa(TODOS, nome), r = report(TODOS, nome);
+    assert.equal(p.atual.receita, r.atual.receita); assert.equal(p.convertidos.length, p.atual.convertidos, nome + ' lista = contagem');
+    assert.equal(p.convertidos.reduce((t, c) => t + c.valor, 0), p.atual.receita, nome + ' soma da lista = receita');
+    assert.equal(p.carteiraLeads.length, p.carteira.n, nome + ' carteira lead a lead');
+    assert.ok(p.convertidos.every((c) => c.tipo === 'ativo' || c.tipo === 'organico'));
+  }
+});
+teste('atividade: só o que a pessoa fez, do mais recente ao mais antigo, e os movimentos somam', () => {
+  const p = pessoa(TODOS, 'Amanda');
+  assert.ok(p.atividade.length > 0); assert.equal(p.atividadeTotal, p.movimentos.total);
+  for (let i = 1; i < p.atividade.length; i++) assert.ok(p.atividade[i - 1].quando >= p.atividade[i].quando);
+  assert.equal(p.movimentos.serie.reduce((a, b) => a + b, 0), p.movimentos.total);
+  assert.equal(p.movimentos.porTipo.reduce((t, x) => t + x.n, 0), p.movimentos.total);
+});
+teste('login que não é dono de lead (só atende) e nome inexistente não quebram', () => {
+  const l = novo('Cedido', dia(2), 300, { unidade: 'Guamá', atendente: 'Amanda' });
+  aplicar(l, { tipo: 'contato', canal: 'whatsapp', naoFoiRecepcao: true, atendente: 'Helper' }, em(dia(1), '10:00'));
+  const h = pessoa([...TODOS, l], 'Helper');
+  assert.equal(h.donoDeLeads, 0); assert.equal(h.convertidos.length, 0); assert.equal(h.carteiraLeads.length, 0); assert.equal(h.atividade.length, 1);
+  const nada = pessoa(TODOS, 'Ninguém'); assert.equal(nada.atividade.length, 0); assert.ok(!JSON.stringify(nada).includes('NaN'));
 });
 
 console.log(`\n${ok} testes passaram${process.exitCode ? ', COM FALHAS' : ''}.`);

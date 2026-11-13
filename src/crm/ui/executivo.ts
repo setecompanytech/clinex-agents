@@ -249,13 +249,15 @@ function cartaoDinheiroExec(E) {
 }
 function cartaoEquipeTiles(E) {
   var A = E.atividade, totRec = soma(A.map(function (a) { return a.receita; })) || 1, maxM = Math.max.apply(null, A.map(function (a) { return a.movimentos; }).concat([1]));
-  return blocoCartao('Atividade por login', 'Movimentações registradas no período e o valor convertido atribuído a cada responsável. O anel é a fatia da receita.', A.length ? h('div', { class: 'eq-g' }, A.map(function (a, i) {
-    var t = h('article', { class: 'eq-t' }, [
+  return blocoCartao('Atividade por login', 'Movimentações registradas no período e o valor convertido atribuído a cada responsável. O anel é a fatia da receita. Clique em uma pessoa para ver tudo sobre ela.', A.length ? h('div', { class: 'eq-g' }, A.map(function (a, i) {
+    var t = h('article', { class: 'eq-t clic', tabindex: '0', role: 'button', 'aria-label': 'Ver tudo sobre ' + a.nome, title: 'Clique para ver tudo sobre ' + a.nome }, [
       anel({ titulo: '', tam: 76, pct: a.receita / totRec * 100, centro: iniciais(a.nome), sub: '', cor: CORES_CAT[i % CORES_CAT.length], dica: { titulo: a.nome, linhas: [{ valor: brl(a.receita), rotulo: pct(a.receita / totRec * 100) + ' da receita' }] } }),
       h('div', { class: 'eq-i' }, [h('b', { text: a.nome }), h('strong', { text: brl(a.receita) }),
         h('div', { class: 'eq-mov' }, [h('i', { style: 'width:' + (a.movimentos / maxM * 100) + '%' })]),
         h('small', { text: a.movimentos + ' movimentações · ' + a.contatos + ' contatos · ' + a.respostas + ' respostas · ' + a.agendamentos + ' agend.' })])
     ]);
+    t.addEventListener('click', function () { abrirPessoa(a.nome); });
+    t.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrirPessoa(a.nome); } });
     return t;
   })) : vazio('Sem movimentações no período.'), 12, null, 'sec-login');
 }
