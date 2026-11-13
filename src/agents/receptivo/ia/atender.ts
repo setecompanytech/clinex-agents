@@ -38,7 +38,7 @@ export function conversaParaModelo(history: InovstarMessage[], titulos: string[]
     let txt: string | null;
     if (m.direction === 'in') {
       txt = textoRoteiro(m);
-      if (txt) txt = txt.replace(/\[\[midia:(image|document):[^\]]+\]\]/g, (_x, tipo) => (tipo === 'image' ? '[o paciente enviou uma imagem]' : '[o paciente enviou um arquivo]'));
+      if (txt) txt = txt.replace(/\[\[midia:(image|document):[^\]]+\]\]/g, (_x, tipo) => (tipo === 'image' ? '[o paciente enviou uma imagem]' : '[o paciente enviou um arquivo (PDF ou documento)]'));
       else txt = describe(m);
     } else {
       txt = describe(m);
