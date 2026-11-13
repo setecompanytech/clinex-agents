@@ -98,56 +98,68 @@ function mgHero(D) {
 }
 
 /* ------------------------------------------------------------------ linha do tempo do dia */
+var MG_QUEM = {
+  primeiro: function (g) { return 'Para quem fez um orçamento ontem e ainda não recebeu nenhum contato. A IA manda a mensagem de primeiro contato.'; },
+  tentativa: function (g) { return 'Para quem ficou 3 dias sem responder. A IA pergunta de novo, citando o prazo "' + (g.prazo || 'esta semana') + '".'; },
+  desconto: function (g) { return 'Para quem está há 4 dias sem responder (só leads). A IA oferece ' + (g.desconto || '10%') + ' de desconto.'; },
+  encerramento: function (g) { return 'Para quem está há 7 dias sem responder. A IA manda a mensagem de encerramento do atendimento.'; },
+  noshow: function (g) { return 'Para quem faltou à consulta. A IA convida a reagendar, no dia seguinte à falta.'; }
+};
+function mgDuracao(min) { return min >= 60 ? Math.floor(min / 60) + 'h' + (min % 60 ? String(min % 60).padStart(2, '0') : '') : min + ' min'; }
 function mgLinha(D) {
-  var C = MG.c, INI = 420, FIM = 1200, hm = function (s) { return Number(s.slice(0, 2)) * 60 + Number(s.slice(3)); };
-  var pc = function (min) { return Math.max(0, Math.min(100, (min - INI) / (FIM - INI) * 100)); };
+  var C = MG.c, hm = function (s) { return Number(s.slice(0, 2)) * 60 + Number(s.slice(3)); };
   var agoraMin = D.agoraBrt.minutos, iaIni = C.janela.inicio * 60, iaFim = C.janela.fim * 60;
+  var hora = function (m) { return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'); };
   var pausaHoje = C.pausas.filter(function (x) { return D.agoraBrt.hoje >= x.de && D.agoraBrt.hoje <= x.ate; })[0];
   var dow = new Date(D.agoraBrt.hoje + 'T12:00:00Z').getUTCDay(), diaOk = C.diasSemana.indexOf(dow) >= 0;
   var fechado = !!pausaHoje || !diaOk, naJanela = !fechado && agoraMin >= iaIni && agoraMin < iaFim;
   var ligados = D.gatilhos.filter(function (g) { return C.gatilhos[g.id].ativo; }).length;
   var frase;
-  if (pausaHoje) frase = ['pausa', 'Hoje a IA não envia: ' + (pausaHoje.motivo ? pausaHoje.motivo : 'pausa programada') + '.'];
-  else if (!diaOk) frase = ['pausa', 'Hoje (' + D.agoraBrt.dia + ') a IA não envia: o dia está desligado nos ajustes.'];
+  if (pausaHoje) frase = ['pausa', 'Hoje a IA não envia nada: ' + (pausaHoje.motivo ? pausaHoje.motivo : 'pausa programada') + '.'];
+  else if (!diaOk) frase = ['pausa', 'Hoje (' + D.agoraBrt.dia + ') a IA não envia nada: o dia está desligado nos ajustes.'];
   else if (!ligados) frase = ['pausa', 'Todos os gatilhos estão desligados: a IA não envia nada.'];
-  else if (naJanela) frase = ['ok', 'Agora são ' + D.agoraBrt.hora + ' e a janela da IA está aberta, até as ' + C.janela.fim + 'h.'];
-  else if (agoraMin < iaIni) frase = ['espera', 'Agora são ' + D.agoraBrt.hora + '. A janela da IA abre às ' + C.janela.inicio + 'h.'];
-  else frase = ['espera', 'Agora são ' + D.agoraBrt.hora + '. A janela da IA fechou às ' + C.janela.fim + 'h e só reabre amanhã.'];
+  else if (naJanela) frase = ['ok', 'A IA pode enviar agora. A janela fecha às ' + C.janela.fim + 'h (daqui a ' + mgDuracao(iaFim - agoraMin) + ').'];
+  else if (agoraMin < iaIni) frase = ['espera', 'A IA ainda não pode enviar. A janela abre às ' + C.janela.inicio + 'h (daqui a ' + mgDuracao(iaIni - agoraMin) + ').'];
+  else frase = ['espera', 'A janela de hoje já fechou às ' + C.janela.fim + 'h. A IA volta a enviar amanhã.'];
+  var real = D.modo === 'sombra' || D.modo === 'ligado';
 
-  var horas = [];
-  for (var hh = 8; hh <= 19; hh++) horas.push(h('span', { class: 'mg-ag-hr' + (hh % 2 === 0 ? ' g' : ''), style: 'left:' + pc(hh * 60) + '%' }, hh % 2 === 0 ? h('em', { text: String(hh).padStart(2, '0') + 'h' }) : null));
-  var fundo = [
-    h('div', { class: 'mg-ag-fora e', style: 'left:0;width:' + pc(iaIni) + '%', title: 'Fora da janela da IA: ela não envia' }),
-    h('div', { class: 'mg-ag-fora d', style: 'left:' + pc(iaFim) + '%;right:0', title: 'Fora da janela da IA: ela não envia' }),
-    h('div', { class: 'mg-ag-jan', style: 'left:' + pc(iaIni) + '%;width:' + (pc(iaFim) - pc(iaIni)) + '%' })
-  ];
-  var nomes = [], areas = [], status = [];
-  D.gatilhos.forEach(function (g, i) {
-    var gc = C.gatilhos[g.id], cor = MG_PAL[i % MG_PAL.length], t = hm(gc.hora), f = g.fila;
-    var ini = Math.max(t, iaIni), temBarra = gc.ativo && ini < iaFim, ate = Math.min(agoraMin, iaFim);
-    var feito = temBarra && ate > ini, ativoAgora = temBarra && naJanela && agoraMin >= t;
-    var st, stc;
-    if (!gc.ativo) { st = 'Desligado'; stc = 'off'; }
-    else if (g.enviadosHoje > 0) { st = g.enviadosHoje + (g.enviadosHoje === 1 ? ' enviado hoje' : ' enviados hoje'); stc = 'env'; }
-    else if (f.prontos > 0) { st = f.prontos + (f.prontos === 1 ? ' pronto para enviar' : ' prontos para enviar'); stc = 'pronto'; }
-    else if (f.esperando > 0) { st = f.esperando + ' aguardando o horário'; stc = 'espera'; }
-    else { st = 'Sem leads agora'; stc = 'vazio'; }
-    nomes.push(h('div', { class: 'mg-ag-n' + (gc.ativo ? '' : ' off'), style: '--gc:' + cor }, [h('span', { class: 'mg-ag-num', text: String(g.msg) }), h('div', null, [h('b', { text: g.rotulo }), h('small', { text: 'Msg ' + g.msg + ' · dispara às ' + gc.hora })])]));
-    var barra = temBarra ? h('div', { class: 'mg-ag-bar', style: 'left:' + pc(ini) + '%;width:' + (pc(iaFim) - pc(ini)) + '%;--d:' + (i * 90 + 500) + 'ms', title: g.rotulo + ': a IA pode enviar das ' + gc.hora + ' até as ' + C.janela.fim + 'h' }, feito ? h('i', { class: 'mg-ag-feito' + (ativoAgora ? ' vivo' : ''), style: 'width:' + ((pc(ate) - pc(ini)) / Math.max(.1, pc(iaFim) - pc(ini)) * 100) + '%' }) : null) : null;
-    var pino = h('div', { class: 'mg-ag-pino' + (gc.ativo ? '' : ' off') + (stc === 'pronto' ? ' pulsa' : ''), style: 'left:' + pc(t) + '%;--d:' + (i * 90 + 350) + 'ms' }, [h('i'), h('b', { text: gc.hora })]);
-    areas.push(h('div', { class: 'mg-ag-l' + (gc.ativo ? '' : ' off'), style: '--gc:' + cor }, [barra, pino, !gc.ativo ? h('span', { class: 'mg-ag-desl', text: 'gatilho desligado' }) : null]));
-    status.push(h('div', { class: 'mg-ag-s st-' + stc, style: '--gc:' + cor }, [h('b', null, [h('i'), st]), h('small', { text: f.prontos + ' prontos · ' + f.esperando + ' aguardando · ' + f.pulados + ' fora' })]));
+  var itens = [{ m: iaIni, w: 0, tipo: 'abre' }, { m: agoraMin, w: 1, tipo: 'agora' }, { m: iaFim, w: 3, tipo: 'fecha' }];
+  D.gatilhos.forEach(function (g, i) { var gc = C.gatilhos[g.id]; itens.push({ m: Math.max(hm(gc.hora), iaIni), w: 2, tipo: 'g', g: g, gc: gc, i: i }); });
+  itens.sort(function (a, b) { return a.m - b.m || a.w - b.w; });
+
+  var linhas = itens.map(function (it, k) {
+    var base = 'mg-dia-r' + (it.m <= agoraMin ? ' p' : '') + ' ' + 'mg-dia-' + it.tipo;
+    var estilo = '--k:' + k;
+    if (it.tipo === 'abre') return h('div', { class: base, style: estilo }, [h('b', { class: 'mg-dia-h', text: hora(it.m) }), h('i', { class: 'mg-dia-no' }), h('div', { class: 'mg-dia-s' }, [h('b', { text: 'A janela da IA abre' }), h('small', { text: 'A partir daqui a IA pode enviar.' })])]);
+    if (it.tipo === 'fecha') return h('div', { class: base, style: estilo }, [h('b', { class: 'mg-dia-h', text: hora(it.m) }), h('i', { class: 'mg-dia-no' }), h('div', { class: 'mg-dia-s' }, [h('b', { text: 'A janela da IA fecha' }), h('small', { text: 'Depois disso a IA não envia mais nada até o dia seguinte.' })])]);
+    if (it.tipo === 'agora') return h('div', { class: base + (fechado ? ' off' : ''), style: estilo }, [h('b', { class: 'mg-dia-h', text: hora(agoraMin) }), h('i', { class: 'mg-dia-no' }), h('div', { class: 'mg-dia-ag' }, [h('i'), h('b', { text: 'AGORA' }), h('span', { text: D.agoraBrt.dia + ', ' + mgDm(D.agoraBrt.hoje) })])]);
+    var g = it.g, gc = it.gc, f = g.fila, cor = MG_PAL[it.i % MG_PAL.length], horaCfg = hm(gc.hora);
+    var chip;
+    if (!gc.ativo) chip = ['off', 'Gatilho desligado'];
+    else if (fechado) chip = ['off', 'Hoje não envia'];
+    else if (horaCfg >= iaFim) chip = ['off', 'Depois do fechamento: nunca envia'];
+    else if (it.m <= agoraMin) chip = ['ok', 'Já passou do horário'];
+    else chip = ['espera', 'Falta ' + mgDuracao(it.m - agoraMin)];
+    var nota = gc.ativo && !fechado && horaCfg < iaIni ? 'O horário do gatilho (' + gc.hora + ') é antes da janela da IA: ela envia a partir das ' + hora(iaIni) + '.' : '';
+    var stat = function (rot, n, cls, dica) { return h('div', { class: 'mg-dia-k ' + cls, title: dica }, [h('b', { text: nf0.format(n) }), h('small', { text: rot })]); };
+    var rotPronto = D.modo === 'desligado' ? 'prontos (IA desligada)' : D.modo === 'simulacao' ? 'prontos (simulação)' : 'prontos para a IA enviar';
+    var stats = [stat('enviados hoje', g.enviadosHoje, 'env', 'Mensagens deste passo que a IA já enviou hoje'), stat(rotPronto, f.prontos, 'pro', 'Leads que cumprem todas as regras agora: saem na próxima rodada da IA'), stat('esperando o horário', f.esperando, 'esp', 'Leads deste passo que ainda não chegaram no horário'), stat('fora das regras', f.pulados, 'fora', 'Leads que a IA não envia: atrasados, sem telefone, fora das condições...')];
+    if (D.modo === 'sombra') stats.splice(1, 0, stat('simulados hoje', g.simuladosHoje, 'sim', 'Em modo sombra: o que a IA teria enviado'));
+    return h('div', { class: base + (gc.ativo && !fechado ? '' : ' off'), style: estilo + ';--gc:' + cor }, [
+      h('b', { class: 'mg-dia-h', text: hora(it.m) }), h('i', { class: 'mg-dia-no' }),
+      h('article', { class: 'mg-dia-c' }, [
+        h('header', null, [h('span', { class: 'mg-dia-num', text: String(g.msg) }), h('div', { class: 'mg-dia-t' }, [h('b', { text: g.rotulo }), h('small', { text: 'Mensagem ' + g.msg })]), h('span', { class: 'mg-dia-chip ' + chip[0], text: chip[1] })]),
+        h('p', { class: 'mg-dia-q', text: MG_QUEM[g.id](gc) }),
+        nota ? h('p', { class: 'mg-dia-nota', text: nota }) : null,
+        gc.ativo ? (g.enviadosHoje + g.simuladosHoje + f.prontos + f.esperando + f.pulados === 0 ? h('p', { class: 'mg-dia-vazio', text: 'Nenhum lead neste passo hoje.' }) : h('div', { class: 'mg-dia-ks' }, stats)) : null,
+        gc.ativo && f.pulados && g.motivos.length ? h('p', { class: 'mg-dia-mot' }, [h('b', { text: 'Por que ficam de fora: ' }), g.motivos[0].motivo + (g.motivos.length > 1 ? ' e outros motivos' : '')]) : null
+      ])
+    ]);
   });
-  var agora = h('div', { class: 'mg-ag-agora', style: 'left:' + pc(agoraMin) + '%' }, [h('em', { text: D.agoraBrt.hora + ' agora' }), h('i')]);
-  var leg = h('div', { class: 'mg-leg' }, [h('span', { class: 'p', text: 'Horário do gatilho' }), h('span', { class: 'b', text: 'IA pode enviar' }), h('span', { class: 'f', text: 'Fora da janela: não envia' }), h('span', { class: 'a', text: 'Agora' })]);
   return h('section', { class: 'mg-sec mg-linha', style: '--i:1' }, [
-    h('header', { class: 'mg-sh' }, [h('div', null, [h('h3', { text: 'O que a IA faz hoje' }), h('p', { text: 'Cada linha é um gatilho. A bolinha marca o horário em que ele dispara e a barra mostra até quando a IA pode enviar aquele passo. A linha vermelha é o agora.' })]), leg]),
+    h('header', { class: 'mg-sh' }, [h('div', null, [h('h3', { text: 'O que a IA faz hoje' }), h('p', { text: 'A agenda do dia na ordem das horas: o que a IA envia, a que horas e para quem. O que já passou fica mais apagado.' })])]),
     h('div', { class: 'mg-ag-frase f-' + frase[0] }, [h('i'), frase[1]]),
-    h('div', { class: 'mg-ag-w' }, [h('div', { class: 'mg-ag' }, [
-      h('div', { class: 'mg-ag-c1' }, [h('div', { class: 'mg-ag-sp' })].concat(nomes)),
-      h('div', { class: 'mg-ag-area' }, [h('div', { class: 'mg-ag-eixo' }, horas)].concat(fundo, [h('div', { class: 'mg-ag-linhas' }, horas.map(function (x) { return x.cloneNode(false); }))], areas, [agora])),
-      h('div', { class: 'mg-ag-c3' }, [h('div', { class: 'mg-ag-sp' })].concat(status))
-    ])])
+    h('div', { class: 'mg-dia' }, linhas)
   ]);
 }
 
