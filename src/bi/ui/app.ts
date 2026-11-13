@@ -102,7 +102,7 @@ function cartaoFunil(bi) {
   });
   return cartao({
     titulo: 'Funil de conversão', span: 's7',
-    sub: 'Quantas conversas chegaram a cada etapa. Ao lado: o % do total e a perda em relação à etapa anterior.',
+    sub: 'Quantas conversas chegaram a cada etapa do agendamento (Amanda IA e roteiro). Ao lado: o % do total e a perda em relação à etapa anterior.',
     corpo: barras(linhas, { max: base, alta: true, vazio: 'Sem conversas no período.' }),
     tabela: { cols: ['Etapa', 'Conversas', '% do início', 'Perda vs. anterior'], linhas: f.map(function (e, i) { return [e.etapa, e.chegaram, fmtP(e.pct), i ? fmtP(e.perdaPct) : '–']; }) }
   });
@@ -258,8 +258,8 @@ function cartaoIntegracoes(bi) {
 
 function cartaoGpt(bi) {
   var g = bi.gpt;
-  var nomes = { usado: 'Reescrita usada', desligado: 'Texto fixo do roteiro', rejeitado: 'Rejeitada pela validação', falhou: 'GPT falhou' };
-  var cores = { usado: 'var(--s1)', desligado: 'var(--neutro)', rejeitado: 'var(--st-atencao)', falhou: 'var(--st-critico)' };
+  var nomes = { ia: 'Escrita pela Amanda IA', usado: 'Roteiro antigo: reescrita usada', desligado: 'Roteiro antigo: texto fixo', rejeitado: 'Roteiro antigo: rejeitada', falhou: 'GPT falhou' };
+  var cores = { ia: 'var(--o2)', usado: 'var(--s1)', desligado: 'var(--neutro)', rejeitado: 'var(--st-atencao)', falhou: 'var(--st-critico)' };
   var partes = g.respostas.map(function (r) { return { rotulo: nomes[r.nome] || r.nome, valor: r.n, cor: cores[r.nome] || 'var(--neutro)' }; });
   var corpo = h('div', null, [
     empilhada(partes),
@@ -270,6 +270,51 @@ function cartaoGpt(bi) {
   return cartao({
     titulo: 'Tom da mensagem (GPT)', span: 's6', sub: 'Como cada resposta chegou ao paciente.', corpo: corpo,
     tabela: { cols: ['Situação', 'Respostas'], linhas: partes.map(function (p) { return [p.rotulo, p.valor]; }) }
+  });
+}
+
+function cartaoCobertura(bi) {
+  var c = bi.cobertura;
+  var corpo = h('div', null, [
+    stats([
+      { valor: fmtN(c.atendimentos), rotulo: 'atendimentos que chegaram' },
+      { valor: fmtN(c.comIA), rotulo: 'com a Amanda' },
+      { valor: c.pct === null ? '–' : fmtP(c.pct), rotulo: 'de cobertura' }
+    ]),
+    c.motivos.length ? h('h4', { class: 'sub-t', text: 'Por que ela não entrou nos outros' }) : null,
+    barras(c.motivos.map(function (x) { return { rotulo: x.nome, valor: x.n, extra: fmtP(c.atendimentos ? x.n / c.atendimentos * 100 : 0), sub: 'atendimentos', cor: 'var(--s2)' }; }), { vazio: 'A Amanda entrou em todos os atendimentos do período.' }),
+    c.atendentes.length ? h('h4', { class: 'sub-t', text: 'Atendente que já estava na conversa' }) : null,
+    c.atendentes.length ? barras(c.atendentes.map(function (x) { return { rotulo: x.nome, valor: x.n, sub: 'atendimentos' }; })) : null
+  ]);
+  return cartao({
+    titulo: 'Cobertura da Amanda', span: 's6', sub: 'De todos os atendimentos que chegaram pelo WhatsApp, em quantos a Amanda entrou.', corpo: corpo,
+    tabela: { cols: ['Motivo de não entrar', 'Atendimentos'], linhas: c.motivos.map(function (x) { return [x.nome, x.n]; }) }
+  });
+}
+
+function cartaoIA(bi) {
+  var a = bi.ia;
+  var nomesF = { buscar_servico: 'Buscar serviço', abrir_servico: 'Abrir opção', servico_com_profissional: 'Escolher médico', ver_horarios: 'Ver horários', buscar_paciente: 'Buscar paciente', agendar: 'Agendar', orcar_exames: 'Orçar exames', ler_pedido_medico: 'Ler foto', agendar_coleta: 'Agendar coleta', sugerir_exames: 'Sugerir exames', combos_do_servico: 'Combos do serviço', etapa_do_combo: 'Etapa do combo', conferir_comprovante: 'Conferir comprovante', transferir_para_humano: 'Transferir para a equipe', encerrar_atendimento: 'Encerrar atendimento' };
+  var corpo = h('div', null, [
+    stats([
+      { valor: fmtN(a.conversas), rotulo: 'conversas com a IA' },
+      { valor: fmtN(a.agendadas), rotulo: 'agendaram' },
+      { valor: fmtMs(a.msP50), rotulo: 'tempo típico para responder' },
+      { valor: fmtMs(a.msP95), rotulo: 'resposta mais lenta (p95)' }
+    ]),
+    stats([
+      { valor: fmtN(a.trava.refeitas), rotulo: 'respostas refeitas pela trava' },
+      { valor: fmtN(a.trava.bloqueadas), rotulo: 'bloqueadas pela trava' },
+      { valor: fmtN(a.lembretes), rotulo: 'lembretes de inatividade' },
+      { valor: fmtN(a.finalizados), rotulo: 'atendimentos finalizados' },
+      { valor: fmtN(a.os.geradas) + (a.os.falhas ? ' (' + a.os.falhas + ' falha)' : ''), rotulo: 'O.S. geradas (pix)' }
+    ]),
+    a.ferramentas.length ? h('h4', { class: 'sub-t', text: 'O que ela mais consulta e faz' }) : null,
+    barras(a.ferramentas.map(function (f) { return { rotulo: nomesF[f.nome] || f.nome, valor: f.n, extra: f.erros ? f.erros + ' recusadas' : '', sub: 'usos', cor: f.erros / f.n >= 0.3 ? 'var(--st-atencao)' : 'var(--s1)' }; }), { vazio: 'A Amanda IA não atendeu no período.' })
+  ]);
+  return cartao({
+    titulo: 'Amanda IA por dentro', span: 's6', sub: 'Velocidade, ferramentas usadas e quantas vezes as regras da clínica e a trava de veracidade agiram.' + (a.modelos[0] ? ' Modelo: ' + a.modelos.map(function (m) { return m.nome; }).join(', ') + '.' : ''), corpo: corpo,
+    tabela: { cols: ['Ferramenta', 'Usos', 'Recusadas', 'Típico'], linhas: a.ferramentas.map(function (f) { return [nomesF[f.nome] || f.nome, f.n, f.erros, fmtMs(f.p50)]; }) }
   });
 }
 
@@ -304,7 +349,7 @@ function cartaoFalhas(bi) {
 
 function cartaoIgnorados(bi) {
   return cartao({
-    titulo: 'Mensagens que a Amanda ignorou', span: 's5', sub: 'Por que não respondeu (grupo, setor errado, etc.).',
+    titulo: 'Mensagens que a Amanda ignorou', span: 's5', sub: 'Cada mensagem recebida em que ela não respondeu, agrupada pelo motivo.',
     corpo: barras(bi.ignorados.map(function (x) { return { rotulo: x.nome, valor: x.n, sub: 'vezes' }; }), { vazio: 'Nada foi ignorado no período.' }),
     tabela: { cols: ['Motivo', 'Vezes'], linhas: bi.ignorados.map(function (x) { return [x.nome, x.n]; }) }
   });
@@ -395,6 +440,7 @@ function desenhar(bi) {
   raiz.appendChild(secaoKpis(bi));
   raiz.appendChild(secaoInsights(bi));
   raiz.appendChild(secaoGrade([cartaoFunil(bi), cartaoResultado(bi)]));
+  if (bi.cobertura && bi.ia) raiz.appendChild(secaoGrade([cartaoCobertura(bi), cartaoIA(bi)]));
   raiz.appendChild(secaoGrade([cartaoVolume(bi), cartaoHoras(bi)]));
   raiz.appendChild(secaoGrade([cartaoCalor(bi), cartaoMsgs(bi)]));
   raiz.appendChild(secaoGrade([cartaoTransferencias(bi), cartaoMotivos(bi)]));
