@@ -4,8 +4,7 @@ import { diaDoInstante, hojeDe, horaDe } from './motor.js';
 import { MENSAGENS, PASSOS } from './modelo.js';
 import type { Janela } from './periodo.js';
 import type { Rodada } from './disparo-auto-tipos.js';
-import { GATILHOS_AUTO, NOMES_DIA, checagens, configAuto, enviadosPelaIAHoje, fila, modoDisparoAuto, rodarDisparoAuto } from './ia-disparo.js';
-import { textoDaMensagem } from './ia-laboratorio.js';
+import { GATILHOS_AUTO, NOMES_DIA, configAuto, enviadosPelaIAHoje, fila, modoDisparoAuto, rodarDisparoAuto } from './ia-disparo.js';
 import { registrarResposta, ROTULO_INTENCAO, type RespostaRecebida } from './rastreio.js';
 import { chaveFone, ehEnvio, statusDisparo } from './whatsapp.js';
 
@@ -82,20 +81,6 @@ export function dadosManager(agora: Date) {
     gatilhos, proximo, unidades: [...new Map(estado.leads.map((l) => (l.unidade ?? '').trim()).filter(Boolean).sort().map((u) => [u.toUpperCase(), u] as const)).values()],
     minutosDesdeUltimaRodada: ultima ? Math.round((agora.getTime() - Date.parse(ultima.quando)) / 60_000) : null,
   };
-}
-
-/** Simulador da tela: por que a IA enviaria (ou não) a este lead agora, checagem por checagem, e como ficaria a mensagem. */
-export function simularLead(leadId: string, agora: Date) {
-  const l = estado.leads.find((x) => x.id === leadId);
-  if (!l) return null;
-  const r = checagens(estado, l, agora, configAuto(estado), { ignorarLista: true });
-  const passo = 'passo' in r ? r.passo : undefined, parametros = 'parametros' in r ? r.parametros : undefined;
-  let mensagem: { msg: number; texto: string; botoes: string[] } | null = null;
-  if (passo?.msg && parametros) {
-    mensagem = textoDaMensagem(passo.msg, parametros);
-  }
-  const falhou = r.checks.find((c) => !c.ok);
-  return { lead: { id: l.id, nome: l.nome, telefone: l.telefone, valor: l.valor, unidade: l.unidade ?? '', status: l.status, atendente: l.atendente ?? '' }, aplicavel: r.aplicavel, checks: r.checks, enviaria: r.aplicavel && !falhou, primeiraFalha: falhou ?? null, passo: passo ? { id: passo.id, rotulo: passo.rotulo, msg: passo.msg, hora: passo.hora } : null, mensagem };
 }
 
 /** Tudo da tela "IA de disparo": modo, rodada, fila de agora, números do período e as respostas dos pacientes. */

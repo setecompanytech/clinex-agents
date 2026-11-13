@@ -11,7 +11,7 @@ import { DisparoError, enviarModelo, MODELOS as MODELOS_WA, modelosParaLead, sta
 import { analisarHoje } from './analise.js';
 import { analisarTempo } from './tempo.js';
 import { janelaDaQuery } from './periodo.js';
-import { dadosDisparoAuto, dadosManager, rodarAgora, simularLead } from './disparo-auto-servico.js';
+import { dadosDisparoAuto, dadosManager, rodarAgora } from './disparo-auto-servico.js';
 import { criarLeadLab, instanteDoRelogio, limparLab, removerLeadLab, resumoLab, rodarLab } from './ia-laboratorio.js';
 import { configAuto, definirModoDisparoAuto, modoDisparoAuto, salvarConfigAuto, validarConfigAuto } from './ia-disparo.js';
 import { analisarExecutivo, analisarTime, detalhePessoa, meuReport } from './executivo.js';
@@ -352,11 +352,6 @@ router.post('/ia-manager/lab/leads', (req, res) => lab(res, () => { exigeSimulac
 router.delete('/ia-manager/lab/leads/:id', (req, res) => lab(res, () => { if (!removerLeadLab(estado, String(req.params.id))) throw new DisparoError('nao_encontrado', 'Lead de teste não encontrado.', 404); return resumoLab(estado, instanteDoRelogio(req.query.quando)); }));
 router.delete('/ia-manager/lab', (req, res) => lab(res, () => { limparLab(estado); return resumoLab(estado, instanteDoRelogio(req.query.quando)); }));
 router.post('/ia-manager/lab/rodar', (req, res) => lab(res, () => { exigeSimulacao(); const q = instanteDoRelogio((req.body ?? {}).quando); const r = rodarLab(estado, q); return { ...r, lab: resumoLab(estado, q) }; }));
-router.get('/ia-manager/simular', (req, res) => {
-  const r = simularLead(String(req.query.lead ?? ''), new Date());
-  if (!r) return void res.status(404).json({ erro: 'nao_encontrado', mensagem: 'Lead não encontrado.' });
-  res.json(r);
-});
 router.post('/disparo-auto/rodar', (_req, res, next) => { rodarAgora().then((r) => res.json(r)).catch(next); });
 
 router.get('/exportar.csv', (_req, res) => {

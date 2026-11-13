@@ -1,7 +1,7 @@
 // JavaScript do CRM (navegador): página "IA Manager", o painel de controle da IA de disparo. Dados de /painel/crm/api/ia-manager.
 // Dentro dele não usar crases nem "dollar-chave".
 export const manager = String.raw`
-var MG = { aba: 'controle', d: null, c: null, base: null, car: false, t: 0, erro: '', salvando: false, entrou: false, simQ: '', sim: null, simCar: false, lab: null, labCar: false, labQ: '', labRes: null, labNovo: null, lf: { nome: '', tipo: 'orcamento', valor: '400', unidade: '', dias: 1, exame: 'Ultrassom', atendente: '' } };
+var MG = { aba: 'controle', d: null, c: null, base: null, car: false, t: 0, erro: '', salvando: false, entrou: false, lab: null, labCar: false, labQ: '', labRes: null, labNovo: null, lf: { nome: '', tipo: 'orcamento', valor: '400', unidade: '', dias: 1, exame: 'Ultrassom', atendente: '' } };
 var MG_PAL = ['#4cc9f0', '#a78bfa', '#f5b942', '#fb7185', '#2ee6a6'];
 var MG_DIAS = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'], MG_DIAS_L = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
 var MG_TXT = {
@@ -239,38 +239,6 @@ function mgGlobais(D) {
   ]);
 }
 
-/* ------------------------------------------------------------------ simulador */
-function mgSimular(id) {
-  MG.simCar = true; MG.sim = null; desenhar(true);
-  api('GET', '/ia-manager/simular?lead=' + encodeURIComponent(id)).then(function (r) { MG.sim = r; MG.simCar = false; desenhar(true); })
-    .catch(function (e) { MG.simCar = false; aviso(e.message, 'erro'); desenhar(true); });
-}
-function mgSimuladorReal(D) {
-  var q = MG.simQ.trim().toLowerCase(), todos = (S.D && S.D.leads) || [];
-  var achados = q.length >= 2 ? todos.filter(function (l) { return (l.nome + ' ' + l.telefone).toLowerCase().indexOf(q) >= 0; }).slice(0, 6) : [];
-  var busca = h('input', { class: 'in mg-busca', type: 'search', placeholder: 'Buscar um lead por nome ou telefone', 'aria-label': 'Buscar lead para simular', autocomplete: 'off' }); busca.value = MG.simQ;
-  busca.addEventListener('input', function () { MG.simQ = busca.value; var pos = busca.selectionStart; desenhar(true); var n = document.querySelector('.mg-busca'); if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (e) { /* segue */ } } });
-  var lista = achados.length ? h('div', { class: 'mg-achados' }, achados.map(function (l) { return h('button', { type: 'button', onclick: function () { MG.simQ = l.nome; mgSimular(l.id); } }, [avatar(l.nome), h('span', null, [h('b', { text: l.nome }), h('small', { text: l.telefone + ' · ' + brl(l.valor) })])]); })) : null;
-  var corpo;
-  if (MG.simCar) corpo = h('div', { class: 'mg-sim-v' }, [h('div', { class: 'it-carrega' }, [h('i'), h('i'), h('i')])]);
-  else if (MG.sim) {
-    var S_ = MG.sim, linhas = S_.checks.map(function (c, i) {
-      var cls = c.ok ? 'ok' : c.falha === 'espera' ? 'espera' : 'nao';
-      return h('li', { class: 'mg-ck ' + cls, style: 'animation-delay:' + (i * 55) + 'ms' }, [h('i', { 'aria-hidden': 'true', text: c.ok ? '✓' : c.falha === 'espera' ? '⏳' : '✕' }), h('div', null, [h('b', { text: c.rotulo }), h('small', { text: c.detalhe })])]);
-    });
-    var veredito = !S_.aplicavel ? ['neutro', 'A IA não tem um passo automático para este lead', S_.checks.length ? S_.checks[S_.checks.length - 1].detalhe : ''] : S_.enviaria ? ['ok', 'A IA enviaria agora', 'Todas as condições estão atendidas.'] : [S_.primeiraFalha.falha === 'espera' ? 'espera' : 'nao', S_.primeiraFalha.falha === 'espera' ? 'A IA enviaria mais tarde' : 'A IA não enviaria', S_.primeiraFalha.detalhe];
-    var msg = S_.mensagem ? h('div', { class: 'mg-sim-m' }, [h('small', { text: 'Mensagem ' + S_.mensagem.msg + ' como o paciente receberia' }), h('div', { class: 'wa-bolha' }, [h('p', null, S_.mensagem.texto.split('\n').map(function (t, i) { return [i ? h('br') : null, t]; })), h('small', { class: 'wa-hora', text: 'agora' })]), h('div', { class: 'wa-botoes' }, S_.mensagem.botoes.map(function (b) { return h('span', null, [h('em', { text: '↩' }), b]); }))]) : null;
-    corpo = h('div', { class: 'mg-sim-v' }, [
-      h('div', { class: 'mg-vered ' + veredito[0] }, [h('b', { text: veredito[1] }), h('small', { text: veredito[2] })]),
-      h('div', { class: 'mg-sim-g' }, [h('ul', { class: 'mg-cks' }, linhas), msg])
-    ]);
-  } else corpo = h('p', { class: 'mut mg-sim-d', text: 'Escolha um lead para ver, checagem por checagem, se a IA enviaria a mensagem agora e como ela ficaria.' });
-  return h('section', { class: 'mg-bloco' }, [
-    h('header', { class: 'mg-sh mg-sec', style: '--i:11' }, [h('div', null, [h('h3', { text: 'Simulador' }), h('p', { text: 'Teste as regras com um lead de verdade, sem enviar nada. Usa a configuração salva.' })])]),
-    h('article', { class: 'mg-cx mg-cx-l mg-sec', style: '--i:12' }, [h('div', { class: 'mg-busca-w' }, [busca, lista]), corpo])
-  ]);
-}
-
 /* ------------------------------------------------------------------ laboratório do Modo Simulação */
 var MG_NOMES = ['Maria Teste', 'João Teste', 'Ana Teste', 'Pedro Teste', 'Lúcia Teste', 'Carlos Teste', 'Rita Teste', 'Paulo Teste'];
 var MG_EXEMPLOS = [
@@ -390,7 +358,7 @@ function mgSimulador(D) {
     h('div', null, [h('h4', { text: 'Quer testar com um paciente fictício?' }), h('p', { class: 'mut', text: 'O Modo Simulação abre um laboratório: você cria leads de teste, escolhe o dia e a hora e vê a IA decidir, escolher a mensagem e "enviar", sem tocar em nenhum paciente real.' })]),
     botao('Ativar Modo simulação', 'pri', function () { if (D.modo === 'desligado' || window.confirm('Trocar para o Modo simulação? Enquanto estiver nele, a IA não trabalha nos leads reais.')) mgDefinirModo('simulacao'); }, 'bolt')
   ]);
-  return h('div', { class: 'mg-bloco' }, [cta, mgSimuladorReal(D)]);
+  return h('div', { class: 'mg-bloco' }, [cta]);
 }
 
 /* ------------------------------------------------------------------ histórico e última rodada */
