@@ -1,4 +1,4 @@
-import { diaDoInstante, diffDias, hojeDe, horaDe, somaDias, type Lead, type Tarefa, type Vista } from './motor.js';
+import { diaDoInstante, diffDias, ehConversaoAtiva, hojeDe, horaDe, somaDias, type Lead, type Tarefa, type Vista } from './motor.js';
 import type { Status } from './modelo.js';
 import { LIMITES, MENSAGENS } from './modelo.js';
 import { marcosDe, type Marcos } from './analise.js';
@@ -28,10 +28,11 @@ export function transicoes(l: Lead): Trans[] {
   for (const e of l.eventos) {
     const dia = diaDoInstante(e.quando);
     let s: Status | null = null;
-    if (e.tipo === 'etapa') s = /Em negociação/.test(e.texto) ? 'negociacao' : /Sem retorno/.test(e.texto) ? 'sem_retorno' : null;
+    // o card do Pipelines escreve a etapa em maiúsculas ("EM NEGOCIAÇÃO"): compara sem diferenciar maiúsculas
+    if (e.tipo === 'etapa') s = /negocia[cç][aã]o/i.test(e.texto) ? 'negociacao' : /sem retorno/i.test(e.texto) ? 'sem_retorno' : /^Acompanhou o funil/.test(e.texto) ? 'aberto' : null;
     else if (e.tipo === 'automacao' && /para Sem retorno/.test(e.texto)) s = 'sem_retorno';
     else if (e.tipo === 'agendamento') s = 'agendado';
-    else if (e.tipo === 'comparecimento') s = /^Compareceu/.test(e.texto) ? 'convertido_ativo' : 'negociacao';
+    else if (e.tipo === 'comparecimento') s = ehConversaoAtiva(e) ? 'convertido_ativo' : 'negociacao';
     else if (e.tipo === 'descarte') s = 'descarte';
     else if (e.tipo === 'recepcao') s = 'convertido_organico';
     if (s) out.push({ dia, status: s });
@@ -85,7 +86,7 @@ export function analisarTempo(leads: Lead[], agora: Date, per: Periodo | Janela,
         const wd = new Date(`${dia}T12:00:00Z`).getUTCDay();
         heat[wd][horaDe(new Date(e.quando)).h]++;
       } else if (e.tipo === 'agendamento') S.agendamentos[i]++;
-      else if (e.tipo === 'comparecimento' && /^Compareceu/.test(e.texto)) { S.convertidos[i]++; S.valorConv[i] += l.valor; ciclosPorPonto[i].push(diffDias(l.d0, dia)); }
+      else if (ehConversaoAtiva(e)) { S.convertidos[i]++; S.valorConv[i] += l.valor; ciclosPorPonto[i].push(diffDias(l.d0, dia)); }
       else if (e.tipo === 'descarte') { S.descartados[i]++; S.valorPerdido[i] += l.valor; }
       else if (e.tipo === 'recepcao') S.organicos[i]++;
     });

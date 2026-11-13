@@ -4,7 +4,8 @@
 import assert from 'node:assert/strict';
 import { analisarExecutivo, analisarTime, meuReport } from '../src/crm/executivo.js';
 import { gerarExemplos } from '../src/crm/exemplos.js';
-import { aplicar, criarLead, hojeDe, somaDias, tarefasDoDia, vistaDoLead, type Lead, type NovoLead } from '../src/crm/motor.js';
+import { analisarTempo, transicoes } from '../src/crm/tempo.js';
+import { acompanharCard, aplicar, criarLead, hojeDe, somaDias, tarefasDoDia, vistaDoLead, type Lead, type NovoLead } from '../src/crm/motor.js';
 
 let ok = 0;
 const teste = (nome: string, fn: () => void) => { try { fn(); ok++; console.log(`  ok  ${nome}`); } catch (e) { console.error(`FALHOU  ${nome}\n        ${(e as Error).message}`); process.exitCode = 1; } };
@@ -248,6 +249,28 @@ teste('exemplos do CRM: o time fecha com a visão executiva', () => {
   const t = time(demo, 30);
   assert.equal(t.totais.atual.receita, exec(demo, 30).kpis.receita.valor, 'receita do time = receita da visão executiva');
   assert.ok(t.equipe.length >= 2); assert.ok(t.funil[0].n >= t.funil[4].n);
+});
+
+
+console.log('Conversão feita no Pipelines (o lead só acompanha o card)');
+teste('card movido para Convertido ativo conta como conversão em todas as análises (Tempo, Visão executiva, Time e Meu Report)', () => {
+  const l = novo('Via Pipelines', dia(3), 700, { unidade: 'Guamá', atendente: 'Amanda' });
+  const antes = { time: time(TODOS).totais.atual, exec: exec(TODOS).kpis.receita, rep: report(TODOS, 'Amanda').atual, tempo: (() => { const c = ctx(TODOS); return analisarTempo(TODOS, AGORA, 14, c.tarefas, c.vistas).atual; })() };
+  assert.equal(acompanharCard(l, 'convertido_ativo', em(dia(1)), 'CONVERTIDO ATIVO'), true);
+  const c = ctx([...TODOS, l]);
+  // o evento que o card deixa NÃO começa com "Compareceu": é justamente o que as análises ignoravam
+  assert.ok(l.eventos.some((e) => e.tipo === 'comparecimento' && /^Acompanhou o funil/.test(e.texto)));
+  const depois = { time: time([...TODOS, l]).totais.atual, exec: exec([...TODOS, l]).kpis.receita, rep: report([...TODOS, l], 'Amanda').atual, tempo: analisarTempo([...TODOS, l], AGORA, 14, c.tarefas, c.vistas).atual };
+  assert.equal(depois.time.convertidos, antes.time.convertidos + 1); assert.equal(depois.time.receita, antes.time.receita + 700);
+  assert.equal(depois.exec.n, antes.exec.n + 1); assert.equal(depois.exec.valor, antes.exec.valor + 700);
+  assert.equal(depois.rep.convertidos, antes.rep.convertidos + 1); assert.equal(depois.rep.receita, antes.rep.receita + 700);
+  assert.equal(depois.tempo.convertidos, antes.tempo.convertidos + 1); assert.equal(depois.tempo.valorConvertido, antes.tempo.valorConvertido + 700);
+});
+teste('card movido para Em negociação (etapa em maiúsculas) é reconhecido na linha do tempo do lead', () => {
+  const l = novo('Neg', dia(5), 300, { unidade: 'Guamá', atendente: 'Amanda' });
+  assert.equal(acompanharCard(l, 'negociacao', em(dia(2)), 'EM NEGOCIAÇÃO'), true);
+  const tr = transicoes(l);
+  assert.equal(tr[tr.length - 1].status, 'negociacao');
 });
 
 console.log(`\n${ok} testes passaram${process.exitCode ? ', COM FALHAS' : ''}.`);

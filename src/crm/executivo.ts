@@ -1,4 +1,4 @@
-import { diaDoInstante, diffDias, hojeDe, horaDe, somaDias, type EventoLead, type Lead, type Tarefa, type Vista } from './motor.js';
+import { diaDoInstante, diffDias, ehConversaoAtiva, hojeDe, horaDe, somaDias, type EventoLead, type Lead, type Tarefa, type Vista } from './motor.js';
 import { LIMITES, MENSAGENS, type Status } from './modelo.js';
 import { marcosDe, type Marcos } from './analise.js';
 import { transicoes, type Periodo } from './tempo.js';
@@ -59,7 +59,7 @@ function casosNoShow(leads: Lead[], ini: string, fim: string): CasoNS[] {
     l.eventos.forEach((e, i) => { if (e.tipo === 'comparecimento' && /^No show/.test(e.texto) && dentro(diaDoInstante(e.quando), ini, fim)) idx = i; });
     if (idx < 0) continue;
     const dia = diaDoInstante(l.eventos[idx].quando), depois = l.eventos.slice(idx + 1);
-    const recuperado = depois.some((e) => e.tipo === 'comparecimento' && /^Compareceu/.test(e.texto));
+    const recuperado = depois.some((e) => ehConversaoAtiva(e));
     const perdido = !recuperado && (depois.some((e) => e.tipo === 'descarte') && l.status === 'descarte');
     const reagendou = !recuperado && !perdido && depois.some((e) => e.tipo === 'agendamento');
     const retomada = depois.some((e) => e.tipo === 'contato' && e.passo === 'noshow');

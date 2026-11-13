@@ -1,4 +1,4 @@
-import { diaDoInstante, diffDias, hojeDe, horaDe, somaDias, type EventoLead, type Lead, type Tarefa, type Vista } from './motor.js';
+import { diaDoInstante, diffDias, ehConversaoAtiva, hojeDe, horaDe, somaDias, type EventoLead, type Lead, type Tarefa, type Vista } from './motor.js';
 import { LIMITES, MENSAGENS } from './modelo.js';
 
 /**
@@ -27,7 +27,7 @@ export function marcosDe(l: Lead): Marcos {
     if (e.tipo === 'contato') m.contatado ??= d;
     else if (e.tipo === 'resposta') m.respondeu ??= d;
     else if (e.tipo === 'agendamento') m.agendou ??= d;
-    else if (e.tipo === 'comparecimento' && /^Compareceu/.test(e.texto)) m.compareceu = d;
+    else if (ehConversaoAtiva(e)) m.compareceu = d;
     else if (e.tipo === 'descarte') { m.descartou = d; m.motivo = /Motivo: ([^.]+)\./.exec(e.texto)?.[1] ?? 'Outro'; }
     else if (e.tipo === 'recepcao') m.organico = d;
   }
@@ -59,7 +59,7 @@ export function analisarHoje(leads: Lead[], agora: Date, tarefas: Tarefa[], vist
     if (e.tipo === 'contato') ativ.contatos[i]++;
     else if (e.tipo === 'resposta') ativ.respostas[i]++;
     else if (e.tipo === 'agendamento') ativ.agendamentos[i]++;
-    else if (e.tipo === 'comparecimento' && /^Compareceu/.test(e.texto)) ativ.convertidos[i]++;
+    else if (ehConversaoAtiva(e)) ativ.convertidos[i]++;
     else if (e.tipo === 'descarte') ativ.descartes[i]++;
   }
 

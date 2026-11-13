@@ -27,6 +27,13 @@ const DIA_OK = /^\d{4}-\d{2}-\d{2}$/;
 // ------------------------------------------------------------------------------------------------ tipos
 
 export type TipoEvento = 'criado' | 'contato' | 'resposta' | 'etapa' | 'agendamento' | 'retorno' | 'descarte' | 'nota' | 'automacao' | 'edicao' | 'recepcao' | 'comparecimento';
+/**
+ * Este evento é uma CONVERSÃO ATIVA (compareceu e pagou)? Vale o registro feito pelo guia ("Compareceu e pagou…") e também o do
+ * card do Pipelines: quando alguém move o card para "Convertido ativo", o lead acompanha e grava "Acompanhou o funil de
+ * Orçamentos…" como comparecimento. As análises precisam contar os dois, senão a conversão feita no Pipelines some dos números.
+ */
+export const ehConversaoAtiva = (e: { tipo: string; texto: string }) => e.tipo === 'comparecimento' && (/^Compareceu/.test(e.texto) || /^Acompanhou o funil/.test(e.texto));
+
 export type EventoLead = {
   id: string; quando: string; tipo: TipoEvento; texto: string; atendente?: string; canal?: Canal; msg?: number; passo?: string; fase?: string; auto?: boolean;
   /** resposta do paciente: o que ele quis dizer (agendar, valor_horario, duvida, sem_interesse, ja_fez, ainda_quer, reagendar, outro) e o id da mensagem na Inovstar (para não registrar duas vezes) */
