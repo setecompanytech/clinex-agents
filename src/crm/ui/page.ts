@@ -640,8 +640,9 @@ ${parte_abas}
 .mg-c{display:flex;flex-direction:column;gap:3px;padding:14px 16px;border-radius:16px;background:color-mix(in srgb,var(--bg) 70%,transparent);border:1px solid var(--line)}
 .mg-c small{font:700 10.5px ui-monospace,Consolas,monospace;letter-spacing:.1em;text-transform:uppercase;color:var(--mut)}.mg-c .mg-cn{font-size:30px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums}.mg-c span{font-size:12px;color:var(--mut)}.mg-c.quente .mg-cn{color:var(--mgc)}
 .mg-c-prog{flex-direction:row;flex-wrap:wrap;align-items:center;gap:4px 12px}.mg-c-prog small{width:100%}
-.mg-prog{--p:0;position:relative;width:62px;height:62px;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;background:conic-gradient(var(--mgc) calc(var(--p)*1%),var(--line) 0);flex:none}
-.mg-prog:before{content:"";position:absolute;inset:6px;border-radius:50%;background:var(--card)}.mg-prog b,.mg-prog small{position:relative;line-height:1.05}.mg-prog b{font-size:15px}.mg-prog small{font-size:9.5px!important;letter-spacing:0!important;text-transform:none!important}
+.mg-prog{--p:0;position:relative;width:78px;height:78px;display:grid;place-items:center;flex:none;text-align:center}
+.mg-prog:before{content:"";position:absolute;inset:0;border-radius:50%;background:conic-gradient(var(--mgc) calc(var(--p)*1%),color-mix(in srgb,var(--line2) 55%,transparent) 0);-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 7px),#000 calc(100% - 6px));mask:radial-gradient(farthest-side,transparent calc(100% - 7px),#000 calc(100% - 6px))}
+.mg-prog b{position:relative;display:block;font-size:19px;line-height:1;font-variant-numeric:tabular-nums}.mg-c .mg-prog small{position:relative;display:block;margin-top:3px;font:600 10.5px "Segoe UI",system-ui,sans-serif;letter-spacing:0;text-transform:none;color:var(--mut)}
 .mg-acoes{display:flex;gap:10px}
 .mg-sh{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:14px}.mg-sh h3{font-size:20px;letter-spacing:-.01em}.mg-sh p{color:var(--mut);font-size:13.5px;max-width:70ch;margin-top:3px}
 .mg-bloco{display:flex;flex-direction:column}

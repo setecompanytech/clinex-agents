@@ -70,7 +70,7 @@ function mgHero(D) {
   if (!D.disparo.ativo) avisos.push(h('span', { class: 'mg-av at', text: 'WhatsApp desligado neste ambiente (DISPARO_WHATSAPP)' }));
   else if (D.disparo.restrito) avisos.push(h('span', { class: 'mg-av at', text: 'Fase de testes: só números de teste recebem' }));
   var lim = D.hoje.limiteDia;
-  var anel = h('div', { class: 'mg-prog', style: '--p:' + Math.min(100, Math.round(D.hoje.enviadosIA / Math.max(1, lim) * 100)) }, [h('b', { text: nf0.format(D.hoje.enviadosIA) }), h('small', { text: 'de ' + nf0.format(lim) })]);
+  var anel = h('div', { class: 'mg-prog', style: '--p:' + Math.min(100, Math.round(D.hoje.enviadosIA / Math.max(1, lim) * 100)) }, [h('div', null, [h('b', { text: nf0.format(D.hoje.enviadosIA) }), h('small', { text: 'de ' + nf0.format(lim) })])]);
   return h('section', { class: 'mg-hero mg-sec', style: '--i:0' }, [
     h('div', { class: 'mg-part', 'aria-hidden': 'true' }, MG_PART.map(function (q) { return h('i', { style: 'left:' + q[0] + '%;top:' + q[1] + '%;animation-delay:' + q[2] + 's' }); })),
     h('div', { class: 'mg-hero-e' }, [orbe, seg]),
