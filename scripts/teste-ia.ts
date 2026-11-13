@@ -24,6 +24,8 @@ const CASOS: Record<string, string[]> = {
   sangue: ['quero fazer exame de sangue', 'hemograma, glicose e colesterol total', 'quero agendar a coleta'],
   preco: ['quanto custa a consulta com cardiologista?', 'e qual o endereço do guamá?'],
   resultado: ['quero saber o resultado do meu exame de ontem'],
+  cardio2: ['quais combos de cardio vocês têm?', 'Cardio 2 teste ergométrico'],
+  cardio2b: ['quero o cardio 2 com teste ergometrico'],
   fem2: ['quero o combo feminino 1', 'guamá', 'o primeiro', 'Josy Teste Fonseca 17/02/1980, pode ser esse número', 'sim, correto', 'feminino', 'dinheiro', 'sim', 'o primeiro', 'sim', 'o primeiro', 'obrigada, só isso'],
   cardio: ['quero o combo cardio 1', 'guamá', 'o primeiro', 'Carlos Teste Lima 03/03/1970, pode ser esse número', 'sim, correto', 'masculino', 'dinheiro', 'sim'],
   comboTodo: ['quero fazer o combo feminino 1', 'guamá', 'o primeiro horário', 'Josy Teste Fonseca 17/02/1980, pode ser esse número', 'sim, está certo', 'feminino', 'dinheiro', 'sim, vamos agendar a próxima etapa', 'o primeiro', 'dinheiro também', 'sim, a próxima', 'o primeiro', 'dinheiro', 'sim', 'pode ser o primeiro', 'dinheiro', 'só isso, obrigada'],
