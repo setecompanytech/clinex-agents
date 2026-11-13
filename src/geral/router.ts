@@ -115,7 +115,17 @@ const paginaAssistente = paginaModulo({
   titulo: 'Agente Clinex', modulo: 'geral', ativo: 'assistente', css: assistenteCss, agente: false, scripts: ['/painel/assistente.js'],
   main: '<main id="main" class="tela"><p class="mut">Carregando…</p></main>',
 });
-router.get('/assistente', painelAuth, exigirModulo('crm'), (_req, res) => { res.setHeader('Content-Security-Policy', DS_CSP); res.type('text/html; charset=utf-8').send(paginaAssistente); });
+// o chat toca a voz (áudio blob:) e mostra os painéis dos artefatos num quadro isolado (frame-src 'self')
+const CSP_ASSISTENTE = DS_CSP + "; frame-src 'self'; media-src 'self' blob:";
+router.get('/assistente', painelAuth, exigirModulo('crm'), (_req, res) => { res.setHeader('Content-Security-Policy', CSP_ASSISTENTE); res.type('text/html; charset=utf-8').send(paginaAssistente); });
+/**
+ * Casca dos painéis interativos que o chat cria. O HTML do painel (escrito pelo modelo) chega por postMessage e roda DENTRO de um
+ * iframe sandbox sem same-origin (sem cookies, sem acesso ao painel) e com uma CSP própria: sem rede (connect-src 'none'), imagens
+ * só data:, scripts só inline ou do cdnjs. A CSP da casca é a do documento, então vale também para o que for escrito nele.
+ */
+const CSP_PAINEL = "default-src 'none'; script-src 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'self'";
+const CASCA_PAINEL = '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;height:100%;font-family:system-ui,sans-serif}.c{display:grid;place-items:center;height:100%;color:#7a869a;font-size:14px}</style></head><body><div class="c">Montando o painel…</div><script>window.addEventListener("message",function(e){if(e.source!==window.parent||!e.data||typeof e.data.html!=="string")return;document.open();document.write(e.data.html);document.close();},{once:true});</script></body></html>';
+router.get('/assistente/painel', painelAuth, exigirModulo('crm'), (_req, res) => { res.setHeader('Content-Security-Policy', CSP_PAINEL); res.setHeader('Cache-Control', 'no-store'); res.type('text/html; charset=utf-8').send(CASCA_PAINEL); });
 router.get('/assistente.js', painelAuth, exigirModulo('crm'), (_req, res) => js(res, assistenteJs));
 router.get('/', painelAuth, (_req, res) => { res.setHeader('Content-Security-Policy', DS_CSP); res.type('text/html; charset=utf-8').send(paginaGeral); });
 router.get('/usuarios', painelAuth, exigirAdmin, (_req, res) => { res.setHeader('Content-Security-Policy', DS_CSP); res.type('text/html; charset=utf-8').send(paginaUsuarios); });

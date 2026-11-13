@@ -4,7 +4,9 @@
  * cartões que reagem ao mouse e resposta que aparece palavra por palavra. Dentro dos textos de JS não usar crases nem "dollar-chave".
  */
 
-export const assistenteCss = `
+import { assistenteExtrasCss, assistenteExtrasJs } from './assistente-extras.js';
+
+const baseCss = `
 main#main{max-width:none;margin:0;padding:0;height:calc(100vh - 62px);display:block}
 .as-wrap{display:grid;grid-template-columns:272px minmax(0,1fr);height:100%;min-height:0}
 .as-lado{display:flex;flex-direction:column;gap:12px;min-height:0;padding:16px 12px;border-right:1px solid var(--line);background:color-mix(in srgb,var(--solid) 70%,transparent)}
@@ -126,16 +128,16 @@ main#main{max-width:none;margin:0;padding:0;height:calc(100vh - 62px);display:bl
 @media print{.as-lado,.as-comp,.as-fundo{display:none}}
 `;
 
-export const assistenteJs = String.raw`(function () {
+const baseJs = String.raw`(function () {
   var raiz = document.getElementById('main');
   var CHAVE = 'clinex-assistente-v1';
   var SUG = [
     ['O que eu faço agora?', 'A fila do dia, na ordem de prioridade', 'bolt'], ['Quais tarefas estão atrasadas?', 'O que já passou do prazo', 'clock'],
     ['Como está a conversão?', 'Números do funil e do período', 'chart'], ['Quais os leads de maior valor em aberto?', 'Onde está o dinheiro agora', 'users'],
-    ['Quais as regras de ouro?', 'O que o sistema cobra de cada contato', 'shield'], ['Qual o limite de tentativas por dia?', 'Janela de horário e tentativas', 'calendar']
+    ['Monte uma planilha dos leads atrasados', 'Sai pronta para abrir no Excel', 'tabela'], ['Faça um relatório da semana', 'Documento pronto, com os números reais', 'doc']
   ];
   var FRASES = ['Como posso ajudar hoje?', 'Pergunte sobre leads, tarefas e conversão.', 'Peça o resumo do seu dia.', 'Descubra onde está o dinheiro parado.', 'Tire dúvidas sobre as regras de ouro.'];
-  var DICAS = ['Pergunte qualquer coisa sobre o CRM…', 'Ex.: quais leads estão atrasados?', 'Ex.: como está a conversão?', 'Ex.: o que eu faço agora?'];
+  var DICAS = ['Pergunte qualquer coisa sobre o CRM…', 'Ex.: quais leads estão atrasados?', 'Ex.: como está a conversão?', 'Ex.: o que eu faço agora?', 'Ex.: crie uma planilha, um relatório ou um painel', 'Ex.: registre um contato, abra o IA Manager'];
   var calmo = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
   var E = { conversas: [], atual: null, enviando: false, nome: '', master: true, alertas: [], ia: false, revelar: null };
   try { E.conversas = JSON.parse(lerLS(CHAVE) || '[]') || []; } catch (e) { E.conversas = []; }
@@ -182,11 +184,14 @@ export const assistenteJs = String.raw`(function () {
     if (m.itens && m.itens.length) corpo.appendChild(depois(h('div', { class: 'as-itens' }, m.itens.map(function (i) {
       return h('a', { class: 'as-lead', href: '/painel/crm#leads/lead-' + encodeURIComponent(i.leadId) }, [h('span', null, [h('b', { text: i.titulo || 'Lead' }), h('small', { text: i.sub || '' })]), i.tag ? h('em', { text: i.tag }) : null, ico('arrow', 14)]);
     }))));
+    cartoesAcao(m, corpo, depois); cartoesArtefato(m, corpo, depois);
+    if (m.navegar) corpo.appendChild(depois(botaoNavegar(m.navegar), 0.25));
+    var ouvirBtn = h('button', { type: 'button', class: 'as-ic', title: 'Ouvir a resposta', onclick: function (ev) { var b = ev.currentTarget; if (b.classList.contains('falando')) { pararFala(); return; } pararFala(); b.classList.add('falando'); falarTexto(m.texto).then(function () { b.classList.remove('falando'); }); } }, [ico('volume', 14), 'Ouvir']);
     var copiar = h('button', { type: 'button', class: 'as-ic', title: 'Copiar a resposta', onclick: function () {
       var done = function () { aviso('Resposta copiada.', 'ok'); };
       if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(String(m.texto).replace(/\*\*/g, '')).then(done, function () {}); else done();
     } }, [ico('copy', 14), 'Copiar']);
-    corpo.appendChild(depois(h('div', { class: 'as-acoes' }, copiar), 0.1));
+    if (!m.sistema) corpo.appendChild(depois(h('div', { class: 'as-acoes' }, [copiar, ouvirBtn]), 0.1));
     if (ultima && m.sugestoes && m.sugestoes.length) corpo.appendChild(depois(h('div', { class: 'as-sug' }, m.sugestoes.map(function (s) { return h('button', { type: 'button', class: 'as-chip', text: s, onclick: function () { perguntar(s); } }); })), 0.2));
     if (est) acompanhar(atraso + 0.6);
     return h('div', { class: 'as-m ag' }, [h('span', { class: 'as-av' }, ico('spark', 18)), corpo]);
@@ -222,6 +227,7 @@ export const assistenteJs = String.raw`(function () {
     var frase = h('p');
     var logo = h('span', { class: 'as-logo' }, [h('span', { class: 'as-orbita' }, [h('i'), h('i'), h('i')]), ico('spark', 32)]);
     var box = h('div', { class: 'as-ini' }, [logo, h('h2', { text: saudacao() + nome + '!' }), frase, h('div', { class: 'as-cards' }, cards)]);
+    var np = notaPermissoes(); if (np) box.appendChild(np);
     setTimeout(function () { digitar(frase); }, 500);
     return box;
   }
@@ -260,29 +266,39 @@ export const assistenteJs = String.raw`(function () {
 
   function nova() { E.atual = null; el.wrap.classList.remove('abre'); desenhar(); setTimeout(function () { el.campo.focus(); }, 30); }
 
-  function perguntar(texto) {
+  function perguntar(texto, opc) {
+    opc = opc || {};
     texto = String(texto || '').trim();
-    if (!texto || E.enviando) return;
+    if (!texto || E.enviando) return Promise.resolve(null);
+    pararFala();
     var c = conversa();
     if (!c) { c = { id: 'c' + Date.now().toString(36), titulo: texto.length > 42 ? texto.slice(0, 42) + '…' : texto, msgs: [] }; E.conversas.unshift(c); E.atual = c.id; }
-    var historico = c.msgs.slice(-8).map(function (m) { return { papel: m.papel, texto: m.texto }; });
+    var historico = c.msgs.slice(-10).map(function (m) { return { papel: m.papel, texto: m.texto }; });
     c.msgs.push({ papel: 'user', texto: texto });
-    el.campo.value = ''; ajustar(); E.enviando = true; el.env.disabled = true; salvar(); desenhar();
+    el.campo.value = ''; ajustar(); E.enviando = true; el.env.disabled = true; salvar();
+    if (!E.cv) desenhar();
     var comeco = Date.now();
-    chamar('POST', '/painel/crm/api/agente', { pergunta: texto, eu: E.master ? '' : E.nome, historico: historico }).then(function (r) {
-      return { papel: 'agent', texto: r.texto, itens: r.itens, sugestoes: r.sugestoes };
+    return chamar('POST', '/painel/crm/api/agente/chat', { pergunta: texto, historico: historico, voz: !!opc.porVoz || E.falar }).then(function (r) {
+      return { papel: 'agent', texto: r.texto, itens: r.itens, sugestoes: r.sugestoes, acoes: (r.acoes || []).map(function (a) { a.estado = 'pendente'; return a; }), artefatos: r.artefatos, navegar: r.navegar };
     }).catch(function (e) {
       return { papel: 'agent', texto: 'Não consegui responder agora: ' + e.message, sugestoes: ['Tentar de novo'] };
     }).then(function (resp) {
       // um respiro mínimo para a animação de "pensando" ser vista, mesmo quando a resposta é instantânea
-      setTimeout(function () {
-        c.msgs.push(resp); E.revelar = resp; E.enviando = false; el.env.disabled = false; salvar(); desenhar(); el.campo.focus();
-      }, calmo ? 0 : Math.max(0, 900 - (Date.now() - comeco)));
+      return new Promise(function (resolve) {
+        setTimeout(function () {
+          c.msgs.push(resp); E.revelar = opc.conversa ? null : resp; E.enviando = false; el.env.disabled = false; salvar();
+          if (!E.cv) { desenhar(); el.campo.focus(); }
+          if (E.falar && !opc.conversa) falarTexto(resp.texto);
+          resolve({ resp: resp });
+        }, (calmo || opc.conversa) ? 0 : Math.max(0, 900 - (Date.now() - comeco)));
+      });
     });
   }
   function ajustar() { el.campo.style.height = 'auto'; el.campo.style.height = Math.min(el.campo.scrollHeight, 200) + 'px'; el.env.classList.toggle('pronto', !!el.campo.value.trim() && !E.enviando); }
 
+/*@@EXTRAS@@*/
   /* ---- montagem */
+  var mic = criarMic();
   el.hist = h('div', { class: 'as-hist' });
   el.titulo = h('h1', { text: 'Nova conversa' }); el.status = h('small', { text: 'Conectando…' });
   el.col = h('div', { class: 'as-col', role: 'log', 'aria-live': 'polite' });
@@ -304,11 +320,13 @@ export const assistenteJs = String.raw`(function () {
       el.fundo,
       h('header', { class: 'as-topo' }, [
         h('button', { type: 'button', class: 'as-menu', 'aria-label': 'Conversas', onclick: function () { el.wrap.classList.toggle('abre'); } }, ico('list', 18)),
-        h('div', null, [el.titulo, el.status])
+        h('div', null, [el.titulo, el.status]),
+        criarTopoAc()
       ]),
       el.msgs,
       h('div', { class: 'as-comp' }, [
-        h('div', { class: 'as-caixa' }, [el.campo, el.env]),
+        mic.barra,
+        h('div', { class: 'as-caixa' }, [el.campo, mic.btn, el.env]),
         h('p', { class: 'as-nota', text: 'Enter envia · Shift+Enter quebra a linha. As respostas usam os dados reais do CRM.' })
       ])
     ])
@@ -319,7 +337,7 @@ export const assistenteJs = String.raw`(function () {
   // a dica do campo troca de tempos em tempos enquanto ele está vazio
   var di = 0; setInterval(function () { if (!el.campo.value && document.activeElement !== el.campo) { di = (di + 1) % DICAS.length; el.campo.placeholder = DICAS[di]; } }, 4000);
 
-  var faltam = 2, liberado = false;
+  var faltam = 3, liberado = false;
   function liberar() {
     if (liberado) return; liberado = true; E.pronto = true;
     var c = conversa();
@@ -329,6 +347,10 @@ export const assistenteJs = String.raw`(function () {
   setTimeout(liberar, 1500); // não prende a tela se algo demorar
   function souEu(eu) { E.master = !!eu.master; E.nome = eu.nome || ''; um(); }
   if (window.EU) souEu(window.EU); else document.addEventListener('clinex-eu', function (ev) { souEu(ev.detail); }, { once: true });
+  carregarCapacidades().then(function () { um(); });
   chamar('GET', '/painel/crm/api/agente/alertas').then(function (r) { E.ia = !!r.ia; E.alertas = r.alertas || []; um(); }).catch(function () { el.status.textContent = 'Sem conexão com o CRM'; um(); });
 })();
 `;
+
+export const assistenteCss = baseCss + assistenteExtrasCss;
+export const assistenteJs = baseJs.replace('/*@@EXTRAS@@*/', () => assistenteExtrasJs);
