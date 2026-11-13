@@ -27,6 +27,9 @@ const DIA_OK = /^\d{4}-\d{2}-\d{2}$/;
 // ------------------------------------------------------------------------------------------------ tipos
 
 export type TipoEvento = 'criado' | 'contato' | 'resposta' | 'etapa' | 'agendamento' | 'retorno' | 'descarte' | 'nota' | 'automacao' | 'edicao' | 'recepcao' | 'comparecimento';
+/** Evento que o lead grava só para acompanhar um card movido no Pipelines: quem fez o movimento é contado pelo histórico do card, não por este evento. */
+export const ehEspelho = (e: { auto?: boolean; texto: string }) => e.auto === true && /^Acompanhou o funil/.test(e.texto);
+
 /**
  * Este evento é uma CONVERSÃO ATIVA (compareceu e pagou)? Vale o registro feito pelo guia ("Compareceu e pagou…") e também o do
  * card do Pipelines: quando alguém move o card para "Convertido ativo", o lead acompanha e grava "Acompanhou o funil de

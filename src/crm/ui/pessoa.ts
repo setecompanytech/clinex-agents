@@ -2,8 +2,8 @@
 // Dados de /painel/crm/api/pessoa (detalhePessoa em src/crm/executivo.ts).
 // Dentro dele não usar crases nem "dollar-chave".
 export const pessoaUi = String.raw`
-var PS_TIPO = { contato: 'Contato', resposta: 'Resposta', agendamento: 'Agendamento', retorno: 'Retorno', descarte: 'Descarte', comparecimento: 'Comparecimento', recepcao: 'Recepção', etapa: 'Mudança de etapa', nota: 'Anotação' };
-var PS_COR_TIPO = { contato: 'var(--g6)', resposta: 'var(--g1)', agendamento: 'var(--g2)', retorno: 'var(--g4)', descarte: 'var(--bad)', comparecimento: 'var(--g3)', recepcao: 'var(--g3)', etapa: 'var(--g5)', nota: 'var(--mut)' };
+var PS_TIPO = { contato: 'Contato', resposta: 'Resposta', agendamento: 'Agendamento', retorno: 'Retorno', descarte: 'Descarte', comparecimento: 'Comparecimento', recepcao: 'Recepção', etapa: 'Mudança de etapa', nota: 'Anotação', card: 'Movimento no Pipelines' };
+var PS_COR_TIPO = { contato: 'var(--g6)', resposta: 'var(--g1)', agendamento: 'var(--g2)', retorno: 'var(--g4)', descarte: 'var(--bad)', comparecimento: 'var(--g3)', recepcao: 'var(--g3)', etapa: 'var(--g5)', nota: 'var(--mut)', card: 'var(--cy)' };
 
 function abrirPessoa(nome) {
   var m = modal({
@@ -29,7 +29,7 @@ function psTabela(cols, linhas, aoClicar) {
 
 function corpoPessoa(P, nome, m) {
   var a = P.atual, p = P.anterior, s = P.series, md = P.media, rk = P.ranking;
-  var irLead = function (l) { m.fechar(); abrirLead(l.leadId); };
+  var irLead = function (l) { m.fechar(); if (l.cardId && !l.leadId) fvAbrirCard(l.cardId); else abrirLead(l.leadId); };
   var vs = function (v, ant, o) { return dltP(v, ant, o); };
   var out = [];
 
@@ -40,9 +40,38 @@ function corpoPessoa(P, nome, m) {
   });
   chips.push(psChip('Dono de ' + P.donoDeLeads + ' ' + plural(P.donoDeLeads, 'lead', 'leads')));
   chips.push(psChip('Carteira: ' + P.carteira.n + ' ' + plural(P.carteira.n, 'lead', 'leads') + ' · ' + brlCompacto(P.carteira.valor)));
+  if (P.pipeline && P.pipeline.movimentos) chips.push(psChip(P.pipeline.movimentos + ' ' + plural(P.pipeline.movimentos, 'movimento', 'movimentos') + ' no Pipelines', ''));
+  if (P.pipeline && P.pipeline.recuperados) chips.push(psChip(P.pipeline.recuperados + ' ' + plural(P.pipeline.recuperados, 'no-show recuperado', 'no-shows recuperados') + ' · ' + brl(P.pipeline.valorRecuperado), 'ok'));
   if (P.carteira.atrasadas) chips.push(psChip(P.carteira.atrasadas + ' ' + plural(P.carteira.atrasadas, 'passo atrasado', 'passos atrasados'), 'ruim'));
   if (P.carteira.foraDoLimite) chips.push(psChip(P.carteira.foraDoLimite + ' fora do limite de dias', 'ruim'));
   out.push(h('div', { class: 'ps-chips' }, chips));
+
+  // quem só trabalha o Pipelines (ex.: só o No-show) não tem lead nem contato: o modal mostra o que ela faz, sem blocos vazios
+  var soPipe = P.donoDeLeads === 0 && a.contatos === 0 && a.respostas === 0 && P.pipeline && P.pipeline.movimentos > 0;
+  if (soPipe) {
+    var pp = P.pipeline, taxa = pp.noshowTrabalhados ? Math.round(pp.recuperados / pp.noshowTrabalhados * 1000) / 10 : null, ativosDias = P.movimentos.serie.filter(function (x) { return x > 0; }).length;
+    var maxPD0 = Math.max.apply(null, pp.porDestino.map(function (x) { return x.n; }).concat([1]));
+    out.push(h('div', { class: 'kpis2 seis' }, [
+      kpi2({ rotulo: 'Cards movidos', valor: nf0.format(pp.movimentos), sub: 'no Pipelines', serie: P.movimentos.serie, cor: 'var(--cy)' }),
+      kpi2({ rotulo: 'No-shows trabalhados', valor: nf0.format(pp.noshowTrabalhados), sub: 'cards diferentes' }),
+      kpi2({ rotulo: 'No-shows recuperados', valor: nf0.format(pp.recuperados), sub: 'levados para Recuperado', cor: COR.convertidos }),
+      kpi2({ rotulo: 'Valor recuperado', valor: brlCompacto(pp.valorRecuperado), sub: brl(pp.valorRecuperado) }),
+      kpi2({ rotulo: 'Taxa de recuperação', valor: taxa === null ? '–' : pct(taxa), sub: 'recuperados ÷ trabalhados' }),
+      kpi2({ rotulo: 'Dias com movimento', valor: String(ativosDias), sub: 'de ' + P.dias + ' no período' })
+    ]));
+    out.push(h('div', { class: 'g12' }, [
+      blocoCartao('Para onde moveu', pp.movimentos + ' ' + plural(pp.movimentos, 'card movido', 'cards movidos') + ' por ' + nome.split(' ')[0] + ', por coluna de destino.', barras(pp.porDestino.map(function (x) { return { rotulo: x.destino, valor: x.n, texto: String(x.n), cor: /Recuperado|Convertido/i.test(x.destino) ? 'var(--g3)' : /Perdido|Descart/i.test(x.destino) ? 'var(--bad)' : 'var(--cy)' }; }), { max: maxPD0 }), 5),
+      blocoCartao('Movimentos ao longo do tempo', 'Cards movidos ' + (P.semanal ? 'por semana' : 'por dia') + '.', composto({ rotulos: P.rotulos, titulos: P.titulos, altura: 210, aria: 'Cards movidos ao longo do tempo', colunas: [{ nome: 'Cards movidos', cor: 'var(--cy)', valores: P.movimentos.serie }], linhas: [] }), 7)
+    ]));
+    out.push(blocoCartao('Atividade recente', 'Os ' + P.atividade.length + ' movimentos mais recentes de ' + P.atividadeTotal + ' no período. Clique para abrir o card.', h('div', { class: 'ps-linha' }, P.atividade.map(function (e) {
+      return h('button', { type: 'button', class: 'ps-ev', onclick: function () { irLead({ leadId: e.leadId, cardId: e.cardId }); } }, [
+        h('i', { class: 'ps-pt', style: 'background:' + (PS_COR_TIPO[e.tipo] || 'var(--g1)'), 'aria-hidden': 'true' }),
+        h('div', { class: 'ps-ev-c' }, [h('div', { class: 'ps-ev-t' }, [h('b', { text: e.lead }), h('span', { class: 'mut peq', text: PS_TIPO[e.tipo] + ' · ' + qDiaHora(e.quando) })]), h('p', { text: e.texto })])
+      ]);
+    })), 12));
+    out.push(h('div', { class: 'linha-b ps-rodape' }, [botao('Fechar', '', function () { m.fechar(); })]));
+    return out;
+  }
 
   out.push(h('div', { class: 'kpis2 seis' }, [
     kpi2({ rotulo: 'Receita convertida', valor: brlCompacto(a.receita), delta: vs(a.receita, p.receita, { bom: 'sobe' }), sub: md.receita !== null && md.receita !== undefined ? 'média do time ' + brlCompacto(md.receita) : null, serie: s.receita, cor: COR.convertidos }),
@@ -77,6 +106,12 @@ function corpoPessoa(P, nome, m) {
     blocoCartao('Carteira por etapa', 'Leads ativos de ' + nome.split(' ')[0] + ' agora, em cada etapa.', barras(P.carteira.porEtapa.map(function (x, i) { return { rotulo: x.etapa, valor: x.n, texto: x.n + ' · ' + brlCompacto(x.valor), cor: CORES_CAT[i % CORES_CAT.length] }; }), { max: maxEt, vazio: 'Nenhum lead ativo.' }), 7)
   ]));
 
+  // ---- o que moveu no Pipelines (card a card): inclui o No-show, que não tem lead
+  if (P.pipeline && P.pipeline.movimentos) {
+    var maxPD = Math.max.apply(null, P.pipeline.porDestino.map(function (x) { return x.n; }).concat([1]));
+    out.push(blocoCartao('Movimentos no Pipelines', P.pipeline.movimentos + ' ' + plural(P.pipeline.movimentos, 'card movido', 'cards movidos') + ' por ' + nome.split(' ')[0] + ' no período, por coluna de destino.', barras(P.pipeline.porDestino.map(function (x) { return { rotulo: x.destino, valor: x.n, texto: String(x.n), cor: /Recuperado|Convertido/i.test(x.destino) ? 'var(--g3)' : /Perdido|Descart/i.test(x.destino) ? 'var(--bad)' : 'var(--cy)' }; }), { max: maxPD, vazio: 'Nenhum movimento.' }), 12));
+  }
+
   // ---- mensagens, no-show e descartes
   var maxMs = Math.max.apply(null, P.mensagens.map(function (x) { return x.enviadas; }).concat([1])), maxD = Math.max.apply(null, P.descartes.map(function (x) { return x.n; }).concat([1]));
   var ns = P.noshow;
@@ -95,7 +130,7 @@ function corpoPessoa(P, nome, m) {
   }), irLead) : vazio('Sem leads ativos.'), 12));
 
   out.push(blocoCartao('Atividade recente', P.atividadeTotal ? 'Os ' + P.atividade.length + ' movimentos mais recentes de ' + P.atividadeTotal + ' no período. Clique para abrir o lead.' : 'Nenhum movimento no período.', P.atividade.length ? h('div', { class: 'ps-linha' }, P.atividade.map(function (e) {
-    var b = h('button', { type: 'button', class: 'ps-ev', onclick: function () { irLead({ leadId: e.leadId }); } }, [
+    var b = h('button', { type: 'button', class: 'ps-ev', onclick: function () { irLead({ leadId: e.leadId, cardId: e.cardId }); } }, [
       h('i', { class: 'ps-pt', style: 'background:' + (PS_COR_TIPO[e.tipo] || 'var(--g1)'), 'aria-hidden': 'true' }),
       h('div', { class: 'ps-ev-c' }, [h('div', { class: 'ps-ev-t' }, [h('b', { text: e.lead }), h('span', { class: 'mut peq', text: PS_TIPO[e.tipo] + ' · ' + qDiaHora(e.quando) + (e.auto ? ' · automático' : '') })]), h('p', { text: e.texto })])
     ]);

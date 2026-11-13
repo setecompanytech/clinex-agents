@@ -93,7 +93,7 @@ router.get('/executivo', (req, res) => {
   automatizarTodos(agora);
   const tarefas = tarefasDoDia(estado.leads, agora);
   const vistas = new Map(estado.leads.map((l) => [l.id, vistaDoLead(l, agora)]));
-  res.json(analisarExecutivo(estado.leads, agora, periodo, unidade, tarefas, vistas));
+  res.json(analisarExecutivo(estado.leads, agora, periodo, unidade, tarefas, vistas, estado.pipelines));
 });
 
 /** Meu Report: performance individual de um responsável, pronta para a diretoria */
@@ -105,7 +105,7 @@ router.get('/pessoa', (req, res) => {
   automatizarTodos(agora);
   const tarefas = tarefasDoDia(estado.leads, agora);
   const vistas = new Map(estado.leads.map((l) => [l.id, vistaDoLead(l, agora)]));
-  res.json(detalhePessoa(estado.leads, agora, periodo, nome, tarefas, vistas));
+  res.json(detalhePessoa(estado.leads, agora, periodo, nome, tarefas, vistas, estado.pipelines));
 });
 
 /** Time: todos os vendedores lado a lado (performance, volume, vendas e atendimento ao longo do tempo) */
@@ -115,7 +115,7 @@ router.get('/time', (req, res) => {
   automatizarTodos(agora);
   const tarefas = tarefasDoDia(estado.leads, agora);
   const vistas = new Map(estado.leads.map((l) => [l.id, vistaDoLead(l, agora)]));
-  res.json(analisarTime(estado.leads, agora, periodo, tarefas, vistas));
+  res.json(analisarTime(estado.leads, agora, periodo, tarefas, vistas, estado.pipelines));
 });
 
 router.get('/meu-report', (req, res) => {

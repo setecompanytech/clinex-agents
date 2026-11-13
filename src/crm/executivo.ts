@@ -1,4 +1,6 @@
-import { diaDoInstante, diffDias, ehConversaoAtiva, hojeDe, horaDe, somaDias, type EventoLead, type Lead, type Tarefa, type Vista } from './motor.js';
+import { movimentosDeCards, resumoPorPessoa } from './pipeline/atividade.js';
+import type { EstadoFunis } from './pipeline/tipos.js';
+import { diaDoInstante, diffDias, ehConversaoAtiva, ehEspelho, hojeDe, horaDe, somaDias, type EventoLead, type Lead, type Tarefa, type Vista } from './motor.js';
 import { LIMITES, MENSAGENS, type Status } from './modelo.js';
 import { marcosDe, type Marcos } from './analise.js';
 import { transicoes, type Periodo } from './tempo.js';
@@ -72,7 +74,7 @@ function casosNoShow(leads: Lead[], ini: string, fim: string): CasoNS[] {
 // ------------------------------------------------------------------------------------------------ visão executiva
 export type Alerta = { nivel: 'risco' | 'atencao' | 'info'; tag: string; titulo: string; texto: string; acao: string; leadIds?: string[]; valor?: number };
 
-export function analisarExecutivo(todos: Lead[], agora: Date, per: Periodo | Janela, unidade: string | null, tarefas: Tarefa[], vistas: Map<string, Vista>) {
+export function analisarExecutivo(todos: Lead[], agora: Date, per: Periodo | Janela, unidade: string | null, tarefas: Tarefa[], vistas: Map<string, Vista>, pl?: EstadoFunis) {
   const J = janela(per, agora), dias = J.dias, hoje = J.ate, ini = J.de, ini0 = somaDias(ini, -dias), fim0 = somaDias(ini, -1), hojeReal = hojeDe(agora);
   const unidades = [...new Set(todos.map(un))].sort();
   const L = unidade ? todos.filter((l) => un(l) === unidade) : todos;
@@ -232,16 +234,25 @@ export function analisarExecutivo(todos: Lead[], agora: Date, per: Periodo | Jan
 
   // ---- atividade por login
   const nomes = new Set<string>(L.map(dono));
-  const mov = new Map<string, { movimentos: number; contatos: number; respostas: number; agendamentos: number }>();
+  type Mov = { movimentos: number; contatos: number; respostas: number; agendamentos: number; pipeline: number; noshowRecuperados: number; valorRecuperado: number };
+  const novoMov = (): Mov => ({ movimentos: 0, contatos: 0, respostas: 0, agendamentos: 0, pipeline: 0, noshowRecuperados: 0, valorRecuperado: 0 });
+  const mov = new Map<string, Mov>();
   const TIPOS_MOV = ['contato', 'resposta', 'agendamento', 'retorno', 'descarte', 'comparecimento', 'recepcao', 'nota'];
   for (const l of L) for (const e of l.eventos) {
     if (!TIPOS_MOV.includes(e.tipo) || !dentro(diaDoInstante(e.quando), ini, hoje)) continue;
+    if (pl && ehEspelho(e)) continue; // o movimento do card é contado abaixo, com o nome de quem moveu
     const q = quem(e, l); nomes.add(q);
-    const x = mov.get(q) ?? { movimentos: 0, contatos: 0, respostas: 0, agendamentos: 0 }; x.movimentos++;
+    const x = mov.get(q) ?? novoMov(); x.movimentos++;
     if (e.tipo === 'contato') x.contatos++; else if (e.tipo === 'resposta') x.respostas++; else if (e.tipo === 'agendamento') x.agendamentos++;
     mov.set(q, x);
   }
-  const atividade = [...nomes].map((nome) => ({ nome, ...(mov.get(nome) ?? { movimentos: 0, contatos: 0, respostas: 0, agendamentos: 0 }), receita: soma([...g.ativo, ...g.org].filter((l) => dono(l) === nome).map((l) => l.valor)) })).sort((a, b) => b.movimentos - a.movimentos);
+  // movimentos de cards do Pipelines (o funil de No-show não tem lead: quem trabalha só nele só aparece aqui)
+  if (pl) for (const c of movimentosDeCards(pl, ini, hoje, unidade)) {
+    nomes.add(c.por); const x = mov.get(c.por) ?? novoMov(); x.movimentos++; x.pipeline++;
+    if (c.dimensao === 'agendamento' && c.classe === 'recuperado') { x.noshowRecuperados++; x.valorRecuperado += c.valor; }
+    mov.set(c.por, x);
+  }
+  const atividade = [...nomes].map((nome) => ({ nome, ...(mov.get(nome) ?? novoMov()), receita: soma([...g.ativo, ...g.org].filter((l) => dono(l) === nome).map((l) => l.valor)) })).sort((a, b) => b.movimentos - a.movimentos);
 
   return {
     dias, hoje, ini, de: ini, ate: hoje, unidade, unidades,
@@ -272,7 +283,7 @@ export function meuReport(todos: Lead[], agora: Date, per: Periodo | Janela, nom
   const metricas = (n: string, a: string, b: string) => {
     const meus = todos.filter((l) => dono(l) === n);
     let contatos = 0, respostas = 0, agend = 0;
-    for (const l of todos) for (const e of l.eventos) { if (quem(e, l) !== n) continue; const d = diaDoInstante(e.quando); if (d < a || d > b) continue; if (e.tipo === 'contato') contatos++; else if (e.tipo === 'resposta') respostas++; else if (e.tipo === 'agendamento') agend++; }
+    for (const l of todos) for (const e of l.eventos) { if (quem(e, l) !== n || ehEspelho(e)) continue; const d = diaDoInstante(e.quando); if (d < a || d > b) continue; if (e.tipo === 'contato') contatos++; else if (e.tipo === 'resposta') respostas++; else if (e.tipo === 'agendamento') agend++; }
     const ganhos = meus.filter((l) => dentro(diaGanho(l), a, b));
     const recebidos = meus.filter((l) => l.d0 >= a && l.d0 <= b);
     const ciclos = ganhos.map((l) => diffDias(l.d0, diaGanho(l)!));
@@ -378,11 +389,13 @@ export type MeuReport = ReturnType<typeof meuReport>;
  * tempo, mais o total do time, a IA de disparo à parte e o funil do período. Mesmas regras do "Meu Report" (atividade = o que a
  * pessoa FEZ; resultado = leads sob a responsabilidade dela). Função pura.
  */
-export function analisarTime(todos: Lead[], agora: Date, per: Periodo | Janela, tarefas: Tarefa[], vistas: Map<string, Vista>) {
+export function analisarTime(todos: Lead[], agora: Date, per: Periodo | Janela, tarefas: Tarefa[], vistas: Map<string, Vista>, pl?: EstadoFunis) {
   const J = janela(per, agora), dias = J.dias, hoje = J.ate, ini = J.de, ini0 = somaDias(ini, -dias), fim0 = somaDias(ini, -1), hojeReal = hojeDe(agora);
   const marcos = new Map<string, Marcos>(todos.map((l) => [l.id, marcosDe(l)]));
   const mk = (l: Lead) => marcos.get(l.id)!;
-  const nomes = [...new Set(todos.map(dono))].sort();
+  const cardsMov = pl ? movimentosDeCards(pl, ini, hoje) : [], cardsPor = resumoPorPessoa(cardsMov);
+  // quem só mexe em cards (ex.: só trabalha o No-show) também é do time
+  const nomes = [...new Set([...todos.map(dono), ...cardsPor.keys()])].sort();
   const ativoSt = (l: Lead) => (ATIVOS as string[]).includes(l.status);
   const ganhoAgora = (l: Lead) => l.status === 'convertido_ativo' || l.status === 'convertido_organico';
   const diaGanho = (l: Lead) => mk(l).compareceu ?? mk(l).organico;
@@ -393,7 +406,7 @@ export function analisarTime(todos: Lead[], agora: Date, per: Periodo | Janela, 
     const meus = nome === null ? todos : todos.filter((l) => dono(l) === nome);
     let contatos = 0, respostas = 0, agend = 0;
     for (const l of todos) for (const e of l.eventos) {
-      if (nome !== null && quem(e, l) !== nome) continue;
+      if ((nome !== null && quem(e, l) !== nome) || ehEspelho(e)) continue;
       const d = diaDoInstante(e.quando); if (d < a || d > b) continue;
       if (e.tipo === 'contato') contatos++; else if (e.tipo === 'resposta') respostas++; else if (e.tipo === 'agendamento') agend++;
     }
@@ -419,6 +432,7 @@ export function analisarTime(todos: Lead[], agora: Date, per: Periodo | Janela, 
       nome: n, ...atual, anterior: { receita: anterior.receita, convertidos: anterior.convertidos, contatos: anterior.contatos, conversao: anterior.conversao, recebidos: anterior.recebidos },
       carteira: { n: cart.length, valor: soma(cart.map((l) => l.valor)), atrasadas: tarefas.filter((t) => t.situacao === 'atrasada' && ids.has(t.leadId)).length, foraDoLimite: cart.filter((l) => vistas.get(l.id)?.limite?.excedido).length },
       noshow: { entraram: ns.length, recuperados: rc.length, valorRecuperado: soma(rc.map((c) => c.valor)) },
+      pipeline: { movimentos: cardsPor.get(n)?.movimentos ?? 0, noshowTrabalhados: cardsPor.get(n)?.noshow ?? 0, recuperados: cardsPor.get(n)?.recuperados ?? 0, valorRecuperado: cardsPor.get(n)?.valorRecuperado ?? 0 },
     };
   }).sort((a, b) => b.receita - a.receita || b.contatos - a.contatos || a.nome.localeCompare(b.nome));
   const totalAtual = metricas(null, ini, hoje), totalAnterior = metricas(null, ini0, fim0);
@@ -437,6 +451,7 @@ export function analisarTime(todos: Lead[], agora: Date, per: Periodo | Janela, 
     const evs = [...l.eventos].sort((a, b) => a.quando.localeCompare(b.quando));
     evs.forEach((e, k) => {
       const dia = diaDoInstante(e.quando), i = P.idx(dia); if (i < 0) return;
+      if (ehEspelho(e)) return;
       const autor = quem(e, l), s = porPessoa.get(autor), eIA = e.auto === true || autor === IA;
       const campo = e.tipo === 'contato' ? 'contatos' : e.tipo === 'resposta' ? 'respostas' : e.tipo === 'agendamento' ? 'agendamentos' : null;
       if (!campo) return;
@@ -489,7 +504,7 @@ export function analisarTime(todos: Lead[], agora: Date, per: Periodo | Janela, 
 
   return {
     dias, hoje, de: ini, ate: hoje, ...fraseJanela(J, hojeReal), semanal: P.semanal, rotulos: P.rotulos, titulos: P.titulos,
-    equipe, totais: { atual: totalAtual, anterior: totalAnterior },
+    equipe, totais: { atual: totalAtual, anterior: totalAnterior, pipeline: { movimentos: cardsMov.length, noshowTrabalhados: soma([...cardsPor.values()].map((x) => x.noshow)), recuperados: soma([...cardsPor.values()].map((x) => x.recuperados)), valorRecuperado: soma([...cardsPor.values()].map((x) => x.valorRecuperado)) } },
     series: { total, ia, pessoas, principais }, heat, funil, unidades, mensagens, destaques,
     semResponsavel: { n: semDono.length, valor: soma(semDono.map((l) => l.valor)) },
   };
@@ -502,7 +517,7 @@ export type AnaliseTime = ReturnType<typeof analisarTime>;
  * Tudo sobre uma pessoa no período: o Meu Report (resultado, atividade, funil, carteira, ranking) mais as listas que o
  * explicam: quem ela converteu, a carteira de agora (lead a lead) e o que ela fez, movimento a movimento.
  */
-export function detalhePessoa(todos: Lead[], agora: Date, per: Periodo | Janela, nome: string, tarefas: Tarefa[], vistas: Map<string, Vista>) {
+export function detalhePessoa(todos: Lead[], agora: Date, per: Periodo | Janela, nome: string, tarefas: Tarefa[], vistas: Map<string, Vista>, pl?: EstadoFunis) {
   const rep = meuReport(todos, agora, per, nome, tarefas, vistas);
   const J = janela(per, agora), ini = J.de, hoje = J.ate, hojeReal = hojeDe(agora);
   const meus = todos.filter((l) => dono(l) === nome);
@@ -518,18 +533,28 @@ export function detalhePessoa(todos: Lead[], agora: Date, per: Periodo | Janela,
   }).sort((a, b) => (b.situacao === 'atrasada' ? 1 : 0) - (a.situacao === 'atrasada' ? 1 : 0) || b.valor - a.valor).slice(0, 60);
   const TIPOS = ['contato', 'resposta', 'agendamento', 'retorno', 'descarte', 'comparecimento', 'recepcao', 'etapa', 'nota'];
   const porTipo: Record<string, number> = {};
-  const atividade: { quando: string; leadId: string; lead: string; tipo: string; texto: string; auto: boolean }[] = [];
+  const atividade: { quando: string; leadId: string; cardId?: string; lead: string; tipo: string; texto: string; auto: boolean }[] = [];
   const movDia = Array<number>(rep.rotulos.length).fill(0);
   const P = pontos(hoje, J.dias, ini);
   for (const l of todos) for (const e of l.eventos) {
-    if (quem(e, l) !== nome || !TIPOS.includes(e.tipo)) continue;
+    if (quem(e, l) !== nome || !TIPOS.includes(e.tipo) || (pl && ehEspelho(e))) continue;
     const d = diaDoInstante(e.quando); if (d < ini || d > hoje) continue;
     porTipo[e.tipo] = (porTipo[e.tipo] ?? 0) + 1;
     const i = P.idx(d); if (i >= 0) movDia[i]++;
     atividade.push({ quando: e.quando, leadId: l.id, lead: l.nome, tipo: e.tipo, texto: e.texto.replace(/\s+/g, ' ').slice(0, 160), auto: !!e.auto });
   }
+  // movimentos de cards do Pipelines feitos por esta pessoa (inclui o funil de No-show, que não tem lead)
+  const meusCards = pl ? movimentosDeCards(pl, ini, hoje).filter((c) => c.por === nome) : [];
+  const destinos = new Map<string, number>(); let recup = 0, valorRecup = 0; const noshowCards = new Set<string>();
+  for (const c of meusCards) {
+    porTipo.card = (porTipo.card ?? 0) + 1; destinos.set(c.funil + ' · ' + c.para, (destinos.get(c.funil + ' · ' + c.para) ?? 0) + 1);
+    if (c.dimensao === 'agendamento') noshowCards.add(c.cardId);
+    if (c.dimensao === 'agendamento' && c.classe === 'recuperado') { recup++; valorRecup += c.valor; }
+    const i = P.idx(c.dia); if (i >= 0) movDia[i]++;
+    atividade.push({ quando: c.quando, leadId: '', cardId: c.cardId, lead: c.paciente, tipo: 'card', texto: `Moveu o card para "${c.para}" (${c.funil})${c.valor ? ' · ' + brl(c.valor) : ''}`, auto: false });
+  }
   atividade.sort((a, b) => b.quando.localeCompare(a.quando));
   const recebidosLista = meus.filter((l) => l.d0 >= ini && l.d0 <= hoje).length;
-  return { ...rep, movimentos: { total: soma(Object.values(porTipo)), porTipo: Object.entries(porTipo).map(([tipo, n]) => ({ tipo, n })).sort((a, b) => b.n - a.n), serie: movDia }, convertidos, carteiraLeads, atividade: atividade.slice(0, 80), atividadeTotal: atividade.length, recebidosLista, donoDeLeads: meus.length };
+  return { ...rep, movimentos: { total: soma(Object.values(porTipo)), porTipo: Object.entries(porTipo).map(([tipo, n]) => ({ tipo, n })).sort((a, b) => b.n - a.n), serie: movDia }, convertidos, carteiraLeads, atividade: atividade.slice(0, 80), atividadeTotal: atividade.length, pipeline: { movimentos: meusCards.length, noshowTrabalhados: noshowCards.size, recuperados: recup, valorRecuperado: valorRecup, porDestino: [...destinos].map(([destino, n]) => ({ destino, n })).sort((a, b) => b.n - a.n) }, recebidosLista, donoDeLeads: meus.length };
 }
 export type DetalhePessoa = ReturnType<typeof detalhePessoa>;

@@ -45,6 +45,8 @@ var TM_COLS = [
   { k: 'ticket', r: 'Ticket', f: function (e) { return e.ticket === null ? '–' : brl(e.ticket); }, t: 'Receita ÷ convertidos' },
   { k: 'primeiroContato', r: '1º contato', f: function (e) { return tmDias(e.primeiroContato); }, t: 'Mediana de dias entre o lead entrar e o primeiro contato (menos é melhor)', menor: true },
   { k: 'ciclo', r: 'Ciclo', f: function (e) { return tmDias(e.ciclo); }, t: 'Mediana de dias da entrada até converter (menos é melhor)', menor: true },
+  { k: 'pipeMov', r: 'Pipelines', f: function (e) { return nf0.format(e.pipeline.movimentos); }, t: 'Movimentos de cards que a pessoa fez no Pipelines (inclui o No-show)', v: function (e) { return e.pipeline.movimentos; } },
+  { k: 'recup', r: 'No-show recup.', f: function (e) { return e.pipeline.recuperados ? [h('b', { text: String(e.pipeline.recuperados) }), h('small', { class: 'mut', text: brlCompacto(e.pipeline.valorRecuperado) })] : '0'; }, t: 'No-shows que a pessoa levou para Recuperado e o valor', v: function (e) { return e.pipeline.valorRecuperado; } },
   { k: 'carteiraN', r: 'Carteira', f: function (e) { return e.carteira.n + ' · ' + brlCompacto(e.carteira.valor); }, t: 'Leads ativos agora e o valor deles', v: function (e) { return e.carteira.n; } },
   { k: 'atrasadas', r: 'Atrasados', f: function (e) { return e.carteira.atrasadas ? h('span', { class: 'pill pl-atrasada', text: String(e.carteira.atrasadas) }) : '0'; }, t: 'Passos da carteira com a data vencida', v: function (e) { return e.carteira.atrasadas; }, menor: true }
 ];
@@ -75,6 +77,7 @@ function tabelaTime(D) {
     h('td', { class: 'num', text: nf0.format(t.recebidos) }), h('td', { class: 'num', text: nf0.format(t.contatos) }), h('td', { class: 'num', text: tmPct(t.taxaResposta) }), h('td', { class: 'num', text: nf0.format(t.agendamentos) }),
     h('td', { class: 'num', text: nf0.format(t.convertidos) }), h('td', { class: 'num', text: tmPct(t.conversao) }), h('td', { class: 'num' }, [h('b', { text: brl(t.receita) }), tmMini(t.receita, D.totais.anterior.receita)]),
     h('td', { class: 'num', text: t.ticket === null ? '–' : brl(t.ticket) }), h('td', { class: 'num', text: tmDias(t.primeiroContato) }), h('td', { class: 'num', text: tmDias(t.ciclo) }),
+    h('td', { class: 'num', text: nf0.format(D.totais.pipeline.movimentos) }), h('td', { class: 'num', text: D.totais.pipeline.recuperados + ' · ' + brlCompacto(D.totais.pipeline.valorRecuperado) }),
     h('td', { class: 'num', text: soma(D.equipe.map(function (e) { return e.carteira.n; })) + ' · ' + brlCompacto(soma(D.equipe.map(function (e) { return e.carteira.valor; }))) }),
     h('td', { class: 'num', text: String(soma(D.equipe.map(function (e) { return e.carteira.atrasadas; }))) })]);
   return blocoCartao('Desempenho de cada vendedor', 'Clique no título de uma coluna para ordenar e na linha de uma pessoa para abrir o Meu Report dela. A barra mostra a fatia de receita.',
@@ -117,6 +120,12 @@ function tmCartoes(D) {
   r.push(blocoCartao('Por unidade', 'Receita convertida e conversão de cada unidade.', barras(D.unidades.map(function (u, i) { return { rotulo: u.nome, valor: u.receita, texto: brl(u.receita), extra: tmPct(u.conversao) + ' de conversão', cor: TM_PAL[i % TM_PAL.length] }; }), { max: maxU, vazio: 'Sem dados por unidade.' }), 6));
   var maxM = Math.max.apply(null, D.mensagens.map(function (m) { return m.enviadas; }).concat([1]));
   r.push(blocoCartao('Mensagens do time', 'Quantas vezes cada mensagem foi enviada e a taxa de resposta.', barras(D.mensagens.map(function (m) { return { rotulo: 'Msg ' + m.n + ' · ' + m.titulo, valor: m.enviadas, texto: m.enviadas + ' env · ' + m.respostas + ' resp', extra: tmPct(m.taxa), cor: 'var(--g1)' }; }), { max: maxM, vazio: 'Nenhuma mensagem enviada.' }), 6));
+  var comRec = D.equipe.filter(function (e) { return e.pipeline.movimentos > 0; }), maxRec = Math.max.apply(null, comRec.map(function (e) { return e.pipeline.valorRecuperado; }).concat([1]));
+  r.push(blocoCartao('No-show recuperado', 'Quem levou no-shows para Recuperado e o valor. Total do time: ' + D.totais.pipeline.recuperados + ' · ' + brl(D.totais.pipeline.valorRecuperado) + '.', barras(comRec.slice().sort(function (a, b) { return b.pipeline.valorRecuperado - a.pipeline.valorRecuperado || b.pipeline.recuperados - a.pipeline.recuperados; }).map(function (e) {
+    return { rotulo: e.nome, valor: e.pipeline.valorRecuperado, texto: brl(e.pipeline.valorRecuperado), extra: e.pipeline.recuperados + ' de ' + e.pipeline.noshowTrabalhados + ' trabalhados', cor: tmCor(D, e.nome) };
+  }), { max: maxRec, vazio: 'Nenhum movimento de cards no período.' }), 6));
+  var maxPM = Math.max.apply(null, comRec.map(function (e) { return e.pipeline.movimentos; }).concat([1]));
+  r.push(blocoCartao('Movimentos no Pipelines', 'Cards movidos por cada pessoa no período (No-show e Orçamentos).', barras(comRec.slice().sort(function (a, b) { return b.pipeline.movimentos - a.pipeline.movimentos; }).map(function (e) { return { rotulo: e.nome, valor: e.pipeline.movimentos, texto: String(e.pipeline.movimentos), cor: tmCor(D, e.nome) }; }), { max: maxPM, vazio: 'Nenhum movimento de cards no período.' }), 6));
   return r;
 }
 function corpoTime() {

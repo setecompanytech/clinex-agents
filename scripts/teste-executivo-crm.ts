@@ -5,6 +5,9 @@ import assert from 'node:assert/strict';
 import { analisarExecutivo, analisarTime, detalhePessoa, meuReport } from '../src/crm/executivo.js';
 import { gerarExemplos } from '../src/crm/exemplos.js';
 import { analisarTempo, transicoes } from '../src/crm/tempo.js';
+import { funilDestino, ingerir } from '../src/crm/pipeline/ingestao.js';
+import { funisPadrao, moverCard } from '../src/crm/pipeline/regras.js';
+import type { EstadoFunis } from '../src/crm/pipeline/tipos.js';
 import { acompanharCard, aplicar, criarLead, hojeDe, somaDias, tarefasDoDia, vistaDoLead, type Lead, type NovoLead } from '../src/crm/motor.js';
 
 let ok = 0;
@@ -298,6 +301,50 @@ teste('login que não é dono de lead (só atende) e nome inexistente não quebr
   const h = pessoa([...TODOS, l], 'Helper');
   assert.equal(h.donoDeLeads, 0); assert.equal(h.convertidos.length, 0); assert.equal(h.carteiraLeads.length, 0); assert.equal(h.atividade.length, 1);
   const nada = pessoa(TODOS, 'Ninguém'); assert.equal(nada.atividade.length, 0); assert.ok(!JSON.stringify(nada).includes('NaN'));
+});
+
+
+console.log('Quem trabalha só no Pipelines (ex.: só o No-show) também aparece');
+const cenarioNoShow = () => {
+  const pl: EstadoFunis = { funis: funisPadrao(AGORA), atribuicoes: [], extras: {}, followups: [], contatos: [], rotina: {} };
+  const f = funilDestino(pl, 'agendamento', AGORA);
+  ingerir(pl, f, [1, 2, 3].map((i) => ({ id: 'cns-' + i, paciente: 'Faltoso ' + i, valor: 100 * i, itens: ['USG'], criadoEm: dia(3) + 'T08:00:00-03:00', status: 'faltou', unidade: 'Guamá' })), em(dia(2)));
+  const etapa = (r: RegExp) => f.stages.find((x) => r.test(x.label.toLowerCase()))!.id;
+  moverCard(pl.atribuicoes[0], f, etapa(/retomada/), em(dia(1), '10:00'), { por: 'Karla' });
+  moverCard(pl.atribuicoes[1], f, etapa(/sem retorno/), em(dia(1), '11:00'), { por: 'Karla' });
+  moverCard(pl.atribuicoes[2], f, etapa(/recuperado/), em(dia(1), '12:00'), { por: 'Karla' });
+  moverCard(pl.atribuicoes[0], f, etapa(/recuperado/), em(dia(0), '09:00'), { por: 'Karla' });
+  moverCard(pl.atribuicoes[1], f, etapa(/perdido|descart/), em(dia(0), '09:30'), { por: 'CRM (lead)' }); // movimento do sistema: não é de ninguém
+  return pl;
+};
+teste('Visão executiva (Atividade por login): quem só mexe em cards do No-show aparece, com movimentos e valor recuperado', () => {
+  const pl = cenarioNoShow(); const c = ctx(TODOS);
+  const sem = analisarExecutivo(TODOS, AGORA, 14, null, c.tarefas, c.vistas);
+  assert.equal(sem.atividade.some((a) => a.nome === 'Karla'), false, 'sem o Pipelines ela não existia (o defeito)');
+  const com = analisarExecutivo(TODOS, AGORA, 14, null, c.tarefas, c.vistas, pl);
+  const k = com.atividade.find((a) => a.nome === 'Karla')!;
+  assert.ok(k, 'Karla aparece'); assert.equal(k.pipeline, 4, '4 movimentos de pessoa (o do sistema não conta)'); assert.equal(k.movimentos, 4);
+  assert.equal(k.noshowRecuperados, 2); assert.equal(k.valorRecuperado, 100 + 300);
+  assert.equal(com.atividade.find((a) => a.nome === 'Amanda')!.movimentos, sem.atividade.find((a) => a.nome === 'Amanda')!.movimentos, 'os outros não mudam');
+});
+teste('Time e detalhe da pessoa: linha própria, totais do Pipelines e a lista de movimentos', () => {
+  const pl = cenarioNoShow(); const c = ctx(TODOS);
+  const t = analisarTime(TODOS, AGORA, 14, c.tarefas, c.vistas, pl);
+  const k = t.equipe.find((e) => e.nome === 'Karla')!;
+  assert.ok(k); assert.equal(k.recebidos, 0); assert.equal(k.pipeline.movimentos, 4); assert.equal(k.pipeline.recuperados, 2); assert.equal(k.pipeline.valorRecuperado, 400);
+  assert.equal(t.totais.pipeline.movimentos, 4); assert.equal(t.totais.pipeline.valorRecuperado, 400);
+  const d = detalhePessoa(TODOS, AGORA, 14, 'Karla', c.tarefas, c.vistas, pl);
+  assert.equal(d.pipeline.movimentos, 4); assert.equal(d.pipeline.recuperados, 2); assert.equal(d.atividade.length, 4); assert.ok(d.atividade.every((e) => e.tipo === 'card' && !!e.cardId));
+  assert.equal(d.movimentos.total, 4); assert.equal(d.movimentos.serie.reduce((x, y) => x + y, 0), 4);
+  assert.ok(d.pipeline.porDestino.some((x) => /Recuperado/.test(x.destino) && x.n === 2));
+});
+teste('o evento que o lead grava só para acompanhar um card não conta como movimento do dono do lead', () => {
+  const l = novo('Espelho', dia(3), 500, { unidade: 'Guamá', atendente: 'Amanda' });
+  const c0 = ctx([...TODOS]); const antes = analisarExecutivo(TODOS, AGORA, 14, null, c0.tarefas, c0.vistas, undefined).atividade.find((a) => a.nome === 'Amanda')!.movimentos;
+  acompanharCard(l, 'agendado', em(dia(1)), 'AGENDADO', 'Karla');
+  const c = ctx([...TODOS, l]);
+  const depois = analisarExecutivo([...TODOS, l], AGORA, 14, null, c.tarefas, c.vistas, { funis: [], atribuicoes: [], extras: {}, followups: [], contatos: [], rotina: {} } as EstadoFunis).atividade.find((a) => a.nome === 'Amanda')!.movimentos;
+  assert.equal(depois, antes, 'o espelho não é da Amanda');
 });
 
 console.log(`\n${ok} testes passaram${process.exitCode ? ', COM FALHAS' : ''}.`);

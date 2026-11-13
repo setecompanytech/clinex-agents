@@ -254,7 +254,8 @@ function cartaoEquipeTiles(E) {
       anel({ titulo: '', tam: 76, pct: a.receita / totRec * 100, centro: iniciais(a.nome), sub: '', cor: CORES_CAT[i % CORES_CAT.length], dica: { titulo: a.nome, linhas: [{ valor: brl(a.receita), rotulo: pct(a.receita / totRec * 100) + ' da receita' }] } }),
       h('div', { class: 'eq-i' }, [h('b', { text: a.nome }), h('strong', { text: brl(a.receita) }),
         h('div', { class: 'eq-mov' }, [h('i', { style: 'width:' + (a.movimentos / maxM * 100) + '%' })]),
-        h('small', { text: a.movimentos + ' movimentações · ' + a.contatos + ' contatos · ' + a.respostas + ' respostas · ' + a.agendamentos + ' agend.' })])
+        h('small', { text: a.movimentos + ' movimentações · ' + a.contatos + ' contatos · ' + a.respostas + ' respostas · ' + a.agendamentos + ' agend.' + (a.pipeline ? ' · ' + a.pipeline + ' no Pipelines' : '') }),
+        a.noshowRecuperados ? h('small', { class: 'eq-rec', text: a.noshowRecuperados + ' ' + plural(a.noshowRecuperados, 'no-show recuperado', 'no-shows recuperados') + ' · ' + brl(a.valorRecuperado) }) : null])
     ]);
     t.addEventListener('click', function () { abrirPessoa(a.nome); });
     t.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrirPessoa(a.nome); } });
