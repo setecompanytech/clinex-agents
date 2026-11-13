@@ -12,7 +12,8 @@ import { analisarHoje } from './analise.js';
 import { analisarTempo } from './tempo.js';
 import { janelaDaQuery } from './periodo.js';
 import { dadosDisparoAuto, dadosManager, rodarAgora, simularLead } from './disparo-auto-servico.js';
-import { configAuto, definirModoDisparoAuto, salvarConfigAuto, validarConfigAuto } from './ia-disparo.js';
+import { criarLeadLab, instanteDoRelogio, limparLab, removerLeadLab, resumoLab, rodarLab } from './ia-laboratorio.js';
+import { configAuto, definirModoDisparoAuto, modoDisparoAuto, salvarConfigAuto, validarConfigAuto } from './ia-disparo.js';
 import { analisarExecutivo, analisarTime, detalhePessoa, meuReport } from './executivo.js';
 import { analisarEtapa } from './etapa.js';
 import { analisarNoShow, dadosNoShow } from './noshow.js';
@@ -340,6 +341,17 @@ router.put('/ia-manager', (req, res) => {
   catch (e) { if (e instanceof DisparoError) return void res.status(e.status).json({ erro: e.codigo, mensagem: e.message }); throw e; }
   salvar(); res.json(dadosManager(new Date()));
 });
+/** Laboratório do Modo Simulação: leads fictícios (guardados à parte, nunca em estado.leads) para ver a IA trabalhando sem tocar em paciente real. */
+const lab = (res: import('express').Response, fn: () => unknown) => {
+  try { const r = fn(); salvar(); res.json(r); }
+  catch (e) { if (e instanceof DisparoError) return void res.status(e.status).json({ erro: e.codigo, mensagem: e.message }); throw e; }
+};
+const exigeSimulacao = () => { if (modoDisparoAuto(estado) !== 'simulacao') throw new DisparoError('modo', 'Ative o Modo Simulação para usar o laboratório.', 409); };
+router.get('/ia-manager/lab', (req, res) => { res.json(resumoLab(estado, instanteDoRelogio(req.query.quando))); });
+router.post('/ia-manager/lab/leads', (req, res) => lab(res, () => { exigeSimulacao(); const b = req.body ?? {}; const q = instanteDoRelogio(b.quando); criarLeadLab(estado, b, q); return resumoLab(estado, q); }));
+router.delete('/ia-manager/lab/leads/:id', (req, res) => lab(res, () => { if (!removerLeadLab(estado, String(req.params.id))) throw new DisparoError('nao_encontrado', 'Lead de teste não encontrado.', 404); return resumoLab(estado, instanteDoRelogio(req.query.quando)); }));
+router.delete('/ia-manager/lab', (req, res) => lab(res, () => { limparLab(estado); return resumoLab(estado, instanteDoRelogio(req.query.quando)); }));
+router.post('/ia-manager/lab/rodar', (req, res) => lab(res, () => { exigeSimulacao(); const q = instanteDoRelogio((req.body ?? {}).quando); const r = rodarLab(estado, q); return { ...r, lab: resumoLab(estado, q) }; }));
 router.get('/ia-manager/simular', (req, res) => {
   const r = simularLead(String(req.query.lead ?? ''), new Date());
   if (!r) return void res.status(404).json({ erro: 'nao_encontrado', mensagem: 'Lead não encontrado.' });

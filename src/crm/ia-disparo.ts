@@ -18,7 +18,7 @@ import { DisparoError, MODELOS, checarEnvio, disparoAtivo, ehEnvio, enviarModelo
  * parâmetros da mensagem, janela e dias da semana, pausas (feriados), limites e o disjuntor. O guia só pode ser ESTREITADO:
  * nunca dá para enviar fora de 8h às 19h.
  *
- * Modos (guardados no CRM, por quem tem acesso): desligado, sombra (decide e anota o que enviaria, sem enviar) e ligado.
+ * Modos (guardados no CRM, por quem tem acesso): desligado, simulacao (só leads fictícios do laboratório, ver ia-laboratorio.ts), sombra (decide e anota o que enviaria, sem enviar) e ligado.
  * DISPARO_AUTO=desligado no ambiente força desligado, qualquer que seja o modo.
  */
 
@@ -167,10 +167,10 @@ export const modoDisparoAuto = (estado: Estado): ModoAuto => {
 };
 
 export function definirModoDisparoAuto(estado: Estado, modo: ModoAuto, quem: string, agora: Date): DisparoAutoCfg {
-  if (!['desligado', 'sombra', 'ligado'].includes(modo)) throw new DisparoError('modo', 'Modo inválido.', 400);
+  if (!['desligado', 'simulacao', 'sombra', 'ligado'].includes(modo)) throw new DisparoError('modo', 'Modo inválido.', 400);
   const antes = estado.disparoAuto?.modo ?? 'desligado';
   estado.disparoAuto = { ...(estado.disparoAuto ?? { modo }), modo, alteradoPor: quem, alteradoEm: agora.toISOString() };
-  if (antes !== modo) anotarNoHistorico(estado, quem, `IA ${modo === 'desligado' ? 'desligada' : modo === 'sombra' ? 'em modo sombra' : 'ligada'}`, agora);
+  if (antes !== modo) anotarNoHistorico(estado, quem, `IA ${modo === 'desligado' ? 'desligada' : modo === 'simulacao' ? 'em modo simulação' : modo === 'sombra' ? 'em modo sombra' : 'ligada'}`, agora);
   return estado.disparoAuto;
 }
 
@@ -288,6 +288,7 @@ export async function rodarDisparoAuto(estado: Estado, agora: Date, opcoes: Opco
   const conta = (m: string) => { r.pulados[m] = (r.pulados[m] ?? 0) + 1; };
   const grava = async () => { estado.disparoAuto = { ...(estado.disparoAuto ?? { modo: 'desligado' }), ultimaRodada: r }; if (opcoes.gravar) await opcoes.gravar(); };
   if (modo === 'desligado') { r.pulados['IA desligada'] = 1; await grava(); return r; }
+  if (modo === 'simulacao') { r.pulados['Modo simulação: a IA só trabalha nos leads de teste do laboratório'] = 1; return r; } // não avalia nem grava nada: paciente real fica intocado
   if (modo === 'ligado' && !disparoAtivo()) { r.pulados['O disparo de WhatsApp está desligado neste ambiente (DISPARO_WHATSAPP)'] = 1; await grava(); return r; }
 
   const hoje = hojeDe(agora), max = opcoes.max ?? cfg.limites.porRodada;

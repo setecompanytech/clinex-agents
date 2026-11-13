@@ -282,6 +282,47 @@ await teste('simulador: lista todas as checagens, na ordem, com o motivo de cada
   const demo = lead(e, 'DEMO', '91988880000'); demo.demo = true; assert.equal(checagens(e, demo, MANHA, configAuto(e)).aplicavel, false);
 });
 
+console.log('Modo Simulação (laboratório de leads fictícios)');
+const { criarLeadLab, rodarLab, resumoLab, removerLeadLab, limparLab, instanteDoRelogio, LIMITE_LAB } = await import('../src/crm/ia-laboratorio.js');
+const simulando = () => { const e = novo(); definirModoDisparoAuto(e, 'simulacao', 'Ana', MANHA); return e; };
+await teste('modo simulação: aceito, vai para o histórico e a rodada real não toca em paciente real', async () => {
+  pedidos.length = 0; const e = simulando(); const real = lead(e, 'MARIA SILVA', '91988887777');
+  assert.equal(modoDisparoAuto(e), 'simulacao'); assert.match(configAuto(e).historico[0].resumo, /modo simulação/);
+  const r = await rodarDisparoAuto(e, MANHA);
+  assert.equal(r.enviados, 0); assert.equal(r.sombra, 0); assert.equal(r.avaliados, 0); assert.equal(pedidos.length, 0);
+  assert.equal(real.eventos.filter((x) => x.tipo === 'nota' || x.tipo === 'contato').length, 0, 'o lead real não recebe nem nota');
+});
+await teste('laboratório: o lead de teste fica à parte (nunca em estado.leads) e a IA "envia" no horário certo', () => {
+  const e = simulando(); const l = criarLeadLab(e, { nome: 'Paciente Teste', valor: 400, unidade: 'CLINEX GUAMÁ', diasAtras: 1 }, MANHA);
+  assert.match(l.id, /^sim-/); assert.equal(e.leads.length, 0, 'não entra nos leads do CRM'); assert.equal(resumoLab(e, MANHA).leads.length, 1);
+  const cedo = rodarLab(e, CEDO).resultados[0]; assert.equal(cedo.resultado, 'espera'); assert.match(cedo.motivo, /horário/);
+  const r = rodarLab(e, MANHA).resultados[0]; assert.equal(r.resultado, 'enviaria'); assert.equal(r.msg, 1); assert.ok(r.texto && r.texto.includes('Paciente Teste'.split(' ')[0].toUpperCase()) || r.texto);
+  const de = resumoLab(e, MANHA).leads[0]; assert.equal(de.mensagens.length, 1); assert.equal(de.mensagens[0].msg, 1);
+  const dnv = rodarLab(e, MANHA).resultados[0]; assert.equal(dnv.resultado, 'nada', 'a mesma mensagem não sai duas vezes'); assert.match(dnv.motivo, /Próximo passo|Sem passo pendente/);
+  assert.equal(pedidos.length, 0, 'nada vai para o WhatsApp');
+});
+await teste('laboratório: respeita gatilho desligado, janela e condições, como a IA de verdade', () => {
+  const e = simulando(); criarLeadLab(e, { nome: 'Barato', valor: 100, diasAtras: 1 }, MANHA);
+  cfgDe(e, { gatilhos: { primeiro: { valorMin: 200 } } }); const a = rodarLab(e, MANHA).resultados[0]; assert.equal(a.resultado, 'pulado'); assert.match(a.motivo, /fora do intervalo/);
+  cfgDe(e, { gatilhos: { primeiro: { valorMin: null, ativo: false } } }); assert.match(rodarLab(e, MANHA).resultados[0].motivo, /desligado/);
+});
+await teste('laboratório: no-show, avançar o dia e limites de criação', () => {
+  const e = simulando(); const n = criarLeadLab(e, { nome: 'Faltou', valor: 250, tipo: 'noshow' }, MANHA); assert.equal(n.noShow, true);
+  const r = rodarLab(e, MANHA).resultados[0]; assert.equal(r.resultado, 'enviaria'); assert.equal(r.msg, 10);
+  const o = simulando(); criarLeadLab(o, { nome: 'Dia a dia', valor: 300, diasAtras: 0 }, MANHA);
+  const hojeLab = rodarLab(o, MANHA).resultados[0]; assert.equal(hojeLab.resultado, 'nada', 'orçamento de hoje: o 1º contato só vence amanhã'); assert.match(hojeLab.motivo, /vence em/);
+  assert.equal(rodarLab(o, em(somaDias(HOJE, 1), '09:00')).resultados[0].resultado, 'enviaria', 'amanhã (D1) a IA envia');
+  const erro = (x: Record<string, unknown>) => { try { criarLeadLab(o, x, MANHA); } catch (er) { return (er as Error).message; } return ''; };
+  assert.match(erro({ nome: '' }), /nome/); assert.match(erro({ nome: 'X', valor: -5 }), /Valor/); assert.match(erro({ nome: 'X', diasAtras: 99 }), /0 a 30/);
+  for (let i = 0; i < LIMITE_LAB; i++) { try { criarLeadLab(o, { nome: 'L' + i }, MANHA); } catch { /* limite */ } }
+  assert.match(erro({ nome: 'Mais um' }), /comporta/);
+  assert.equal(removerLeadLab(o, resumoLab(o, MANHA).leads[0].id), true); limparLab(o); assert.equal(resumoLab(o, MANHA).leads.length, 0);
+});
+await teste('laboratório: o relógio simulado vem em horário de Belém', () => {
+  assert.equal(instanteDoRelogio('2026-11-09T08:30').toISOString(), '2026-11-09T11:30:00.000Z');
+  const agora = new Date('2026-01-01T00:00:00Z'); assert.equal(instanteDoRelogio('lixo', agora), agora);
+});
+
 void hojeDe;
 
 console.log(`\n${ok} testes passaram${process.exitCode ? ', COM FALHAS' : ''}.`);

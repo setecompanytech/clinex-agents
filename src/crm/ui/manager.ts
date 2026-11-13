@@ -1,11 +1,12 @@
 // JavaScript do CRM (navegador): página "IA Manager", o painel de controle da IA de disparo. Dados de /painel/crm/api/ia-manager.
 // Dentro dele não usar crases nem "dollar-chave".
 export const manager = String.raw`
-var MG = { aba: 'controle', d: null, c: null, base: null, car: false, t: 0, erro: '', salvando: false, entrou: false, simQ: '', sim: null, simCar: false };
+var MG = { aba: 'controle', d: null, c: null, base: null, car: false, t: 0, erro: '', salvando: false, entrou: false, simQ: '', sim: null, simCar: false, lab: null, labCar: false, labQ: '', labRes: null, labNovo: null, lf: { nome: '', tipo: 'orcamento', valor: '400', unidade: '', dias: 1, exame: 'Ultrassom', atendente: '' } };
 var MG_PAL = ['#4cc9f0', '#a78bfa', '#f5b942', '#fb7185', '#2ee6a6'];
 var MG_DIAS = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'], MG_DIAS_L = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
 var MG_TXT = {
   desligado: ['IA desligada', 'Nada é enviado sozinho. Todos os disparos voltam a ser manuais, pela equipe.'],
+  simulacao: ['Modo simulação', 'A IA trabalha só com leads fictícios que você cria no laboratório, mais abaixo. Nenhum paciente real é avaliado e nada é enviado.'],
   sombra: ['Observando em modo sombra', 'A IA decide e anota o que enviaria, sem enviar nada. Ideal para conferir antes de liberar.'],
   ligado: ['IA ligada e disparando', 'Envia sozinha, no horário de cada gatilho, sempre sob as travas do guia.']
 };
@@ -28,13 +29,14 @@ setInterval(function () { if (S.aba === 'iamanager' && document.visibilityState 
 function mgDefinirModo(modo) {
   if (modo === 'ligado' && !window.confirm('Ligar o envio automático? A IA vai mandar mensagens REAIS para pacientes, sozinha, no horário de cada gatilho. Você pode desligar a qualquer momento no botão Power.')) return;
   api('PUT', '/disparo-auto', { modo: modo }).then(function () {
-    aviso(modo === 'desligado' ? 'IA desligada.' : modo === 'sombra' ? 'IA em modo sombra: nada será enviado.' : 'IA ligada.', 'ok');
+    aviso(modo === 'desligado' ? 'IA desligada.' : modo === 'simulacao' ? 'Modo simulação: a IA só trabalha com leads de teste.' : modo === 'sombra' ? 'IA em modo sombra: nada será enviado.' : 'IA ligada.', 'ok');
+    if (modo === 'simulacao') { MG.lab = null; MG.labRes = null; }
     IA_C = {}; MG.t = 0; mgPedir(true);
   }).catch(function (e) { aviso(e.message, 'erro'); });
 }
 function mgPower(D) {
   if (D.forcadoPeloAmbiente) { aviso('A IA está travada em desligada pelo ambiente (DISPARO_AUTO=desligado).', 'erro'); return; }
-  if (D.modo === 'desligado') mgDefinirModo(lerLS('crm-ia-modo') === 'ligado' ? 'ligado' : 'sombra');
+  if (D.modo === 'desligado') { var ult = lerLS('crm-ia-modo'); mgDefinirModo(ult === 'ligado' || ult === 'sombra' ? ult : 'simulacao'); }
   else { gravarLS('crm-ia-modo', D.modo); mgDefinirModo('desligado'); }
 }
 function mgSvgPower() {
@@ -51,23 +53,26 @@ function mgHero(D) {
   var modo = D.modo, ativo = modo !== 'desligado', t = MG_TXT[modo];
   var orbe = h('button', { type: 'button', class: 'mg-orbe', 'aria-pressed': String(ativo), 'aria-label': ativo ? 'Desligar a IA' : 'Ligar a IA', title: ativo ? 'Clique para desligar a IA' : 'Clique para ligar a IA', onclick: function () { mgPower(D); } }, [
     h('i', { class: 'mg-anel a1' }), h('i', { class: 'mg-anel a2' }), h('i', { class: 'mg-onda o1' }), h('i', { class: 'mg-onda o2' }), h('i', { class: 'mg-onda o3' }), h('i', { class: 'mg-varre' }),
-    h('span', { class: 'mg-nucleo' }, [mgSvgPower(), h('b', { text: modo === 'ligado' ? 'LIGADA' : modo === 'sombra' ? 'SOMBRA' : 'DESLIGADA' })])
+    h('span', { class: 'mg-nucleo' }, [mgSvgPower(), h('b', { text: modo === 'ligado' ? 'LIGADA' : modo === 'simulacao' ? 'SIMULAÇÃO' : modo === 'sombra' ? 'SOMBRA' : 'DESLIGADA' })])
   ]);
-  var seg = h('div', { class: 'mg-modos', role: 'group', 'aria-label': 'Modo de operação' }, [['sombra', 'Modo sombra', 'só observa'], ['ligado', 'Ligada', 'envia de verdade']].map(function (m) {
+  var seg = h('div', { class: 'mg-modos', role: 'group', 'aria-label': 'Modo de operação' }, [['simulacao', 'Modo simulação', 'leads fictícios'], ['sombra', 'Modo sombra', 'só observa'], ['ligado', 'Ligada', 'envia de verdade']].map(function (m) {
     return h('button', { type: 'button', class: 'mg-modo' + (D.modo === m[0] ? ' on' : ''), 'aria-pressed': String(D.modo === m[0]), disabled: D.forcadoPeloAmbiente, onclick: function () { if (D.modo !== m[0]) mgDefinirModo(m[0]); } }, [h('b', { text: m[1] }), h('small', { text: m[2] })]);
   }));
   var min = D.minutosDesdeUltimaRodada, bat = 'off', batT = 'Ainda não rodou';
   if (min !== null) { batT = 'Última rodada há ' + (min < 1 ? 'menos de 1 min' : min + ' min'); bat = !ativo ? 'off' : min <= 20 ? 'ok' : min <= 60 ? 'at' : 'ruim'; }
-  var alertaAgend = ativo && D.agoraBrt.minutos >= D.config.janela.inicio * 60 && D.agoraBrt.minutos < D.config.janela.fim * 60 && (min === null || min > 60);
+  var real = modo === 'sombra' || modo === 'ligado', sim = modo === 'simulacao';
+  var alertaAgend = real && D.agoraBrt.minutos >= D.config.janela.inicio * 60 && D.agoraBrt.minutos < D.config.janela.fim * 60 && (min === null || min > 60);
   var p = D.proximo, prox;
   if (!ativo) prox = ['Sem disparos programados', 'Ligue a IA para ela voltar a trabalhar.'];
+  else if (sim) prox = ['Laboratório pronto', 'Crie leads de teste e rode a IA em qualquer dia e horário, logo abaixo.'];
   else if (p.tipo === 'agora') prox = ['Pronta para enviar agora', p.gatilho + ' · assim que o agendador chamar a próxima rodada'];
   else if (p.tipo === 'hoje') prox = ['Próximo disparo em ' + (p.minutos >= 60 ? Math.floor(p.minutos / 60) + 'h' + (p.minutos % 60 ? String(p.minutos % 60).padStart(2, '0') : '') : p.minutos + ' min'), p.gatilho + ' às ' + p.hora];
   else if (p.tipo === 'amanha') prox = ['Nada mais para hoje', 'Próximo gatilho: ' + p.gatilho + ' amanhã às ' + p.hora];
   else prox = ['Nenhum gatilho ligado', 'Ligue pelo menos um gatilho abaixo.'];
   var avisos = [];
   if (D.forcadoPeloAmbiente) avisos.push(h('span', { class: 'mg-av ruim', text: 'Travada pelo ambiente (DISPARO_AUTO=desligado)' }));
-  if (!D.disparo.ativo) avisos.push(h('span', { class: 'mg-av at', text: 'WhatsApp desligado neste ambiente (DISPARO_WHATSAPP)' }));
+  if (sim) avisos.push(h('span', { class: 'mg-av sim', text: 'Nenhum paciente real é avaliado' }));
+  else if (!D.disparo.ativo) avisos.push(h('span', { class: 'mg-av at', text: 'WhatsApp desligado neste ambiente (DISPARO_WHATSAPP)' }));
   else if (D.disparo.restrito) avisos.push(h('span', { class: 'mg-av at', text: 'Fase de testes: só números de teste recebem' }));
   var lim = D.hoje.limiteDia;
   var anel = h('div', { class: 'mg-prog', style: '--p:' + Math.min(100, Math.round(D.hoje.enviadosIA / Math.max(1, lim) * 100)) }, [h('div', null, [h('b', { text: nf0.format(D.hoje.enviadosIA) }), h('small', { text: 'de ' + nf0.format(lim) })])]);
@@ -77,7 +82,7 @@ function mgHero(D) {
     h('div', { class: 'mg-hero-d' }, [
       h('div', { class: 'mg-hero-t' }, [h('small', { class: 'mg-eyebrow', text: 'CENTRO DE COMANDO · ' + D.agoraBrt.dia.toUpperCase() + ' ' + D.agoraBrt.hora }), h('h2', { text: t[0] }), h('p', { text: t[1] })]),
       h('div', { class: 'mg-estado' }, [
-        h('span', { class: 'mg-bat ' + bat }, [h('i'), batT]),
+        sim ? h('span', { class: 'mg-bat sim' }, [h('i'), 'Só leads de teste']) : h('span', { class: 'mg-bat ' + bat }, [h('i'), batT]),
         h('span', { class: 'mg-prox' }, [h('b', { text: prox[0] }), h('small', { text: prox[1] })])
       ].concat(avisos)),
       alertaAgend ? h('p', { class: 'callout aviso', text: 'Nenhuma rodada nos últimos minutos. A IA só trabalha quando um agendador chama /cron/disparo: confirme com a equipe técnica que ele está configurado.' }) : null,
@@ -87,7 +92,7 @@ function mgHero(D) {
         mgContador('Respostas hoje', D.hoje.respostas, 'rastreadas', ''),
         mgContador('Simuladas hoje', D.hoje.simulados, 'modo sombra', '')
       ]),
-      h('div', { class: 'mg-acoes' }, ativo ? [botao('Rodar agora', 'pri', function (e) { var b = e.currentTarget; b.setAttribute('disabled', 'true'); api('POST', '/disparo-auto/rodar').then(function (r) { IA_C = {}; if (r.pulou) aviso(r.pulou, 'erro'); else aviso('Rodada feita: ' + r.rodada.enviados + ' enviadas, ' + r.rodada.sombra + ' simuladas, ' + r.rodada.erros + ' com erro.', 'ok'); MG.t = 0; mgPedir(true); }).catch(function (er) { aviso(er.message, 'erro'); b.removeAttribute('disabled'); }); }, 'bolt')] : [])
+      h('div', { class: 'mg-acoes' }, sim ? [botao('Ir ao laboratório', 'pri', function () { var el = document.getElementById('mg-lab'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 'arrow')] : ativo ? [botao('Rodar agora', 'pri', function (e) { var b = e.currentTarget; b.setAttribute('disabled', 'true'); api('POST', '/disparo-auto/rodar').then(function (r) { IA_C = {}; if (r.pulou) aviso(r.pulou, 'erro'); else aviso('Rodada feita: ' + r.rodada.enviados + ' enviadas, ' + r.rodada.sombra + ' simuladas, ' + r.rodada.erros + ' com erro.', 'ok'); MG.t = 0; mgPedir(true); }).catch(function (er) { aviso(er.message, 'erro'); b.removeAttribute('disabled'); }); }, 'bolt')] : [])
     ])
   ]);
 }
@@ -240,7 +245,7 @@ function mgSimular(id) {
   api('GET', '/ia-manager/simular?lead=' + encodeURIComponent(id)).then(function (r) { MG.sim = r; MG.simCar = false; desenhar(true); })
     .catch(function (e) { MG.simCar = false; aviso(e.message, 'erro'); desenhar(true); });
 }
-function mgSimulador(D) {
+function mgSimuladorReal(D) {
   var q = MG.simQ.trim().toLowerCase(), todos = (S.D && S.D.leads) || [];
   var achados = q.length >= 2 ? todos.filter(function (l) { return (l.nome + ' ' + l.telefone).toLowerCase().indexOf(q) >= 0; }).slice(0, 6) : [];
   var busca = h('input', { class: 'in mg-busca', type: 'search', placeholder: 'Buscar um lead por nome ou telefone', 'aria-label': 'Buscar lead para simular', autocomplete: 'off' }); busca.value = MG.simQ;
@@ -264,6 +269,128 @@ function mgSimulador(D) {
     h('header', { class: 'mg-sh mg-sec', style: '--i:11' }, [h('div', null, [h('h3', { text: 'Simulador' }), h('p', { text: 'Teste as regras com um lead de verdade, sem enviar nada. Usa a configuração salva.' })])]),
     h('article', { class: 'mg-cx mg-cx-l mg-sec', style: '--i:12' }, [h('div', { class: 'mg-busca-w' }, [busca, lista]), corpo])
   ]);
+}
+
+/* ------------------------------------------------------------------ laboratório do Modo Simulação */
+var MG_NOMES = ['Maria Teste', 'João Teste', 'Ana Teste', 'Pedro Teste', 'Lúcia Teste', 'Carlos Teste', 'Rita Teste', 'Paulo Teste'];
+var MG_EXEMPLOS = [
+  { r: 'Orçamento de ontem', d: '1º contato, às 8h30', e: { tipo: 'orcamento', dias: 1, valor: 400 } },
+  { r: 'Orçamento alto', d: 'R$ 1.200, de ontem', e: { tipo: 'orcamento', dias: 1, valor: 1200 } },
+  { r: 'Orçamento de hoje', d: 'o 1º contato só vence amanhã', e: { tipo: 'orcamento', dias: 0, valor: 300 } },
+  { r: 'Faltou à consulta', d: 'No-show · Msg 10', e: { tipo: 'noshow', dias: 0, valor: 250 } }
+];
+function mgDm(iso) { return iso ? iso.slice(8, 10) + '/' + iso.slice(5, 7) : ''; }
+function mgRelogioPadrao(D) { return D.agoraBrt.hoje + 'T' + D.agoraBrt.hora; }
+function mgSomaDiaRel(q, n) { var d = new Date(q.slice(0, 10) + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10) + q.slice(10); }
+function mgRelogioTxt(q) { var d = new Date(q.slice(0, 10) + 'T12:00:00Z'); return MG_DIAS_L[d.getUTCDay()] + ', ' + mgDm(q.slice(0, 10)) + ' · ' + q.slice(11, 16); }
+function mgLabCarregar() {
+  if (MG.labCar) return;
+  MG.labCar = true;
+  api('GET', '/ia-manager/lab?quando=' + encodeURIComponent(MG.labQ)).then(function (r) { MG.lab = r; MG.labCar = false; if (S.aba === 'iamanager') desenhar(true); })
+    .catch(function (e) { MG.labCar = false; MG.lab = MG.lab || { leads: [], limite: 12 }; aviso(e.message, 'erro'); });
+}
+function mgLabAcao(metodo, caminho, corpo, ok) {
+  MG.labOcupado = true; desenhar(true);
+  api(metodo, caminho, corpo).then(function (r) { MG.labOcupado = false; ok(r); desenhar(true); }).catch(function (e) { MG.labOcupado = false; aviso(e.message, 'erro'); desenhar(true); });
+}
+function mgLabRelogio(q) { MG.labQ = q; MG.labRes = null; MG.labCar = false; mgLabCarregar(); desenhar(true); }
+function mgLabAdicionar(extra) {
+  var f = Object.assign({}, MG.lf, extra || {}), n = MG.lab ? MG.lab.leads.length : 0;
+  if (!String(f.nome || '').trim()) f.nome = MG_NOMES[n % MG_NOMES.length];
+  mgLabAcao('POST', '/ia-manager/lab/leads', { nome: f.nome, tipo: f.tipo, valor: f.valor, unidade: f.unidade, diasAtras: f.dias, exame: f.exame, atendente: f.atendente, quando: MG.labQ }, function (r) { MG.lab = r; MG.labRes = null; MG.lf.nome = ''; aviso('Lead de teste criado.', 'ok'); });
+}
+function mgLabRodar() {
+  mgLabAcao('POST', '/ia-manager/lab/rodar', { quando: MG.labQ }, function (r) {
+    MG.lab = r.lab; MG.labRes = r.resultados; MG.labNovo = Date.now();
+    var n = r.resultados.filter(function (x) { return x.resultado === 'enviaria'; }).length;
+    aviso(n ? 'A IA enviaria ' + n + (n === 1 ? ' mensagem' : ' mensagens') + ' agora (simulado, nada saiu).' : 'A IA não enviaria nada neste horário.', n ? 'ok' : 'aviso');
+  });
+}
+function mgLabCampo(rotulo, el, cls) { return h('div', { class: 'mg-campo ' + (cls || '') }, [h('label', { text: rotulo }), el]); }
+function mgLabForm(D) {
+  var nome = h('input', { class: 'in', type: 'text', maxlength: '60', placeholder: 'Ex.: Maria Teste', 'aria-label': 'Nome do lead de teste' }); nome.value = MG.lf.nome;
+  nome.addEventListener('input', function () { MG.lf.nome = nome.value; });
+  var valor = h('input', { class: 'in', type: 'number', min: '0', step: '50', 'aria-label': 'Valor do orçamento' }); valor.value = MG.lf.valor;
+  valor.addEventListener('input', function () { MG.lf.valor = valor.value; });
+  var un = h('select', { class: 'in', 'aria-label': 'Unidade' }, [h('option', { value: '', text: 'Sem unidade' })].concat(D.unidades.map(function (u) { return h('option', { value: u, text: u }); })));
+  un.value = MG.lf.unidade; un.addEventListener('change', function () { MG.lf.unidade = un.value; });
+  var tipo = h('div', { class: 'mg-seg', role: 'group', 'aria-label': 'Tipo do lead de teste' }, [['orcamento', 'Orçamento'], ['noshow', 'Faltou (No-show)']].map(function (t) {
+    return h('button', { type: 'button', class: MG.lf.tipo === t[0] ? 'on' : '', 'aria-pressed': String(MG.lf.tipo === t[0]), text: t[1], onclick: function () { MG.lf.tipo = t[0]; if (t[0] === 'noshow') MG.lf.dias = 0; desenhar(true); } });
+  }));
+  var cheio = !!MG.lab && MG.lab.leads.length >= MG.lab.limite;
+  return h('article', { class: 'mg-cx mg-lab-f' }, [
+    h('h4', { text: 'Novo lead de teste' }), h('p', { class: 'mut peq', text: 'Um paciente fictício. Ele só existe aqui: não aparece no CRM e nunca recebe mensagem.' }),
+    mgLabCampo('Nome', nome), mgLabCampo('Tipo', tipo),
+    h('div', { class: 'mg-lab-2' }, [mgLabCampo('Valor do orçamento (R$)', valor), mgLabCampo('Unidade', un)]),
+    MG.lf.tipo === 'orcamento' ? mgLabCampo('Orçamento feito há', mgStepper(MG.lf.dias, 0, 30, 1, function (v) { MG.lf.dias = v; desenhar(true); }, MG.lf.dias === 1 ? 'dia' : 'dias', 'Dias desde o orçamento')) : null,
+    botao(cheio ? 'Limite de ' + MG.lab.limite + ' leads' : 'Adicionar lead de teste', 'pri', function () { if (!cheio && !MG.labOcupado) mgLabAdicionar(); }, 'plus'),
+    h('div', { class: 'mg-lab-ex' }, [h('small', { text: 'OU COMECE POR UM EXEMPLO' })].concat(MG_EXEMPLOS.map(function (x) {
+      return h('button', { type: 'button', class: 'mg-ex', disabled: cheio, onclick: function () { if (!MG.labOcupado) mgLabAdicionar(x.e); } }, [h('b', { text: x.r }), h('small', { text: x.d })]);
+    })))
+  ]);
+}
+function mgLabRelogioUi(D) {
+  var q = MG.labQ, resumo = MG.labRes ? MG.labRes.filter(function (x) { return x.resultado === 'enviaria'; }).length : null;
+  var inp = h('input', { class: 'in mg-rel-i', type: 'datetime-local', 'aria-label': 'Data e hora simuladas' }); inp.value = q;
+  inp.addEventListener('change', function () { if (inp.value) mgLabRelogio(inp.value); });
+  var chips = Object.keys(MG.c.gatilhos).filter(function (id) { return MG.c.gatilhos[id].ativo; }).map(function (id) {
+    var g = D.gatilhos.filter(function (x) { return x.id === id; })[0], hora = MG.c.gatilhos[id].hora;
+    return h('button', { type: 'button', class: 'mg-chip' + (q.slice(11, 16) === hora ? ' on' : ''), title: 'Ir para o horário do gatilho ' + g.rotulo, onclick: function () { mgLabRelogio(q.slice(0, 11) + hora); } }, [h('b', { text: hora }), ' ' + g.rotulo]);
+  });
+  var noLab = MG.lab ? MG.lab.leads.length : 0;
+  return h('article', { class: 'mg-cx mg-rel' }, [
+    h('div', { class: 'mg-rel-t' }, [h('div', null, [h('small', { class: 'mg-eyebrow', text: 'RELÓGIO SIMULADO' }), h('b', { class: 'mg-rel-v', text: mgRelogioTxt(q) })]), h('div', { class: 'mg-rel-b' }, [
+      h('button', { type: 'button', class: 'btn', onclick: function () { mgLabRelogio(mgSomaDiaRel(q, -1)); } }, '− 1 dia'),
+      h('button', { type: 'button', class: 'btn', onclick: function () { mgLabRelogio(mgSomaDiaRel(q, 1)); } }, '+ 1 dia'),
+      h('button', { type: 'button', class: 'btn', onclick: function () { mgLabRelogio(mgRelogioPadrao(D)); } }, 'Agora')
+    ])]),
+    h('div', { class: 'mg-rel-c' }, [mgLabCampo('Data e hora (horário de Belém)', inp), mgLabCampo('Pular para o horário de um gatilho', h('div', { class: 'mg-chips' }, chips.length ? chips : [h('small', { class: 'mut', text: 'Nenhum gatilho ligado' })]))]),
+    h('div', { class: 'mg-rel-r' }, [
+      botao(MG.labOcupado ? 'Rodando…' : 'Rodar a IA neste horário', 'pri', function () { if (!MG.labOcupado && noLab) mgLabRodar(); }, 'bolt'),
+      noLab ? botao('Limpar tudo', '', function () { if (window.confirm('Remover todos os leads de teste?')) mgLabAcao('DELETE', '/ia-manager/lab?quando=' + encodeURIComponent(MG.labQ), undefined, function (r) { MG.lab = r; MG.labRes = null; }); }, 'x') : null,
+      resumo !== null ? h('span', { class: 'mg-rel-res ' + (resumo ? 'ok' : '') }, resumo ? 'Na última rodada, a IA enviaria ' + resumo + (resumo === 1 ? ' mensagem' : ' mensagens') : 'Na última rodada, a IA não enviaria nada') : (noLab ? null : h('span', { class: 'mut peq', text: 'Crie um lead de teste para rodar a IA.' }))
+    ])
+  ]);
+}
+function mgLabCartao(l) {
+  var dec = l.decisao;
+  var res = (MG.labRes || []).filter(function (x) { return x.leadId === l.id; })[0];
+  var novo = !!res && res.resultado === 'enviaria';
+  var cls = novo ? 'ok' : !dec ? 'nada' : dec.tipo === 'pronto' ? 'ok' : dec.tipo === 'espera' ? 'espera' : 'nao';
+  var rot = novo ? 'IA enviou agora (simulado)' : !dec ? 'Nada para a IA agora' : dec.tipo === 'pronto' ? 'Pronta para enviar' : dec.tipo === 'espera' ? 'Aguardando' : 'Não envia';
+  var msgs = l.mensagens.map(function (m, i) {
+    return h('div', { class: 'mg-lab-m' + (novo && i === l.mensagens.length - 1 ? ' novo' : '') }, [
+      h('small', { text: qDiaHora(m.quando) + ' · Msg ' + m.msg + ' · IA (simulado)' }),
+      h('div', { class: 'wa-bolha' }, [h('p', null, m.texto.split('\n').map(function (t, k) { return [k ? h('br') : null, t]; })), h('small', { class: 'wa-hora', text: 'simulado' })])
+    ]);
+  });
+  var checks = l.checks.map(function (c) { return h('li', { class: 'mg-ck ' + (c.ok ? 'ok' : c.falha === 'espera' ? 'espera' : 'nao') }, [h('i', { 'aria-hidden': 'true', text: c.ok ? '✓' : c.falha === 'espera' ? '⏳' : '✕' }), h('div', null, [h('b', { text: c.rotulo }), h('small', { text: c.detalhe })])]); });
+  return h('article', { class: 'mg-lc ' + cls + (novo ? ' novo' : '') }, [
+    h('header', { class: 'mg-lc-h' }, [avatar(l.nome), h('div', { class: 'mg-lc-n' }, [h('b', { text: l.nome }), h('small', { text: (l.tipo === 'noshow' ? 'No-show' : 'Orçamento de ' + mgDm(l.d0)) + ' · ' + brl(l.valor) + (l.unidade ? ' · ' + l.unidade : '') })]),
+      h('button', { type: 'button', class: 'ic-btn', 'aria-label': 'Remover ' + l.nome, title: 'Remover este lead de teste', onclick: function () { mgLabAcao('DELETE', '/ia-manager/lab/leads/' + encodeURIComponent(l.id) + '?quando=' + encodeURIComponent(MG.labQ), undefined, function (r) { MG.lab = r; MG.labRes = null; }); } }, ico('x', 14))]),
+    h('div', { class: 'mg-lc-d' }, [h('span', { class: 'mg-lc-p', text: rot }), h('span', { class: 'mg-lc-m', text: novo ? 'A IA enviou a Msg ' + res.msg + ' (simulado). ' : (dec ? dec.motivo : (l.proximo ? '' : 'Sem passo pendente: as regras do guia movem o lead com o passar dos dias.')) })]),
+    l.proximo ? h('p', { class: 'mut peq', text: 'Próximo passo do guia: ' + l.proximo.passo + (l.proximo.msg ? ' (Msg ' + l.proximo.msg + ')' : '') + ', vence ' + mgDm(l.proximo.vence) + '.' }) : null,
+    msgs.length ? h('div', { class: 'mg-lab-wa' }, msgs) : null,
+    checks.length ? h('details', { class: 'mg-det' }, [h('summary', { text: 'Ver as ' + checks.length + ' checagens desta decisão' }), h('ul', { class: 'mg-cks' }, checks)]) : null
+  ]);
+}
+function mgLab(D) {
+  if (!MG.labQ) MG.labQ = mgRelogioPadrao(D);
+  if (!MG.lab) mgLabCarregar();
+  var leads = MG.lab ? MG.lab.leads : [];
+  var lista = !MG.lab ? h('div', { class: 'it-carrega' }, [h('i'), h('i'), h('i')]) : leads.length ? h('div', { class: 'mg-lc-g' }, leads.map(mgLabCartao)) : h('div', { class: 'mg-lab-vazio' }, [h('b', { text: 'O laboratório está vazio' }), h('p', { text: 'Crie um lead de teste ao lado (ou escolha um exemplo), ajuste o relógio e clique em "Rodar a IA neste horário" para ver a IA decidir, escolher a mensagem e preencher as variáveis.' })]);
+  return h('section', { class: 'mg-bloco mg-labo', id: 'mg-lab' }, [
+    h('header', { class: 'mg-sh mg-sec', style: '--i:11' }, [h('div', null, [h('h3', { text: 'Laboratório de simulação' }), h('p', { text: 'A IA trabalhando de ponta a ponta com pacientes fictícios, no dia e na hora que você escolher. Usa a configuração salva e as mesmas regras da IA de verdade.' })]), h('span', { class: 'mg-badge', text: 'MODO SIMULAÇÃO' })]),
+    h('div', { class: 'mg-lab-g mg-sec', style: '--i:12' }, [mgLabForm(D), h('div', { class: 'mg-lab-d' }, [mgLabRelogioUi(D), lista])])
+  ]);
+}
+function mgSimulador(D) {
+  if (D.modo === 'simulacao') return mgLab(D);
+  var cta = h('article', { class: 'mg-cx mg-cx-l mg-sec mg-cta', style: '--i:11' }, [
+    h('div', null, [h('h4', { text: 'Quer testar com um paciente fictício?' }), h('p', { class: 'mut', text: 'O Modo Simulação abre um laboratório: você cria leads de teste, escolhe o dia e a hora e vê a IA decidir, escolher a mensagem e "enviar", sem tocar em nenhum paciente real.' })]),
+    botao('Ativar Modo simulação', 'pri', function () { if (D.modo === 'desligado' || window.confirm('Trocar para o Modo simulação? Enquanto estiver nele, a IA não trabalha nos leads reais.')) mgDefinirModo('simulacao'); }, 'bolt')
+  ]);
+  return h('div', { class: 'mg-bloco' }, [cta, mgSimuladorReal(D)]);
 }
 
 /* ------------------------------------------------------------------ histórico e última rodada */

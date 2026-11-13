@@ -92,7 +92,8 @@ export function statusDisparo(estado: Estado, agora: Date) {
   return { ativo: disparoAtivo(), restrito: !disparoLiberado(), numerosLiberados: numerosDeTeste().length, limiteDia: limiteDia(), enviadosHoje: enviadosHoje(estado, agora) };
 }
 
-const cardDoLead = (estado: Estado, l: Lead) => (l.cardId ? estado.pipelines.atribuicoes.find((a) => a.cardId === l.cardId)?.originSnapshot : undefined);
+// lead do laboratório do Modo Simulação (id "sim-") que faltou: não tem card de verdade, então a falta é do dia em que entrou no No-show
+const cardDoLead = (estado: Estado, l: Lead): CardSnap | undefined => (l.cardId ? estado.pipelines.atribuicoes.find((a) => a.cardId === l.cardId)?.originSnapshot : l.id.startsWith('sim-') && l.noShow ? ({ criadoEm: l.statusDesde, itens: l.exame ? [l.exame] : [], subtitulo: '' } as unknown as CardSnap) : undefined);
 
 /** Variáveis já preenchidas com os dados do lead (a tela deixa editar antes de enviar). */
 export function modelosParaLead(estado: Estado, l: Lead) {

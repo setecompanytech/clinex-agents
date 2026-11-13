@@ -5,6 +5,7 @@ import { MENSAGENS, PASSOS } from './modelo.js';
 import type { Janela } from './periodo.js';
 import type { Rodada } from './disparo-auto-tipos.js';
 import { GATILHOS_AUTO, NOMES_DIA, checagens, configAuto, enviadosPelaIAHoje, fila, modoDisparoAuto, rodarDisparoAuto } from './ia-disparo.js';
+import { textoDaMensagem } from './ia-laboratorio.js';
 import { registrarResposta, ROTULO_INTENCAO, type RespostaRecebida } from './rastreio.js';
 import { chaveFone, ehEnvio, statusDisparo } from './whatsapp.js';
 
@@ -91,8 +92,7 @@ export function simularLead(leadId: string, agora: Date) {
   const passo = 'passo' in r ? r.passo : undefined, parametros = 'parametros' in r ? r.parametros : undefined;
   let mensagem: { msg: number; texto: string; botoes: string[] } | null = null;
   if (passo?.msg && parametros) {
-    const m = MENSAGENS.find((x) => x.n === passo.msg); let i = 0;
-    if (m) mensagem = { msg: m.n, texto: m.corpo.replace(/\[[^\]]*\]/g, (c) => parametros[i++] ?? c), botoes: m.botoes ?? [] };
+    mensagem = textoDaMensagem(passo.msg, parametros);
   }
   const falhou = r.checks.find((c) => !c.ok);
   return { lead: { id: l.id, nome: l.nome, telefone: l.telefone, valor: l.valor, unidade: l.unidade ?? '', status: l.status, atendente: l.atendente ?? '' }, aplicavel: r.aplicavel, checks: r.checks, enviaria: r.aplicavel && !falhou, primeiraFalha: falhou ?? null, passo: passo ? { id: passo.id, rotulo: passo.rotulo, msg: passo.msg, hora: passo.hora } : null, mensagem };
