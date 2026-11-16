@@ -21,8 +21,10 @@ const somaDias = (ymd: string, n: number) => { const [y, m, d] = ymd.split('-').
 const periodoDe = (inicio?: string): Periodo => (inicio && inicio < '12:00' ? 'manhã' : 'tarde');
 /** REGRA DA CLÍNICA: exames, laboratório e demais procedimentos (tudo que não é consulta) só nas agendas da manhã. */
 const ehConsultaProc = (p: { nome: string; categoria?: string | null }) => /consulta/i.test(p.nome) || /consulta/i.test(p.categoria ?? '');
-/** Exame só de manhã: o horário de verdade (não só o começo da agenda) tem de ser antes do meio-dia. Uma agenda das 7h às 17h não deixa passar 16h40. */
-const soManha = (hs: Horario[]) => hs.filter((h) => turnoDe(h) === 'manhã' && h.hora < '12:00');
+/** Exame só de manhã: o horário de verdade (não só o começo da agenda) tem de ser antes do meio-dia. Uma agenda das 7h às 17h não deixa passar 16h40.
+ *  DESLIGADO desde 13/11/2026 (a clínica liberou as agendas da tarde para exames). Para voltar: EXAMES_SO_MANHA=true. */
+const EXAMES_SO_MANHA = process.env.EXAMES_SO_MANHA === 'true';
+const soManha = (hs: Horario[]) => (EXAMES_SO_MANHA ? hs.filter((h) => turnoDe(h) === 'manhã' && h.hora < '12:00') : hs);
 
 type Cand = { proc: Procedimento; clinicas: Clinica[] };
 const conhecidos = new Map<string, Cand>(); // procedimentoId -> candidato (preenchido por descobrir, lido por resolver)

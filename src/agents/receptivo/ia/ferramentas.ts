@@ -1,6 +1,6 @@
 /**
  * Amanda IA: as FERRAMENTAS que o modelo usa. O modelo conduz a conversa; as regras da clínica ficam aqui, em código, e ele não tem como
- * desobedecer: só existe horário que veio do Clinilink (por id), exame só de manhã (a fonte já filtra), nada de horário que já passou,
+ * desobedecer: só existe horário que veio do Clinilink (por id), agendas de manhã e de tarde (exame só de manhã voltou a ser opcional: EXAMES_SO_MANHA), nada de horário que já passou,
  * cadastro só com nome, nascimento e sexo (CPF opcional), agendamento só de horário oferecido e conferido de novo na hora de gravar.
  */
 import type { Comprovante } from '../../../lib/comprovante.js';
@@ -182,6 +182,26 @@ function opcaoPeloNome(pedido: string, opcoes: { id: string; nome: string }[], u
   return melhor && melhor.hits > 0 && pontos.filter((p) => p.hits === melhor.hits).length === 1 ? melhor.o : undefined;
 }
 
+/** A chave lida no comprovante é a chave pix da clínica? Aceita a máscara do banco ("cli***@gmail.com"): as partes visíveis têm de bater. */
+export function chaveDaClinica(lida: string, chaveClinica = env.pixKey): boolean {
+  const limpa = (x: string) => x.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, '');
+  const l = limpa(lida), k = limpa(chaveClinica);
+  if (!l || !k) return false;
+  if (l === k) return true;
+  // só números (telefone/CPF/CNPJ): compara os dígitos
+  if (/^[\d().+\-/]+$/.test(l) && l.replace(/\D/g, '') === k.replace(/\D/g, '')) return true;
+  // máscara do banco: * ou • escondem parte; o que aparece tem de estar na mesma ordem e cobrir o começo e o fim
+  if (/[*•]/.test(l)) {
+    const partes = l.split(/[*•]+/).filter(Boolean);
+    // o começo da chave tem de aparecer ("***@gmail.com" serviria para qualquer e-mail) e pelo menos 6 caracteres visíveis
+    if (k.includes('@') && (l.split(/[*•]/)[0] ?? '').length < 3) return false; // e-mail: ao menos 3 letras do começo visíveis
+    if (/^[*•]/.test(l) || !partes.length || partes.join('').length < 6) return false;
+    const re = new RegExp('^' + l.split(/[*•]+/).map((p) => p.replace(/[.*+?^$()|[\]\\{}]/g, '\\$&')).join('.+') + '$');
+    return re.test(k);
+  }
+  return false;
+}
+
 const acharServico = async (id: string, c: Contexto): Promise<Servico | undefined> => {
   if (c.mem.servicos[id]) return c.mem.servicos[id];
   const d = await c.fonte.resolver(id).catch(() => undefined);
@@ -207,12 +227,12 @@ export const DEFINICOES: Def[] = [
   { name: 'buscar_paciente', description: 'Procura o cadastro do paciente: pelo CPF (se ele mandou) ou por nome completo + data de nascimento (procura pelo telefone desta conversa). Só mostre ao paciente o NOME encontrado, nunca outros dados.', parameters: obj({ cpf: str('11 dígitos (opcional)'), nome_completo: str('opcional'), nascimento: str('DD/MM/AAAA (opcional)') }) },
   { name: 'agendar', description: 'Grava o agendamento de um horario_id oferecido. Paciente já encontrado: só confirme que é ele. Paciente novo: precisa de nome completo, data de nascimento e sexo (CPF é opcional). O telefone de contato do paciente é obrigatório: peça (para o próprio paciente, ofereça este WhatsApp; para outra pessoa, o telefone dela). Só chame depois de o paciente confirmar o horário E dizer como vai pagar (na recepção ou pix). Pix: só depois de conferir_comprovante confirmar o comprovante.', parameters: obj({ horario_id: str('horario_id escolhido'), nome_completo: str('nome completo do paciente'), nascimento: str('DD/MM/AAAA'), sexo: { type: 'string', enum: ['feminino', 'masculino'] }, cpf: str('CPF do paciente: OBRIGATÓRIO quando o pagamento é pix; opcional nos outros casos'), nome_confirmado: { type: 'boolean', description: 'paciente novo: true só depois de o paciente confirmar o nome completo que vai para o cadastro' }, telefone: str('telefone de contato do PACIENTE, com DDD, que ele informou ou confirmou na conversa (se disse que pode ser este WhatsApp, use o número do WhatsApp desta conversa)'), pagamento: { type: 'string', enum: ['recepcao', 'pix', 'link_credito'], description: 'como o PACIENTE disse que vai pagar (pergunte antes; nunca presuma). link_credito = cartão de crédito por link (a equipe envia o link e conclui)' } }, ['horario_id', 'nome_completo', 'nascimento', 'telefone', 'pagamento']) },
   { name: 'orcar_exames', description: 'Monta o orçamento de exames (de laboratório ou outros) a partir dos nomes que o paciente escreveu ou que vieram do pedido médico. Devolve cada exame com o valor por unidade.', parameters: obj({ exames: { type: 'array', items: { type: 'string' }, description: 'nomes dos exames' } }, ['exames']) },
-  { name: 'ler_pedido_medico', description: 'Lê as fotos que o paciente mandou: pedido médico (devolve os exames) ou panfleto/anúncio da própria Clinex (devolve o combo destacado, o valor impresso e o que ele inclui). Use sempre que o paciente mandar foto.', parameters: obj({}) },
+  { name: 'ler_pedido_medico', description: 'Lê as fotos e PDFs que o paciente mandou: pedido médico (devolve os exames) ou panfleto/anúncio da própria Clinex (devolve o combo destacado, o valor impresso e o que ele inclui). Use sempre que o paciente mandar foto.', parameters: obj({}) },
   { name: 'agendar_coleta', description: 'Depois do orçamento de exames, prepara o agendamento da coleta de todos os exames do orçamento juntos (devolve um servico_id para ver_horarios).', parameters: obj({}) },
   { name: 'sugerir_exames', description: 'Os exames de laboratório mais procurados e os combos de exames, para quem não sabe quais fazer.', parameters: obj({}) },
   { name: 'combos_do_servico', description: 'Combos que incluem o serviço e saem mais em conta. Só ofereça se fizer sentido, sem empurrar.', parameters: obj({ servico_id: str('servico_id') }, ['servico_id']) },
   { name: 'etapa_do_combo', description: 'Prepara uma etapa de um combo escolhido para agendar (devolve um servico_id para ver_horarios). Agende uma etapa de cada vez.', parameters: obj({ servico_id: str('servico_id do combo'), etapa: { type: 'integer', description: 'número da etapa (1, 2, ...)' } }, ['servico_id', 'etapa']) },
-  { name: 'conferir_comprovante', description: 'Confere a última imagem enviada como comprovante de pix (valor e recebedor).', parameters: obj({}) },
+  { name: 'conferir_comprovante', description: 'Confere a última imagem ou PDF enviado como comprovante de pix (chave de destino, valor e status).', parameters: obj({}) },
   { name: 'transferir_para_humano', description: 'Passa a conversa para a equipe. Use para: resultado de exame, remarcar, cancelar, documentos, reclamação, convênio, serviço externo, pedido de falar com atendente, urgência, ou quando você não conseguir resolver. Escreva antes, na sua resposta, uma frase curta avisando o paciente.', parameters: obj({ motivo: str('resumo para a equipe: quem é, o que quer, o que já foi feito'), urgente: { type: 'boolean' } }, ['motivo']) },
   { name: 'encerrar_atendimento', description: 'SÓ quando o paciente se despedir ou disser que não precisa de mais nada ("só isso", "obrigado, tchau"). Nunca por conta própria, nunca logo depois de um agendamento sem o paciente se despedir. Encerra e finaliza o atendimento (escreva a despedida na resposta).', parameters: obj({}) },
 ];
@@ -282,6 +302,7 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
             c.mem.slots[id] = { servicoId: String(args.servico_id), unidade: un.nome, slot: s };
             return { horario_id: id, dia: dataFalada(s.ymd, hoje), data: s.ymd, periodo: s.turno, a_partir_das: horaFalada(s.inicio), profissional: s.profissional ? exibir(s.profissional) : undefined };
           }),
+          ...(sv.preparo ? { preparo_cadastrado: sv.preparo, orientacao_preparo: 'Este serviço tem preparo cadastrado: informe o preparo ao paciente (resumido, em linhas curtas) junto com os horários. Ele também vai completo na confirmação.' } : {}),
           lembrete: 'Atendimento por ordem de chegada: diga "a partir das Xh". Não invente horários fora desta lista.',
         };
       }
@@ -468,11 +489,15 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
       case 'conferir_comprovante': {
         const cp = await c.lerComprovante?.();
         if (!cp || cp.tipo !== 'comprovante') return { erro: 'a imagem não parece um comprovante de pix' };
-        const receb = env.pixRecebedor.split(',').map((x) => norm(x)).filter(Boolean);
-        const okReceb = receb.some((r) => norm(`${cp.destinatario ?? ''} ${cp.chave ?? ''}`).includes(r)) || norm(cp.chave ?? '') === norm(env.pixKey);
-        const valido = okReceb && cp.status !== 'falhou' && cp.status !== 'agendado';
+        // REGRA DA CLÍNICA: a CHAVE PIX de destino tem de ser lida e tem de ser a da clínica (o nome do recebedor sozinho não basta)
+        const chaveLida = String(cp.chave ?? '').trim();
+        const okChave = chaveDaClinica(chaveLida);
+        const okReceb = okChave;
+        const valido = okChave && cp.status !== 'falhou' && cp.status !== 'agendado';
         if (valido) c.mem.pix = { valor: cp.valor ?? undefined, transacao: cp.transacao ?? undefined, em: new Date().toISOString() };
-        return { valor: cp.valor != null ? reais(cp.valor) : 'não legível', recebedor_confere: okReceb, status: cp.status ?? 'desconhecido', orientacao: valido ? 'Comprovante conferido: agora chame agendar com pagamento pix (com os dados do paciente) para reservar.' : !okReceb ? 'O recebedor não parece ser a clínica: peça para conferir, sem acusar. Não agende.' : 'O pix não aparece como concluído (agendado ou falhou): peça o comprovante do pix já feito. Não agende.' };
+        if (!chaveLida) return { valor: cp.valor != null ? reais(cp.valor) : 'não legível', chave_lida: null, orientacao: `O comprovante não mostra a chave pix de destino. NÃO agende. Peça ao paciente o comprovante completo, em que apareça a chave (${env.pixKey}). Se ele não conseguir, transfira para a equipe conferir.` };
+        if (!okChave) return { valor: cp.valor != null ? reais(cp.valor) : 'não legível', chave_lida: chaveLida, chave_confere: false, orientacao: `A chave do comprovante (${chaveLida}) não é a chave da clínica (${env.pixKey}). NÃO agende. Avise com gentileza, sem acusar, que o pix parece ter ido para outra chave, e passe a chave certa. Se ele insistir que está certo, transfira para a equipe conferir.` };
+        return { valor: cp.valor != null ? reais(cp.valor) : 'não legível', chave_lida: chaveLida, chave_confere: true, recebedor_confere: okReceb, status: cp.status ?? 'desconhecido', orientacao: valido ? 'Comprovante conferido: agora chame agendar com pagamento pix (com os dados do paciente) para reservar.' : !okReceb ? 'O recebedor não parece ser a clínica: peça para conferir, sem acusar. Não agende.' : 'O pix não aparece como concluído (agendado ou falhou): peça o comprovante do pix já feito. Não agende.' };
       }
       case 'transferir_para_humano': {
         c.saida.handoff = { motivo: String(args.motivo ?? 'pedido do paciente'), urgente: Boolean(args.urgente) };

@@ -1,4 +1,5 @@
 import { env } from './env.js';
+import { ehPdf, parteDaMidia } from './midia.js';
 import { evt } from './log.js';
 
 /**
@@ -42,7 +43,9 @@ export function sanitizarExames(x: unknown): string[] {
 }
 
 export async function analisarPedidoMedico(bytes: Buffer, mime: string): Promise<PedidoLido> {
-  if (!env.openaiKey || !/^image\/(png|jpe?g|webp|gif)/i.test(mime)) return { tipo: 'ilegivel', exames: [] };
+  // foto ou PDF (pedido digitado/impresso em PDF, guia, panfleto)
+  const midia = parteDaMidia(bytes, mime, 'high');
+  if (!env.openaiKey || !midia) return { tipo: 'ilegivel', exames: [] };
   const t0 = Date.now();
   try {
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -52,7 +55,7 @@ export async function analisarPedidoMedico(bytes: Buffer, mime: string): Promise
         model: env.openaiVisionModel, temperature: 0, max_tokens: 1200, response_format: { type: 'json_object' },
         messages: [{ role: 'user', content: [
           { type: 'text', text: PROMPT },
-          { type: 'image_url', image_url: { url: `data:${mime.split(';')[0]};base64,${bytes.toString('base64')}`, detail: 'high' } },
+          midia,
         ] }],
       }),
       signal: AbortSignal.timeout(45000),
@@ -62,7 +65,7 @@ export async function analisarPedidoMedico(bytes: Buffer, mime: string): Promise
     const exames = sanitizarExames(j.exames);
     const combo = typeof j.combo === 'string' ? j.combo.replace(/\s+/g, ' ').trim().slice(0, 60) : '';
     const tipo: PedidoLido['tipo'] = j.tipo === 'pedido' && exames.length > 0 ? 'pedido' : j.tipo === 'panfleto' && (combo || exames.length) ? 'panfleto' : j.tipo === 'outro' ? 'outro' : 'ilegivel';
-    const escrita: PedidoLido['escrita'] = j.escrita === 'manuscrita' ? 'manuscrita' : j.escrita === 'impressa' ? 'impressa' : undefined;
+    const escrita: PedidoLido['escrita'] = j.escrita === 'manuscrita' ? 'manuscrita' : j.escrita === 'impressa' || ehPdf(bytes, mime) ? 'impressa' : undefined;
     const out: PedidoLido = { escrita, tipo, exames: tipo === 'pedido' || tipo === 'panfleto' ? exames : [], incerto: j.incerto === true, ...(tipo === 'panfleto' ? { combo: combo || undefined, valor: typeof j.valor === 'number' && j.valor > 0 ? j.valor : undefined } : {}) };
     // sem dados pessoais no log: só quantos exames saíram da leitura
     evt('pedido_medico', { tipo: out.tipo, exames: out.exames.length, incerto: out.incerto, ms: Date.now() - t0 });
