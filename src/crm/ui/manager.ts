@@ -1,7 +1,7 @@
 // JavaScript do CRM (navegador): página "IA Manager", o painel de controle da IA de disparo. Dados de /painel/crm/api/ia-manager.
 // Dentro dele não usar crases nem "dollar-chave".
 export const manager = String.raw`
-var MG = { aba: 'controle', d: null, c: null, base: null, car: false, t: 0, erro: '', salvando: false, entrou: false, lab: null, labCar: false, labQ: '', labRes: null, labNovo: null, lf: { nome: '', tipo: 'orcamento', valor: '400', unidade: '', dias: 1, exame: 'Ultrassom', atendente: '' } };
+var MG = { labVistos: {}, aba: 'controle', d: null, c: null, base: null, car: false, t: 0, erro: '', salvando: false, entrou: false, lab: null, labCar: false, labQ: '', labRes: null, labNovo: null, lf: { nome: '', tipo: 'orcamento', valor: '400', unidade: '', dias: 1, exame: 'Ultrassom', atendente: '' } };
 var MG_PAL = ['#4cc9f0', '#a78bfa', '#f5b942', '#fb7185', '#2ee6a6'];
 var MG_DIAS = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'], MG_DIAS_L = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
 var MG_TXT = {
@@ -13,6 +13,20 @@ var MG_TXT = {
 var mgClone = function (o) { return JSON.parse(JSON.stringify(o)); };
 function mgSujo() { return !!(MG.c && MG.base) && JSON.stringify(MG.c) !== JSON.stringify(MG.base); }
 
+/* Repinta SÓ as seções que mudaram (o Power, as partículas e os anéis não reiniciam). A página inteira só é refeita ao trocar de modo ou de aba. */
+var MG_SECOES = { linha: function () { return mgLinha(MG.d); }, gat: function () { return mgGatilhos(MG.d); }, glob: function () { return mgGlobais(MG.d); }, lab: function () { return mgSimulador(MG.d); }, hist: function () { return mgHistorico(MG.d); }, barra: function () { return mgBarraSalvar(); } };
+function mgRepintar(chaves) {
+  var tela = document.querySelector('.tela.mg');
+  if (!tela || S.aba !== 'iamanager' || MG.aba !== 'controle' || !MG.d || !MG.c) { desenhar(true); return; }
+  chaves.forEach(function (k) {
+    var novo = MG_SECOES[k](), velho = tela.querySelector('[data-mg="' + k + '"]');
+    if (novo) {
+      novo.setAttribute('data-mg', k); novo.classList.remove('mg-sec'); Array.prototype.forEach.call(novo.querySelectorAll('.mg-sec'), function (n) { n.classList.remove('mg-sec'); });
+      if (k === 'barra' && velho) novo.classList.add('fixa'); /* a barra só "entra" quando aparece, não a cada clique */
+    }
+    if (velho && novo) velho.replaceWith(novo); else if (velho) velho.remove(); else if (novo) tela.appendChild(novo);
+  });
+}
 /* o que a tela mostra, sem os campos que só mudam com o relógio: serve para não redesenhar (e reiniciar as animações) à toa */
 function mgAssina(d) {
   var x = Object.assign({}, d); delete x.agoraBrt; delete x.minutosDesdeUltimaRodada; x.proximo = { tipo: d.proximo.tipo, gatilho: d.proximo.gatilho, hora: d.proximo.hora };
@@ -183,7 +197,7 @@ function mgSwitch(on, aoMudar, rotulo) {
 function mgSegmento(opcoes, atual, aoMudar, rotulo) {
   return h('div', { class: 'mg-seg', role: 'group', 'aria-label': rotulo }, opcoes.map(function (o) { return h('button', { type: 'button', class: o === atual ? 'on' : '', 'aria-pressed': String(o === atual), text: o, onclick: function () { if (o !== atual) aoMudar(o); } }); }));
 }
-function mgMudar(fn) { fn(); MG.erro = ''; desenhar(true); }
+function mgMudar(fn) { fn(); MG.erro = ''; mgRepintar(['linha', 'gat', 'glob', 'barra']); }
 function mgNum(valor, ph, aoMudar, rotulo) {
   var i = h('input', { class: 'in mg-in', type: 'number', min: '0', step: '10', placeholder: ph, 'aria-label': rotulo });
   i.value = valor === undefined || valor === null ? '' : String(valor);
@@ -298,29 +312,53 @@ function mgDm(iso) { return iso ? iso.slice(8, 10) + '/' + iso.slice(5, 7) : '';
 function mgRelogioPadrao(D) { return D.agoraBrt.hoje + 'T' + D.agoraBrt.hora; }
 function mgSomaDiaRel(q, n) { var d = new Date(q.slice(0, 10) + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10) + q.slice(10); }
 function mgRelogioTxt(q) { var d = new Date(q.slice(0, 10) + 'T12:00:00Z'); return MG_DIAS_L[d.getUTCDay()] + ', ' + mgDm(q.slice(0, 10)) + ' · ' + q.slice(11, 16); }
+var MG_LAB_SEQ = 0;
+function mgLabRepintar() { mgRepintar(['lab']); }
 function mgLabCarregar() {
   if (MG.labCar) return;
   MG.labCar = true;
-  api('GET', '/ia-manager/lab?quando=' + encodeURIComponent(MG.labQ)).then(function (r) { MG.lab = r; MG.labCar = false; if (S.aba === 'iamanager') desenhar(true); })
+  api('GET', '/ia-manager/lab?quando=' + encodeURIComponent(MG.labQ)).then(function (r) { MG.lab = r; MG.labCar = false; if (document.querySelector('[data-mg="lab"]')) mgLabRepintar(); else if (S.aba === 'iamanager') desenhar(true); })
     .catch(function (e) { MG.labCar = false; MG.lab = MG.lab || { leads: [], limite: 12 }; aviso(e.message, 'erro'); });
 }
-function mgLabAcao(metodo, caminho, corpo, ok) {
-  MG.labOcupado = true; desenhar(true);
-  api(metodo, caminho, corpo).then(function (r) { MG.labOcupado = false; ok(r); desenhar(true); }).catch(function (e) { MG.labOcupado = false; aviso(e.message, 'erro'); desenhar(true); });
+/* ações do laboratório: o botão mostra "fazendo…" na hora, só a seção do laboratório é repintada */
+function mgLabAcao(tipo, metodo, caminho, corpo, ok) {
+  if (MG.labOcupado) return;
+  MG.labOcupado = tipo; mgLabRepintar();
+  api(metodo, caminho, corpo).then(function (r) { MG.labOcupado = ''; ok(r); mgLabRepintar(); }).catch(function (e) { MG.labOcupado = ''; aviso(e.message, 'erro'); mgLabRepintar(); });
 }
-function mgLabRelogio(q) { MG.labQ = q; MG.labRes = null; MG.labCar = false; mgLabCarregar(); desenhar(true); }
+/* mudar o relógio: o texto e os botões mudam NA HORA; as decisões dos leads atualizam quando o servidor responder (respostas antigas são ignoradas) */
+function mgLabRelogio(q) {
+  MG.labQ = q; MG.labRes = null; var meu = ++MG_LAB_SEQ; MG.labAtual = true; mgLabRepintar();
+  api('GET', '/ia-manager/lab?quando=' + encodeURIComponent(q)).then(function (r) { if (meu !== MG_LAB_SEQ) return; MG.lab = r; MG.labAtual = false; mgLabRepintar(); })
+    .catch(function (e) { if (meu !== MG_LAB_SEQ) return; MG.labAtual = false; aviso(e.message, 'erro'); mgLabRepintar(); });
+}
 function mgLabAdicionar(extra) {
   var f = Object.assign({}, MG.lf, extra || {}), n = MG.lab ? MG.lab.leads.length : 0;
   if (!String(f.nome || '').trim()) f.nome = MG_NOMES[n % MG_NOMES.length];
-  mgLabAcao('POST', '/ia-manager/lab/leads', { nome: f.nome, tipo: f.tipo, valor: f.valor, unidade: f.unidade, diasAtras: f.dias, exame: f.exame, atendente: f.atendente, quando: MG.labQ }, function (r) { MG.lab = r; MG.labRes = null; MG.lf.nome = ''; aviso('Lead de teste criado.', 'ok'); });
+  mgLabAcao('add', 'POST', '/ia-manager/lab/leads', { nome: f.nome, tipo: f.tipo, valor: f.valor, unidade: f.unidade, diasAtras: f.dias, exame: f.exame, atendente: f.atendente, quando: MG.labQ }, function (r) { MG.lab = r; MG.labRes = null; MG.lf.nome = ''; aviso('Lead de teste criado.', 'ok'); });
 }
 function mgLabRodar() {
-  mgLabAcao('POST', '/ia-manager/lab/rodar', { quando: MG.labQ }, function (r) {
+  mgLabAcao('rodar', 'POST', '/ia-manager/lab/rodar', { quando: MG.labQ }, function (r) {
     MG.lab = r.lab; MG.labRes = r.resultados; MG.labNovo = Date.now();
     var n = r.resultados.filter(function (x) { return x.resultado === 'enviaria'; }).length;
     aviso(n ? 'A IA enviaria ' + n + (n === 1 ? ' mensagem' : ' mensagens') + ' agora (simulado, nada saiu).' : 'A IA não enviaria nada neste horário.', n ? 'ok' : 'aviso');
   });
 }
+/* remover e limpar: some da tela na hora; se o servidor falhar, recarrega o que realmente existe */
+function mgLabRemover(id) {
+  if (!MG.lab) return;
+  MG.lab.leads = MG.lab.leads.filter(function (x) { return x.id !== id; }); MG.labRes = null; mgLabRepintar();
+  api('DELETE', '/ia-manager/lab/leads/' + encodeURIComponent(id) + '?quando=' + encodeURIComponent(MG.labQ)).then(function (r) { MG.lab = r; mgLabRepintar(); })
+    .catch(function (e) { aviso(e.message, 'erro'); MG.labCar = false; mgLabCarregar(); });
+}
+function mgLabLimpar() {
+  if (!window.confirm('Remover todos os leads de teste?')) return;
+  if (MG.lab) MG.lab.leads = []; MG.labRes = null; mgLabRepintar();
+  api('DELETE', '/ia-manager/lab?quando=' + encodeURIComponent(MG.labQ)).then(function (r) { MG.lab = r; mgLabRepintar(); })
+    .catch(function (e) { aviso(e.message, 'erro'); MG.labCar = false; mgLabCarregar(); });
+}
+/* botão em andamento: fica apagado e mostra o giro, para o clique nunca parecer que "não fez nada" */
+function mgOcupavel(b, tipo) { if (MG.labOcupado) { b.setAttribute('disabled', 'true'); if (MG.labOcupado === tipo) { b.classList.add('ocupado'); b.insertBefore(h('i', { class: 'mg-gira' }), b.firstChild); } } return b; }
 function mgLabCampo(rotulo, el, cls) { return h('div', { class: 'mg-campo ' + (cls || '') }, [h('label', { text: rotulo }), el]); }
 function mgLabForm(D) {
   var nome = h('input', { class: 'in', type: 'text', maxlength: '60', placeholder: 'Ex.: Maria Teste', 'aria-label': 'Nome do lead de teste' }); nome.value = MG.lf.nome;
@@ -330,17 +368,17 @@ function mgLabForm(D) {
   var un = h('select', { class: 'in', 'aria-label': 'Unidade' }, [h('option', { value: '', text: 'Sem unidade' })].concat(D.unidades.map(function (u) { return h('option', { value: u, text: u }); })));
   un.value = MG.lf.unidade; un.addEventListener('change', function () { MG.lf.unidade = un.value; });
   var tipo = h('div', { class: 'mg-seg', role: 'group', 'aria-label': 'Tipo do lead de teste' }, [['orcamento', 'Orçamento'], ['noshow', 'Faltou (No-show)']].map(function (t) {
-    return h('button', { type: 'button', class: MG.lf.tipo === t[0] ? 'on' : '', 'aria-pressed': String(MG.lf.tipo === t[0]), text: t[1], onclick: function () { MG.lf.tipo = t[0]; if (t[0] === 'noshow') MG.lf.dias = 0; desenhar(true); } });
+    return h('button', { type: 'button', class: MG.lf.tipo === t[0] ? 'on' : '', 'aria-pressed': String(MG.lf.tipo === t[0]), text: t[1], onclick: function () { MG.lf.tipo = t[0]; if (t[0] === 'noshow') MG.lf.dias = 0; mgLabRepintar(); } });
   }));
   var cheio = !!MG.lab && MG.lab.leads.length >= MG.lab.limite;
   return h('article', { class: 'mg-cx mg-lab-f' }, [
     h('h4', { text: 'Novo lead de teste' }), h('p', { class: 'mut peq', text: 'Um paciente fictício. Ele só existe aqui: não aparece no CRM e nunca recebe mensagem.' }),
     mgLabCampo('Nome', nome), mgLabCampo('Tipo', tipo),
     h('div', { class: 'mg-lab-2' }, [mgLabCampo('Valor do orçamento (R$)', valor), mgLabCampo('Unidade', un)]),
-    MG.lf.tipo === 'orcamento' ? mgLabCampo('Orçamento feito há', mgStepper(MG.lf.dias, 0, 30, 1, function (v) { MG.lf.dias = v; desenhar(true); }, MG.lf.dias === 1 ? 'dia' : 'dias', 'Dias desde o orçamento')) : null,
-    botao(cheio ? 'Limite de ' + MG.lab.limite + ' leads' : 'Adicionar lead de teste', 'pri', function () { if (!cheio && !MG.labOcupado) mgLabAdicionar(); }, 'plus'),
+    MG.lf.tipo === 'orcamento' ? mgLabCampo('Orçamento feito há', mgStepper(MG.lf.dias, 0, 30, 1, function (v) { MG.lf.dias = v; mgLabRepintar(); }, MG.lf.dias === 1 ? 'dia' : 'dias', 'Dias desde o orçamento')) : null,
+    mgOcupavel(botao(cheio ? 'Limite de ' + MG.lab.limite + ' leads' : MG.labOcupado === 'add' ? 'Adicionando…' : 'Adicionar lead de teste', 'pri', function () { if (!cheio && !MG.labOcupado) mgLabAdicionar(); }, MG.labOcupado === 'add' ? null : 'plus'), 'add'),
     h('div', { class: 'mg-lab-ex' }, [h('small', { text: 'OU COMECE POR UM EXEMPLO' })].concat(MG_EXEMPLOS.map(function (x) {
-      return h('button', { type: 'button', class: 'mg-ex', disabled: cheio, onclick: function () { if (!MG.labOcupado) mgLabAdicionar(x.e); } }, [h('b', { text: x.r }), h('small', { text: x.d })]);
+      return h('button', { type: 'button', class: 'mg-ex', disabled: cheio || !!MG.labOcupado, onclick: function () { if (!MG.labOcupado) mgLabAdicionar(x.e); } }, [h('b', { text: x.r }), h('small', { text: x.d })]);
     })))
   ]);
 }
@@ -361,8 +399,8 @@ function mgLabRelogioUi(D) {
     ])]),
     h('div', { class: 'mg-rel-c' }, [mgLabCampo('Data e hora (horário de Belém)', inp), mgLabCampo('Pular para o horário de um gatilho', h('div', { class: 'mg-chips' }, chips.length ? chips : [h('small', { class: 'mut', text: 'Nenhum gatilho ligado' })]))]),
     h('div', { class: 'mg-rel-r' }, [
-      botao(MG.labOcupado ? 'Rodando…' : 'Rodar a IA neste horário', 'pri', function () { if (!MG.labOcupado && noLab) mgLabRodar(); }, 'bolt'),
-      noLab ? botao('Limpar tudo', '', function () { if (window.confirm('Remover todos os leads de teste?')) mgLabAcao('DELETE', '/ia-manager/lab?quando=' + encodeURIComponent(MG.labQ), undefined, function (r) { MG.lab = r; MG.labRes = null; }); }, 'x') : null,
+      mgOcupavel(botao(MG.labOcupado === 'rodar' ? 'Rodando…' : 'Rodar a IA neste horário', 'pri', function () { if (!MG.labOcupado && noLab) mgLabRodar(); }, MG.labOcupado === 'rodar' ? null : 'bolt'), 'rodar'),
+      noLab ? botao('Limpar tudo', '', mgLabLimpar, 'x') : null,
       resumo !== null ? h('span', { class: 'mg-rel-res ' + (resumo ? 'ok' : '') }, resumo ? 'Na última rodada, a IA enviaria ' + resumo + (resumo === 1 ? ' mensagem' : ' mensagens') : 'Na última rodada, a IA não enviaria nada') : (noLab ? null : h('span', { class: 'mut peq', text: 'Crie um lead de teste para rodar a IA.' }))
     ])
   ]);
@@ -380,9 +418,10 @@ function mgLabCartao(l) {
     ]);
   });
   var checks = l.checks.map(function (c) { return h('li', { class: 'mg-ck ' + (c.ok ? 'ok' : c.falha === 'espera' ? 'espera' : 'nao') }, [h('i', { 'aria-hidden': 'true', text: c.ok ? '✓' : c.falha === 'espera' ? '⏳' : '✕' }), h('div', null, [h('b', { text: c.rotulo }), h('small', { text: c.detalhe })])]); });
-  return h('article', { class: 'mg-lc ' + cls + (novo ? ' novo' : '') }, [
+  var primeira = !MG.labVistos[l.id]; MG.labVistos[l.id] = 1;
+  return h('article', { class: 'mg-lc ' + cls + (novo ? ' novo' : '') + (primeira ? ' entra' : '') }, [
     h('header', { class: 'mg-lc-h' }, [avatar(l.nome), h('div', { class: 'mg-lc-n' }, [h('b', { text: l.nome }), h('small', { text: (l.tipo === 'noshow' ? 'No-show' : 'Orçamento de ' + mgDm(l.d0)) + ' · ' + brl(l.valor) + (l.unidade ? ' · ' + l.unidade : '') })]),
-      h('button', { type: 'button', class: 'ic-btn', 'aria-label': 'Remover ' + l.nome, title: 'Remover este lead de teste', onclick: function () { mgLabAcao('DELETE', '/ia-manager/lab/leads/' + encodeURIComponent(l.id) + '?quando=' + encodeURIComponent(MG.labQ), undefined, function (r) { MG.lab = r; MG.labRes = null; }); } }, ico('x', 14))]),
+      h('button', { type: 'button', class: 'ic-btn', 'aria-label': 'Remover ' + l.nome, title: 'Remover este lead de teste', onclick: function () { mgLabRemover(l.id); } }, ico('x', 14))]),
     h('div', { class: 'mg-lc-d' }, [h('span', { class: 'mg-lc-p', text: rot }), h('span', { class: 'mg-lc-m', text: novo ? 'A IA enviou a Msg ' + res.msg + ' (simulado). ' : (dec ? dec.motivo : (l.proximo ? '' : 'Sem passo pendente: as regras do guia movem o lead com o passar dos dias.')) })]),
     l.proximo ? h('p', { class: 'mut peq', text: 'Próximo passo do guia: ' + l.proximo.passo + (l.proximo.msg ? ' (Msg ' + l.proximo.msg + ')' : '') + ', vence ' + mgDm(l.proximo.vence) + '.' }) : null,
     msgs.length ? h('div', { class: 'mg-lab-wa' }, msgs) : null,
@@ -393,10 +432,10 @@ function mgLab(D) {
   if (!MG.labQ) MG.labQ = mgRelogioPadrao(D);
   if (!MG.lab) mgLabCarregar();
   var leads = MG.lab ? MG.lab.leads : [];
-  var lista = !MG.lab ? h('div', { class: 'it-carrega' }, [h('i'), h('i'), h('i')]) : leads.length ? h('div', { class: 'mg-lc-g' }, leads.map(mgLabCartao)) : h('div', { class: 'mg-lab-vazio' }, [h('b', { text: 'O laboratório está vazio' }), h('p', { text: 'Crie um lead de teste ao lado (ou escolha um exemplo), ajuste o relógio e clique em "Rodar a IA neste horário" para ver a IA decidir, escolher a mensagem e preencher as variáveis.' })]);
+  var lista = !MG.lab ? h('div', { class: 'it-carrega' }, [h('i'), h('i'), h('i')]) : leads.length || MG.labOcupado === 'add' ? h('div', { class: 'mg-lc-g' }, (MG.labOcupado === 'add' ? [h('article', { class: 'mg-lc criando', 'aria-busy': 'true' }, [h('i'), h('i'), h('i')])] : []).concat(leads.map(mgLabCartao))) : h('div', { class: 'mg-lab-vazio' }, [h('b', { text: 'O laboratório está vazio' }), h('p', { text: 'Crie um lead de teste ao lado (ou escolha um exemplo), ajuste o relógio e clique em "Rodar a IA neste horário" para ver a IA decidir, escolher a mensagem e preencher as variáveis.' })]);
   return h('section', { class: 'mg-bloco mg-labo', id: 'mg-lab' }, [
     h('header', { class: 'mg-sh mg-sec', style: '--i:11' }, [h('div', null, [h('h3', { text: 'Laboratório de simulação' }), h('p', { text: 'A IA trabalhando de ponta a ponta com pacientes fictícios, no dia e na hora que você escolher. Usa a configuração salva e as mesmas regras da IA de verdade.' })]), h('span', { class: 'mg-badge', text: 'MODO SIMULAÇÃO' })]),
-    h('div', { class: 'mg-lab-g mg-sec', style: '--i:12' }, [mgLabForm(D), h('div', { class: 'mg-lab-d' }, [mgLabRelogioUi(D), lista])])
+    h('div', { class: 'mg-lab-g mg-sec', style: '--i:12' }, [mgLabForm(D), h('div', { class: 'mg-lab-d' + (MG.labAtual ? ' atualizando' : '') }, [mgLabRelogioUi(D), lista])])
   ]);
 }
 function mgSimulador(D) {
@@ -423,18 +462,18 @@ function mgHistorico(D) {
 
 /* ------------------------------------------------------------------ barra de salvar e página */
 function mgSalvar() {
-  MG.salvando = true; MG.erro = ''; desenhar(true);
+  MG.salvando = true; MG.erro = ''; mgRepintar(['barra']);
   api('PUT', '/ia-manager', { config: MG.c }).then(function (d) {
     MG.d = d; MG.t = Date.now(); MG.c = mgClone(d.config); MG.base = mgClone(d.config); MG.salvando = false; MG.salvou = true;
-    aviso('Configuração da IA salva.', 'ok'); desenhar(true); setTimeout(function () { MG.salvou = false; }, 1500);
-  }).catch(function (e) { MG.salvando = false; MG.erro = e.message; desenhar(true); });
+    aviso('Configuração da IA salva.', 'ok'); mgRepintar(['linha', 'gat', 'glob', 'hist', 'barra']); setTimeout(function () { MG.salvou = false; }, 1500);
+  }).catch(function (e) { MG.salvando = false; MG.erro = e.message; mgRepintar(['barra']); });
 }
 function mgBarraSalvar() {
   var sujo = mgSujo();
   if (!sujo && !MG.salvou) return null;
   return h('div', { class: 'mg-barra' + (MG.erro ? ' erro' : '') + (MG.salvou && !sujo ? ' salvo' : ''), role: 'region', 'aria-label': 'Alterações da IA' }, [
     h('div', { class: 'mg-barra-t' }, [h('i', { 'aria-hidden': 'true' }), h('div', null, [h('b', { text: MG.salvou && !sujo ? 'Salvo!' : 'Você tem alterações não salvas' }), MG.erro ? h('small', { text: MG.erro }) : h('small', { text: 'As mudanças só valem para a IA depois de salvar.' })])]),
-    sujo ? h('div', { class: 'mg-barra-b' }, [botao('Descartar', '', function () { MG.c = mgClone(MG.base); MG.erro = ''; desenhar(true); }), botao(MG.salvando ? 'Salvando…' : 'Salvar alterações', 'pri', function () { if (!MG.salvando) mgSalvar(); }, 'check')]) : null
+    sujo ? h('div', { class: 'mg-barra-b' }, [botao('Descartar', '', function () { MG.c = mgClone(MG.base); MG.erro = ''; mgRepintar(['linha', 'gat', 'glob', 'barra']); }), botao(MG.salvando ? 'Salvando…' : 'Salvar alterações', 'pri', function () { if (!MG.salvando) mgSalvar(); }, 'check')]) : null
   ]);
 }
 function telaIAManager() {
@@ -446,6 +485,9 @@ function telaIAManager() {
   if (MG.aba === 'respostas') return h('div', { class: 'tela mg' }, [cab, abas, corpoIA(), mgBarraSalvar()]);
   if (!MG.d || !MG.c) return h('div', { class: 'tela mg' }, [cab, abas, esqueleto()]);
   MG.animar = !MG.entrou; MG.entrou = true;
-  return h('div', { class: 'tela mg' + (MG.animar ? ' mg-anim' : '') + (MG.pend ? ' mg-pend' : '') + ' mg-' + MG.d.modo }, [cab, abas, mgHero(MG.d), mgLinha(MG.d), mgGatilhos(MG.d), mgGlobais(MG.d), mgSimulador(MG.d), mgHistorico(MG.d), mgBarraSalvar()]);
+  var sec = function (k, el) { if (el) el.setAttribute('data-mg', k); return el; };
+  var pagina = h('div', { class: 'tela mg' + (MG.animar ? ' mg-anim' : '') + (MG.pend ? ' mg-pend' : '') + ' mg-' + MG.d.modo }, [cab, abas, mgHero(MG.d), sec('linha', mgLinha(MG.d)), sec('gat', mgGatilhos(MG.d)), sec('glob', mgGlobais(MG.d)), sec('lab', mgSimulador(MG.d)), sec('hist', mgHistorico(MG.d)), sec('barra', mgBarraSalvar())]);
+  if (MG.animar) setTimeout(function () { var t = document.querySelector('.tela.mg'); if (t) t.classList.remove('mg-anim'); }, 2600);
+  return pagina;
 }
 `;

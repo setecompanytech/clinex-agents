@@ -753,6 +753,13 @@ ${parte_abas}
 .mg-dia-k.env b{color:var(--cy)}.mg-dia-k.pro b{color:var(--ok)}.mg-dia-k.esp b{color:var(--warn)}.mg-dia-k.sim b{color:#a78bfa}.mg-dia-k.fora b{color:var(--mut)}
 .mg-dia-mot{font-size:12.5px;color:var(--mut)}.mg-dia-mot b{color:var(--ink2)}
 @media(max-width:700px){.mg-dia-r{grid-template-columns:48px 24px minmax(0,1fr);gap:0 8px}.mg-dia-r:before{left:calc(48px + 8px + 12px)}.mg-linha{padding:16px 12px}}
+/* ===== IA Manager: cliques sem piscar ===== */
+.mg-lc{animation:none}.mg-lc.entra{animation:mgRise .45s cubic-bezier(.2,.8,.2,1) both}.mg-lc .mg-ck{animation:none}.mg-lc.novo{animation:mgGlow 1.6s ease-out}
+.mg-barra.fixa{animation:none}
+.mg-lab-d{transition:opacity .2s}.mg-lab-d.atualizando .mg-lc-g,.mg-lab-d.atualizando .mg-lab-vazio{opacity:.5}.mg-lc-g{transition:opacity .2s}
+.mg-lc.criando{min-height:150px;display:flex;flex-direction:row;align-items:center;justify-content:center;gap:8px;animation:mgRise .3s both}.mg-lc.criando i{width:9px;height:9px;border-radius:50%;background:#4cc9f0;animation:mgPulsa 1s ease-in-out infinite}.mg-lc.criando i:nth-child(2){animation-delay:.15s}.mg-lc.criando i:nth-child(3){animation-delay:.3s}@keyframes mgPulsa{50%{transform:translateY(-8px);opacity:.4}}
+.mg .btn{transition:transform .12s,filter .15s,border-color .2s,opacity .2s}.mg .btn:active:not(:disabled),.mg .mg-ex:active:not(:disabled),.mg .mg-chip:active,.mg .mg-seg button:active{transform:scale(.96)}
+.mg .btn:disabled{opacity:.55;cursor:progress}.mg .btn.ocupado{opacity:1;cursor:progress}.mg-gira{display:inline-block;width:14px;height:14px;margin-right:8px;border-radius:50%;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;animation:mgSpin .7s linear infinite;vertical-align:-2px}
 `;
 
 export const pagina = `<!doctype html>
