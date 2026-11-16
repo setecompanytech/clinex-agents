@@ -1,5 +1,6 @@
 export const env = {
   anthropicKey: process.env.ANTHROPIC_API_KEY ?? '',
+  anthropicBase: (process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com').replace(/\/+$/, ''),
   model: process.env.AGENT_MODEL ?? 'claude-sonnet-5-5',
   inovstarBase: process.env.INOVSTAR_BASE_URL ?? 'https://gateway.inovstar.com',
   inovstarToken: process.env.INOVSTAR_TOKEN ?? '', // inovstar_<64 hex>, um por empresa

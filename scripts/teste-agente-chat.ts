@@ -3,7 +3,7 @@
  * Nada aqui chama a Anthropic, a OpenAI nem manda mensagem a ninguém. Rodar: npx tsx scripts/teste-agente-chat.ts
  */
 import assert from 'node:assert/strict';
-import type Anthropic from '@anthropic-ai/sdk';
+
 
 process.env.ANTHROPIC_API_KEY = 'chave-de-teste';
 delete process.env.DISPARO_AUTO;
@@ -38,7 +38,7 @@ function falso(roteiro: Passo[]) {
     const content: any[] = []; if (passo.texto) content.push({ type: 'text', text: passo.texto });
     (passo.tools ?? []).forEach((t, k) => content.push({ type: 'tool_use', id: `tu_${i}_${k}`, name: t.name, input: t.input }));
     return { id: 'msg', type: 'message', role: 'assistant', model: 'falso', content, stop_reason: passo.tools?.length ? 'tool_use' : 'end_turn', usage: {} };
-  } } } as unknown as Anthropic);
+  } } } as never);
   return chamadas;
 }
 const resultadosDe = (chamada: any) => (chamada.messages.at(-1).content as any[]).filter((b) => b.type === 'tool_result');

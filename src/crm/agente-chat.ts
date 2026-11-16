@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import Anthropic from '@anthropic-ai/sdk';
 import { env } from '../lib/env.js';
 import type { Sessao } from '../lib/painel-auth.js';
 import type { Estado } from './banco.js';
@@ -55,8 +54,17 @@ export type ItemLead = { leadId: string; titulo: string; sub: string };
 export type RespostaChat = { texto: string; acoes: AcaoPendente[]; artefatos: Artefato[]; itens: ItemLead[]; navegar: { tipo: 'tela' | 'lead'; valor: string; rotulo: string } | null; fonte: 'claude' | 'regras'; sugestoes: string[] };
 
 type Args = Record<string, unknown>;
+
+// ---- o Claude, por HTTP (mesma chamada que o resto do projeto faz; sem pacote extra, que já quebrou o build no Vercel)
+type EsquemaTool = { type: 'object'; properties: Record<string, unknown>; required: string[] };
+type ToolDef = { name: string; description: string; input_schema: EsquemaTool };
+type Bloco = { type: string; text?: string; id?: string; name?: string; input?: unknown; [k: string]: unknown };
+type ResultadoTool = { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean };
+type Msg = { role: 'user' | 'assistant'; content: string | Bloco[] | ResultadoTool[] };
+type RespostaApi = { content: Bloco[]; stop_reason: string | null };
+export type ClienteLLM = { messages: { create(p: Record<string, unknown>): Promise<RespostaApi> } };
 type Ferramenta = {
-  nome: string; descricao: string; schema: Anthropic.Tool['input_schema'];
+  nome: string; descricao: string; schema: EsquemaTool;
   tipo: 'leitura' | 'acao' | 'artefato' | 'navegar'; perm: Permissao;
   /** leitura/navegar/artefato: roda direto. acao: roda só na confirmação. */
   exec: (c: Contexto, a: Args, saida: Saida) => unknown | Promise<unknown>;
@@ -96,7 +104,7 @@ const enxuto = (o: unknown) => { const s = JSON.stringify(o); return s.length > 
 
 // ------------------------------------------------------------------------------------------------ ferramentas
 
-const obj = (properties: Record<string, unknown>, required: string[] = []): Anthropic.Tool['input_schema'] => ({ type: 'object', properties, required } as Anthropic.Tool['input_schema']);
+const obj = (properties: Record<string, unknown>, required: string[] = []): EsquemaTool => ({ type: 'object', properties, required });
 const PERIODO = { type: 'string', enum: ['hoje', '7d', '30d', '90d', 'mes'], description: 'Período da análise (padrão 30d).' };
 
 const FERRAMENTAS: Ferramenta[] = [
@@ -256,43 +264,57 @@ Como trabalhar:
 ${voz ? '- MODO VOZ: sua resposta será FALADA. Máximo de 3 frases curtas, sem markdown, sem listas, sem tabelas, sem emojis. Diga valores por extenso natural ("quatro mil e cem reais"). Para detalhes longos, crie um artefato e diga que deixou na tela.' : '- Respostas curtas e escaneáveis; **negrito** só no que importa.'}`;
 }
 
-function textoDe(content: Anthropic.ContentBlock[]) { return content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('\n').trim(); }
+function textoDe(content: Bloco[]) { return content.filter((b) => b.type === 'text').map((b) => String(b.text ?? '')).join('\n').trim(); }
 
 export type Historico = { papel: 'user' | 'agent'; texto: string }[];
-let clienteCache: Anthropic | null = null;
-const cliente = () => (clienteCache ??= new Anthropic({ apiKey: env.anthropicKey, maxRetries: 1, timeout: 100_000 }));
+let clienteCache: ClienteLLM | null = null;
+const espera = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const clienteHttp = (): ClienteLLM => ({ messages: { create: async (p) => {
+  for (let tentativa = 0; ; tentativa++) {
+    const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 100_000);
+    try {
+      const r = await fetch(`${env.anthropicBase}/v1/messages`, { method: 'POST', signal: ctl.signal, headers: { 'x-api-key': env.anthropicKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' }, body: JSON.stringify(p) });
+      if (r.ok) return (await r.json()) as RespostaApi;
+      if (tentativa === 0 && (r.status === 429 || r.status >= 500)) { await espera(900); continue; }
+      console.error('[agente-chat] a Anthropic respondeu', r.status, (await r.text().catch(() => '')).slice(0, 300)); // vai para o log do servidor (sem a chave)
+      throw new ErroAgente('ia', 'Não consegui falar com a IA agora. Tente de novo em instantes.', 502);
+    } catch (e) { if (e instanceof ErroAgente) throw e; if (tentativa === 0) { await espera(900); continue; } throw new ErroAgente('ia', 'Não consegui falar com a IA agora. Tente de novo em instantes.', 502); }
+    finally { clearTimeout(t); }
+  }
+} } });
+const cliente = () => (clienteCache ??= clienteHttp());
 /** Para os testes: troca o cliente por um falso. */
-export const _definirCliente = (c: Anthropic | null) => { clienteCache = c; };
+export const _definirCliente = (c: ClienteLLM | null) => { clienteCache = c; };
 
 export async function conversar(c: Contexto, pergunta: string, historico: Historico, opcoes: { voz?: boolean } = {}): Promise<RespostaChat> {
   const saida = vazia(), acoes: AcaoPendente[] = [];
-  const msgs: Anthropic.MessageParam[] = [];
+  const msgs: Msg[] = [];
   for (const m of historico.slice(-10)) { const papel = m.papel === 'user' ? 'user' : 'assistant'; const t = m.texto.slice(0, 1500); if (!t) continue; if (msgs.at(-1)?.role === papel) msgs[msgs.length - 1] = { role: papel, content: t }; else msgs.push({ role: papel, content: t }); }
   while (msgs.length && msgs[0].role !== 'user') msgs.shift();
   if (msgs.at(-1)?.role === 'user') msgs.pop();
   msgs.push({ role: 'user', content: pergunta.slice(0, 1500) });
   const perms = permissoesDe(c.sessao);
-  const tools: Anthropic.Tool[] = FERRAMENTAS.map((f) => ({ name: f.nome, description: f.descricao, input_schema: f.schema }));
+  const tools: ToolDef[] = FERRAMENTAS.map((f) => ({ name: f.nome, description: f.descricao, input_schema: f.schema }));
   const sistema = promptDoSistema(c, !!opcoes.voz);
   let final = '';
   for (let volta = 0; volta < 7; volta++) {
-    const r = await cliente().messages.create({ model: env.agenteChatModelo, max_tokens: 4096, system: sistema, tools, messages: msgs, output_config: { effort: env.agenteChatEsforco } } as Anthropic.MessageCreateParamsNonStreaming);
+    const r = await cliente().messages.create({ model: env.agenteChatModelo, max_tokens: 4096, system: sistema, tools, messages: msgs, output_config: { effort: env.agenteChatEsforco } });
     if (r.stop_reason === 'refusal') { final = 'Não consegui ajudar com esse pedido.'; break; }
     msgs.push({ role: 'assistant', content: r.content });
     if (r.stop_reason !== 'tool_use') { final = textoDe(r.content) || (r.stop_reason === 'max_tokens' ? 'A resposta ficou longa demais. Peça de novo, mais específico.' : ''); break; }
-    const resultados: Anthropic.ToolResultBlockParam[] = [];
+    const resultados: ResultadoTool[] = [];
     for (const b of r.content) {
       if (b.type !== 'tool_use') continue;
-      const f = porNome.get(b.name), args = (b.input && typeof b.input === 'object' ? b.input : {}) as Args;
-      const erro = (m: string): Anthropic.ToolResultBlockParam => ({ type: 'tool_result', tool_use_id: b.id, content: m, is_error: true });
+      const f = porNome.get(String(b.name)), args = (b.input && typeof b.input === 'object' ? b.input : {}) as Args;
+      const erro = (m: string): ResultadoTool => ({ type: 'tool_result', tool_use_id: String(b.id), content: m, is_error: true });
       if (!f) { resultados.push(erro('Ferramenta desconhecida.')); continue; }
       if (!perms.has(f.perm)) { resultados.push(erro(negado(c.sessao, f.perm).message)); continue; }
       try {
         if (f.tipo === 'acao') {
           const cartao = f.cartao!(c, args);
           acoes.push({ id: randomUUID().slice(0, 8), ferramenta: f.nome, args, titulo: cartao.titulo, resumo: cartao.resumo, risco: cartao.risco ?? 'baixo' });
-          resultados.push({ type: 'tool_result', tool_use_id: b.id, content: 'Ação apresentada à pessoa num cartão de confirmação. AINDA NÃO foi executada. Peça para ela confirmar no cartão.' });
-        } else resultados.push({ type: 'tool_result', tool_use_id: b.id, content: enxuto(await f.exec(c, args, saida)) });
+          resultados.push({ type: 'tool_result', tool_use_id: String(b.id), content: 'Ação apresentada à pessoa num cartão de confirmação. AINDA NÃO foi executada. Peça para ela confirmar no cartão.' });
+        } else resultados.push({ type: 'tool_result', tool_use_id: String(b.id), content: enxuto(await f.exec(c, args, saida)) });
       } catch (e) { resultados.push(erro(e instanceof ErroAgente || e instanceof Error ? e.message : 'Erro inesperado.')); }
     }
     msgs.push({ role: 'user', content: resultados });

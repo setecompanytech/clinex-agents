@@ -71,7 +71,7 @@ await teste('falar: erro da OpenAI vira mensagem clara (sem vazar nada) e sem ch
   await assert.rejects(() => falar('oi'), (e: any) => e.status === 503); await assert.rejects(() => transcrever(Buffer.alloc(2000), 'audio/webm'), (e: any) => e.status === 503); (env as any).openaiKey = k;
 });
 
-await teste('SDK real da Anthropic: o pedido sai com chave, modelo, esforço, ferramentas e histórico certos; o laço de ferramentas fecha', async () => {
+await teste('Chamada HTTP à Anthropic: o pedido sai com chave, modelo, esforço, ferramentas e histórico certos; o laço de ferramentas fecha', async () => {
   _definirCliente(null); vistos.length = 0;
   const AGORA = new Date('2026-11-09T12:00:00Z'), HOJE = '2026-11-09';
   const estado: any = { versao: 1, atendentes: [], leads: [], usuarios: [], automacoes: regrasPadrao(AGORA), logAuto: [], pipelines: { funis: funisPadrao(AGORA), atribuicoes: [], extras: {}, followups: [], contatos: [], rotina: {} } };
@@ -83,7 +83,7 @@ await teste('SDK real da Anthropic: o pedido sai com chave, modelo, esforço, fe
   const r = await conversar({ estado, agora: AGORA, sessao: { id: 'u', nome: 'Rubens', email: 'r@x', perfil: 'gestor', modulos: ['crm'] }, salvar: () => {} }, 'cadê a Maria?', [{ papel: 'user', texto: 'oi' }, { papel: 'agent', texto: 'olá' }]);
   assert.equal(r.texto, 'Achei a Maria, R$ 900.'); assert.equal(r.itens[0]?.titulo, 'MARIA SILVA');
   const chamadas = vistos.filter((v) => v.url.startsWith('/v1/messages')); assert.equal(chamadas.length, 2);
-  assert.equal(chamadas[0].headers.authorization, 'Bearer chave-anthropic-falsa');
+  assert.equal(chamadas[0].headers['x-api-key'], 'chave-anthropic-falsa'); assert.equal(chamadas[0].headers['anthropic-version'], '2023-06-01');
   const p1 = JSON.parse(chamadas[0].corpo.toString());
   assert.equal(p1.model, 'claude-opus-5-5'); assert.deepEqual(p1.output_config, { effort: 'low' }); assert.ok(p1.max_tokens >= 2048); assert.ok(p1.tools.length >= 10);
   assert.ok(p1.tools.every((t: any) => t.name && t.description && t.input_schema?.type === 'object')); assert.equal(p1.thinking, undefined, 'o pensamento é do próprio modelo: não mandar thinking');
