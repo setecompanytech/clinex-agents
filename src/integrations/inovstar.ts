@@ -124,6 +124,11 @@ export function usuarioDaIntegracao(msgs: InovstarMessage[]): string | undefined
   return m?.user?.userId ?? process.env.INOVSTAR_API_USER_ID ?? '6a7e2c3e30637a07c0e1a164';
 }
 
+/** NOTA INTERNA no atendimento (isWhisper): só a equipe vê; não vai ao paciente e não depende da janela de 24 h. */
+export function sendNote(params: { channelId: string; to: string; attendanceId: string; text: string; clientMessageId: string }) {
+  return request('POST', '/whatsapp/send/text', { ...params, isWhisper: true });
+}
+
 /** Finaliza o atendimento (o mesmo que o botão "Finalizar" da Inovstar). */
 export function closeAttendance(attendanceId: string) {
   return request('PUT', `/attendance/${attendanceId}/close`, {});

@@ -4,7 +4,7 @@ import { dataFalada, type MemoriaIA } from './ferramentas.js';
 
 export type Unidades = { nome: string; endereco?: string; telefone?: string }[];
 
-export function promptAmanda(p: { agora: Date; nomeContato: string; telefone?: string; primeiraResposta: boolean; mem: MemoriaIA; unidades: Unidades; hoje: string }): string {
+export function promptAmanda(p: { modoComercial?: boolean; agora: Date; nomeContato: string; telefone?: string; primeiraResposta: boolean; mem: MemoriaIA; unidades: Unidades; hoje: string }): string {
   const t = nowParts(p.agora);
   const saud = greeting(p.agora);
   const memoria = [
@@ -100,5 +100,6 @@ ${p.unidades.map((u) => `  • ${u.nome}${u.endereco ? `: ${u.endereco}` : ''}${
 - Nunca invente preço, horário, médico, endereço, preparo ou política. Se não souber, diga que vai confirmar com a equipe.
 - Nunca mencione Clinilink, sistema, ferramentas ou ids (servico_id, horario_id) ao paciente.
 - servico_id e horario_id: use SEMPRE exatamente os que as ferramentas devolveram. Nunca monte um id. Se o paciente escolher uma opção da lista pelo nome ("Cardio 2 teste ergométrico"), use o servico_id dessa opção. Antes de dizer que não encontrou um serviço ou combo, tente buscar_servico de novo com outras palavras.
+${p.modoComercial ? '\nAGORA É HORÁRIO COMERCIAL (regra que vale por cima dos passos 4, 4b e 5 de AGENDAR): NÃO pergunte a forma de pagamento antes de agendar e não peça CPF nem comprovante. Assim que tiver o horário escolhido e os dados do paciente (nome confirmado, nascimento, telefone e, se for novo, o sexo), chame agendar sem pagamento. Depois do agendamento o sistema pergunta a forma de pagamento e passa o paciente para a equipe: não escreva confirmação nem pergunte nada.' : ''}
 ${memoria ? `\nMEMÓRIA DESTA CONVERSA (dados reais já consultados)\n${memoria}` : ''}`;
 }
