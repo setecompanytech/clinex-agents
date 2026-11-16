@@ -283,7 +283,7 @@ await teste('simulador: lista todas as checagens, na ordem, com o motivo de cada
 });
 
 console.log('Modo Simulação (laboratório de leads fictícios)');
-const { criarLeadLab, rodarLab, resumoLab, removerLeadLab, limparLab, instanteDoRelogio, enviarLeadLab, LIMITE_LAB } = await import('../src/crm/ia-laboratorio.js');
+const { criarLeadLab, rodarLab, resumoLab, removerLeadLab, limparLab, instanteDoRelogio, enviarLeadLab, liberarNumeroTeste, bloquearNumeroTeste, LIMITE_NUMEROS, LIMITE_LAB } = await import('../src/crm/ia-laboratorio.js');
 const simulando = () => { const e = novo(); definirModoDisparoAuto(e, 'simulacao', 'Ana', MANHA); return e; };
 await teste('modo simulação: aceito, vai para o histórico e a rodada real não toca em paciente real', async () => {
   pedidos.length = 0; const e = simulando(); const real = lead(e, 'MARIA SILVA', '91988887777');
@@ -356,9 +356,23 @@ await teste('laboratório: log do lead (simulação e envios), reenvio e a razã
   const antes = process.env.DISPARO_WHATSAPP; process.env.DISPARO_WHATSAPP = 'false';
   await assert.rejects(() => enviarLeadLab(e, eu.id, MANHA, 'Ana'), /desligado/); assert.match(log()[0].dica ?? '', /DISPARO_WHATSAPP=true/); process.env.DISPARO_WHATSAPP = antes;
   delete process.env.SIMULACAO_NUMEROS;
-  await assert.rejects(() => enviarLeadLab(e, eu.id, MANHA, 'Ana'), /só envio de verdade/); assert.match(log()[0].dica ?? '', /SIMULACAO_NUMEROS/);
+  await assert.rejects(() => enviarLeadLab(e, eu.id, MANHA, 'Ana'), /só envio de verdade/); assert.match(log()[0].dica ?? '', /Liberar este número/);
   const d = resumoLab(e, MANHA).leads[0].diagnostico; assert.deepEqual([d.whatsappLigado, d.token, d.numeroInformado, d.numeroLiberado], [true, true, true, false]);
   assert.ok(log().length <= 40);
+});
+await teste('laboratório: números de teste liberados pela tela (sem mexer no Vercel): liberar, enviar, remover, sem repetir e com limite', async () => {
+  const e = simulando(); delete process.env.SIMULACAO_NUMEROS;
+  assert.throws(() => liberarNumeroTeste(e, '123', 'Ana', MANHA), /inválido/);
+  const eu = criarLeadLab(e, { nome: 'Eu', telefone: '91988884545', diasAtras: 1 }, MANHA, 'Ana'); rodarLab(e, MANHA);
+  await assert.rejects(() => enviarLeadLab(e, eu.id, MANHA, 'Ana'), /Libere este número/);
+  liberarNumeroTeste(e, '(91) 98888-4545', 'Ana', MANHA); assert.throws(() => liberarNumeroTeste(e, '91988884545', 'Ana', MANHA), /já está liberado/);
+  const r = resumoLab(e, MANHA); assert.equal(r.leads[0].numeroLiberado, true); assert.ok(r.numeros.some((n) => n.origem === 'tela' && n.quem === 'Ana')); assert.equal(e.disparoAuto?.simulacao?.leads.length, 1, 'liberar número não apaga os leads de teste');
+  assert.match(configAuto(e).historico[0].resumo, /Número de teste liberado: final 4545/);
+  pedidos.length = 0; await enviarLeadLab(e, eu.id, MANHA, 'Ana'); assert.equal(pedidos.filter((p) => /whatsapp\/send\/template/.test(p.caminho)).length, 1);
+  assert.equal(bloquearNumeroTeste(e, '91988884545', 'Ana', MANHA), true); assert.equal(resumoLab(e, MANHA).leads[0].numeroLiberado, false); assert.equal(bloquearNumeroTeste(e, '91999990000', 'Ana', MANHA), false);
+  const l2 = criarLeadLab(e, { nome: 'Outro', telefone: '91977776666', liberar: true, diasAtras: 1 }, MANHA, 'Ana'); assert.equal(resumoLab(e, MANHA).leads.find((x) => x.id === l2.id)!.numeroLiberado, true);
+  for (let i = 0; i < LIMITE_NUMEROS + 2; i++) { try { liberarNumeroTeste(e, `9198800${String(1000 + i)}`, 'Ana', MANHA); } catch (er) { assert.match((er as Error).message, /Você já liberou/); break; } }
+  assert.ok(resumoLab(e, MANHA).numeros.filter((n) => n.origem === 'tela').length <= LIMITE_NUMEROS);
 });
 await teste('laboratório: o relógio simulado vem em horário de Belém', () => {
   assert.equal(instanteDoRelogio('2026-11-09T08:30').toISOString(), '2026-11-09T11:30:00.000Z');

@@ -49,4 +49,4 @@ export type ConfigAuto = {
   historico: { quando: string; quem: string; resumo: string }[];
 };
 
-export type DisparoAutoCfg = { modo: ModoAuto; alteradoPor?: string; alteradoEm?: string; ultimaRodada?: Rodada; config?: Partial<ConfigAuto>; simulacao?: { leads: Lead[] } };
+export type DisparoAutoCfg = { modo: ModoAuto; alteradoPor?: string; alteradoEm?: string; ultimaRodada?: Rodada; config?: Partial<ConfigAuto>; simulacao?: { leads: Lead[]; numeros?: { numero: string; quem: string; quando: string }[] } };

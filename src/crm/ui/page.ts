@@ -781,6 +781,12 @@ mark.fl-mk{background:color-mix(in srgb,var(--warn) 42%,transparent);color:inher
 .mg-log-tag{font:800 9.5px ui-monospace,Consolas,monospace;letter-spacing:.08em;padding:2px 8px;border-radius:999px;border:1px solid var(--line2);color:var(--mut)}.mg-log-tag.real{color:var(--cy);border-color:color-mix(in srgb,var(--cy) 55%,transparent)}
 .mg-log-h{display:block;color:var(--mut);font-size:11.5px;margin:2px 0 6px}.mg-log-c p{margin:0;font-size:13px;color:var(--ink2);line-height:1.5;overflow-wrap:anywhere}.mg-log-dica{margin-top:7px!important;padding:8px 11px;border-radius:10px;background:color-mix(in srgb,var(--warn) 10%,transparent);border:1px solid color-mix(in srgb,var(--warn) 35%,var(--line));color:var(--ink)!important;font-size:12.5px!important}
 .mg-zap .btn{white-space:nowrap}
+/* ===== números de teste liberados pela tela ===== */
+.mg-chk{display:flex;gap:9px;align-items:flex-start;font-size:12.5px;color:var(--ink2);line-height:1.4;cursor:pointer}.mg-chk input{margin-top:2px;accent-color:var(--cy);flex:none}
+.mg-nums{display:flex;flex-direction:column;gap:8px;padding-top:12px;border-top:1px dashed var(--line)}.mg-nums-t{font:700 10.5px ui-monospace,Consolas,monospace;letter-spacing:.1em;color:var(--mut)}
+.mg-nums-c{display:flex;flex-wrap:wrap;gap:6px}.mg-num{display:inline-flex;align-items:center;gap:6px;padding:5px 6px 5px 11px;border-radius:999px;border:1px solid color-mix(in srgb,var(--ok) 45%,var(--line));background:color-mix(in srgb,var(--ok) 8%,var(--bg));font:600 12px ui-monospace,Consolas,monospace;color:var(--ink)}.mg-num.amb{padding-right:11px;border-color:var(--line2);color:var(--mut)}
+.mg-num-x{width:20px;height:20px;border-radius:50%;border:0;background:transparent;color:var(--mut);display:grid;place-items:center;cursor:pointer}.mg-num-x:hover{background:color-mix(in srgb,var(--bad) 22%,transparent);color:var(--bad)}
+.mg-nums-a{display:flex;gap:8px}.mg-nums-a .in{flex:1;min-width:0}.mg-lib-b{margin-top:8px}
 `;
 
 export const pagina = `<!doctype html>

@@ -12,7 +12,7 @@ import { analisarHoje } from './analise.js';
 import { analisarTempo } from './tempo.js';
 import { janelaDaQuery } from './periodo.js';
 import { dadosDisparoAuto, dadosManager, rodarAgora } from './disparo-auto-servico.js';
-import { criarLeadLab, enviarLeadLab, instanteDoRelogio, limparLab, removerLeadLab, resumoLab, rodarLab } from './ia-laboratorio.js';
+import { bloquearNumeroTeste, criarLeadLab, enviarLeadLab, instanteDoRelogio, liberarNumeroTeste, limparLab, removerLeadLab, resumoLab, rodarLab } from './ia-laboratorio.js';
 import { configAuto, definirModoDisparoAuto, modoDisparoAuto, salvarConfigAuto, validarConfigAuto } from './ia-disparo.js';
 import { analisarExecutivo, analisarTime, detalhePessoa, meuReport } from './executivo.js';
 import { analisarEtapa } from './etapa.js';
@@ -393,7 +393,10 @@ const lab = (res: import('express').Response, fn: () => unknown) => {
 };
 const exigeSimulacao = () => { if (modoDisparoAuto(estado) !== 'simulacao') throw new DisparoError('modo', 'Ative o Modo Simulação para usar o laboratório.', 409); };
 router.get('/ia-manager/lab', (req, res) => { res.json(resumoLab(estado, instanteDoRelogio(req.query.quando))); });
-router.post('/ia-manager/lab/leads', (req, res) => lab(res, () => { exigeSimulacao(); const b = req.body ?? {}; const q = instanteDoRelogio(b.quando); criarLeadLab(estado, b, q); return resumoLab(estado, q); }));
+const exigeIaAlterar = (req: Request) => { if (!permissoesDe(req.sessao).has('ia_alterar')) throw new DisparoError('permissao', 'Sem permissão: só gestor ou administrador libera números de teste.', 403); };
+router.post('/ia-manager/lab/leads', (req, res) => lab(res, () => { exigeSimulacao(); const b = req.body ?? {}; const q = instanteDoRelogio(b.quando); if (b.liberar === true) exigeIaAlterar(req); criarLeadLab(estado, b, q, req.sessao?.nome ?? 'painel'); return resumoLab(estado, q); }));
+router.post('/ia-manager/lab/numeros', (req, res) => lab(res, () => { exigeIaAlterar(req); const q = instanteDoRelogio((req.body ?? {}).quando); liberarNumeroTeste(estado, (req.body ?? {}).numero, req.sessao?.nome ?? 'painel', new Date()); return resumoLab(estado, q); }));
+router.delete('/ia-manager/lab/numeros/:numero', (req, res) => lab(res, () => { exigeIaAlterar(req); if (!bloquearNumeroTeste(estado, req.params.numero, req.sessao?.nome ?? 'painel', new Date())) throw new DisparoError('nao_encontrado', 'Este número não foi liberado por aqui (os do Vercel só saem pelo Vercel).', 404); return resumoLab(estado, instanteDoRelogio(req.query.quando)); }));
 router.post('/ia-manager/lab/leads/:id/enviar', async (req, res, next) => {
   try {
     if (!permissoesDe(req.sessao).has('enviar_whatsapp')) throw new DisparoError('permissao', 'Sem permissão: o seu perfil não pode enviar WhatsApp.', 403);

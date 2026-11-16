@@ -1,7 +1,7 @@
 // JavaScript do CRM (navegador): página "IA Manager", o painel de controle da IA de disparo. Dados de /painel/crm/api/ia-manager.
 // Dentro dele não usar crases nem "dollar-chave".
 export const manager = String.raw`
-var MG = { logM: null, detAbertos: {}, labVistos: {}, aba: 'controle', d: null, c: null, base: null, car: false, t: 0, erro: '', salvando: false, entrou: false, lab: null, labCar: false, labQ: '', labRes: null, labNovo: null, lf: { telefone: '', nome: '', tipo: 'orcamento', valor: '400', unidade: '', dias: 1, exame: 'Ultrassom', atendente: '' } };
+var MG = { logM: null, detAbertos: {}, labVistos: {}, aba: 'controle', d: null, c: null, base: null, car: false, t: 0, erro: '', salvando: false, entrou: false, lab: null, labCar: false, labQ: '', labRes: null, labNovo: null, novoNum: '', lf: { liberar: false, telefone: '', nome: '', tipo: 'orcamento', valor: '400', unidade: '', dias: 1, exame: 'Ultrassom', atendente: '' } };
 var MG_PAL = ['#4cc9f0', '#a78bfa', '#f5b942', '#fb7185', '#2ee6a6'];
 var MG_DIAS = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'], MG_DIAS_L = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
 var MG_TXT = {
@@ -336,7 +336,7 @@ function mgLabRelogio(q) {
 function mgLabAdicionar(extra) {
   var f = Object.assign({}, MG.lf, extra || {}), n = MG.lab ? MG.lab.leads.length : 0;
   if (!String(f.nome || '').trim()) f.nome = MG_NOMES[n % MG_NOMES.length];
-  mgLabAcao('add', 'POST', '/ia-manager/lab/leads', { nome: f.nome, telefone: f.telefone, tipo: f.tipo, valor: f.valor, unidade: f.unidade, diasAtras: f.dias, exame: f.exame, atendente: f.atendente, quando: MG.labQ }, function (r) { MG.lab = r; MG.labRes = null; MG.lf.nome = ''; aviso('Lead de teste criado.', 'ok'); });
+  mgLabAcao('add', 'POST', '/ia-manager/lab/leads', { nome: f.nome, telefone: f.telefone, liberar: !!f.liberar && !!String(f.telefone || '').trim(), tipo: f.tipo, valor: f.valor, unidade: f.unidade, diasAtras: f.dias, exame: f.exame, atendente: f.atendente, quando: MG.labQ }, function (r) { MG.lab = r; MG.labRes = null; MG.lf.nome = ''; aviso('Lead de teste criado.', 'ok'); });
 }
 function mgLabRodar() {
   mgLabAcao('rodar', 'POST', '/ia-manager/lab/rodar', { quando: MG.labQ }, function (r) {
@@ -371,7 +371,7 @@ function mgLogTexto(l) {
 }
 function mgLogCorpo(l) {
   var d = l.diagnostico || {};
-  var ck = function (ok, rot, det) { return h('li', { class: ok ? 'ok' : 'nao' }, [h('i', { 'aria-hidden': 'true', text: ok ? '✓' : '✕' }), h('div', null, [h('b', { text: rot }), h('small', { text: det })])]); };
+  var ck = function (ok, rot, det, extra) { return h('li', { class: ok ? 'ok' : 'nao' }, [h('i', { 'aria-hidden': 'true', text: ok ? '✓' : '✕' }), h('div', null, [h('b', { text: rot }), h('small', { text: det }), extra || null])]); };
   var podeEnviar = l.telefoneInformado && l.podeEnviar && l.numeroLiberado;
   var acoes = h('div', { class: 'mg-log-ac' }, [
     l.telefoneInformado ? (function () { var b = botao(l.enviosOk > 0 ? 'Enviar novamente' : 'Enviar no WhatsApp', 'pri', function () { mgLabEnviar(l); }, 'message'); if (!podeEnviar || MG.labOcupado) b.setAttribute('disabled', 'true'); return b; })() : null,
@@ -395,7 +395,7 @@ function mgLogCorpo(l) {
       ck(!!d.whatsappLigado, 'WhatsApp ligado neste ambiente', d.whatsappLigado ? 'DISPARO_WHATSAPP está ligado.' : 'Desligado. No Vercel, defina DISPARO_WHATSAPP=true e faça um redeploy.'),
       ck(!!d.token, 'Token da Inovstar configurado', d.token ? 'INOVSTAR_TOKEN presente.' : 'Falta o INOVSTAR_TOKEN neste ambiente.'),
       ck(!!d.numeroInformado, 'Número informado no lead de teste', d.numeroInformado ? l.telefone : 'Este lead não tem número: crie outro com o seu número.'),
-      ck(!!d.numeroLiberado, 'Número liberado para teste', d.numeroLiberado ? 'Está em SIMULACAO_NUMEROS (ou DISPARO_NUMEROS).' : 'Inclua o número em SIMULACAO_NUMEROS no Vercel e faça um redeploy.'),
+      ck(!!d.numeroLiberado, 'Número liberado para teste', d.numeroLiberado ? 'Liberado: pode receber mensagem de teste de verdade.' : 'Ainda não liberado. Libere aqui mesmo, sem mexer no Vercel.', !d.numeroLiberado && d.numeroInformado ? h('button', { type: 'button', class: 'btn pri mg-lib-b', onclick: function () { mgLiberar(l.telefone); } }, 'Liberar este número') : null),
       ck(!!l.podeEnviar, 'Mensagem escolhida pela IA', l.podeEnviar ? 'Msg ' + l.ultimaMsg + ' pronta para enviar.' : 'Rode a IA neste horário primeiro: ela decide qual mensagem sai.')
     ]), acoes,
     h('h4', { class: 'mg-log-sub', text: 'Registros (do mais novo para o mais antigo)' }), lista
@@ -411,6 +411,34 @@ function mgLogRepintar() {
   if (!MG.logM) return;
   var l = mgLogDoLead(MG.logM.logId); if (!l) { MG.logM.fechar(); return; }
   var rolou = MG.logM.corpo.scrollTop; limpar(MG.logM.corpo); kids(MG.logM.corpo, mgLogCorpo(l)); MG.logM.corpo.scrollTop = rolou;
+}
+/* números que podem receber mensagem de teste DE VERDADE: liberados aqui mesmo (sem mexer no Vercel); os do Vercel aparecem com cadeado */
+function mgLiberar(numero) {
+  if (!window.confirm('Liberar ' + numero + ' para receber mensagens de teste DE VERDADE pelo WhatsApp? Use só números seus ou da equipe.')) return Promise.resolve();
+  return api('POST', '/ia-manager/lab/numeros', { numero: numero, quando: MG.labQ }).then(function (r) { MG.lab = r; MG.novoNum = ''; mgLabRepintar(); aviso('Número liberado para teste.', 'ok'); }).catch(function (e) { aviso(e.message, 'erro'); });
+}
+function mgBloquear(numero) {
+  if (!window.confirm('Tirar ' + numero + ' da lista de números de teste?')) return;
+  api('DELETE', '/ia-manager/lab/numeros/' + encodeURIComponent(numero) + '?quando=' + encodeURIComponent(MG.labQ)).then(function (r) { MG.lab = r; mgLabRepintar(); aviso('Número removido da lista de teste.', 'ok'); }).catch(function (e) { aviso(e.message, 'erro'); });
+}
+function mgLabChk() {
+  var i = h('input', { type: 'checkbox', id: 'mg-lib' }); i.checked = !!MG.lf.liberar;
+  i.addEventListener('change', function () { MG.lf.liberar = i.checked; });
+  return h('label', { class: 'mg-chk', for: 'mg-lib' }, [i, h('span', { text: 'Este número é meu ou da equipe: liberar para receber a mensagem de teste de verdade' })]);
+}
+function mgLabNumeros() {
+  var nums = MG.lab && MG.lab.numeros ? MG.lab.numeros : [];
+  var chips = nums.length ? nums.map(function (n) {
+    return h('span', { class: 'mg-num' + (n.origem === 'ambiente' ? ' amb' : ''), title: n.origem === 'ambiente' ? 'Liberado pelo Vercel (só sai por lá)' : 'Liberado por ' + n.quem + (n.quando ? ' em ' + qDiaHora(n.quando) : '') }, [
+      n.origem === 'ambiente' ? ico('lock', 12) : null, n.numero,
+      n.origem === 'tela' ? h('button', { type: 'button', class: 'mg-num-x', 'aria-label': 'Remover ' + n.numero, onclick: function () { mgBloquear(n.numero); } }, ico('x', 11)) : null
+    ]);
+  }) : [h('small', { class: 'mut', text: 'Nenhum número liberado ainda: a simulação não envia nada de verdade.' })];
+  var inp = h('input', { class: 'in', type: 'tel', inputmode: 'tel', maxlength: '20', placeholder: '(91) 98888-7777', 'aria-label': 'Número para liberar', autocomplete: 'off' }); inp.value = MG.novoNum;
+  inp.addEventListener('input', function () { MG.novoNum = inp.value; });
+  inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); if (MG.novoNum.trim()) mgLiberar(MG.novoNum); } });
+  return h('div', { class: 'mg-nums' }, [h('small', { class: 'mg-nums-t', text: 'NÚMEROS LIBERADOS PARA TESTE DE VERDADE' }), h('div', { class: 'mg-nums-c' }, chips),
+    h('div', { class: 'mg-nums-a' }, [inp, botao('Liberar', '', function () { if (MG.novoNum.trim()) mgLiberar(MG.novoNum); else aviso('Digite o número com DDD.', 'aviso'); }, 'check')])]);
 }
 function mgLabRemover(id) {
   if (!MG.lab) return;
@@ -442,10 +470,11 @@ function mgLabForm(D) {
   var cheio = !!MG.lab && MG.lab.leads.length >= MG.lab.limite;
   return h('article', { class: 'mg-cx mg-lab-f' }, [
     h('h4', { text: 'Novo lead de teste' }), h('p', { class: 'mut peq', text: 'Um paciente fictício. Ele só existe aqui: não aparece no CRM e nunca recebe mensagem.' }),
-    mgLabCampo('Nome', nome), mgLabCampo('Telefone com DDD (opcional)', tel), h('p', { class: 'mut peq mg-tel-d', text: 'Sem número, o lead é só simulado. Com o SEU número, dá para receber a mensagem de verdade no WhatsApp depois de rodar a IA.' }), mgLabCampo('Tipo', tipo),
+    mgLabCampo('Nome', nome), mgLabCampo('Telefone com DDD (opcional)', tel), h('p', { class: 'mut peq mg-tel-d', text: 'Sem número, o lead é só simulado. Com o SEU número, dá para receber a mensagem de verdade no WhatsApp depois de rodar a IA.' }), mgLabChk(), mgLabCampo('Tipo', tipo),
     h('div', { class: 'mg-lab-2' }, [mgLabCampo('Valor do orçamento (R$)', valor), mgLabCampo('Unidade', un)]),
     MG.lf.tipo === 'orcamento' ? mgLabCampo('Orçamento feito há', mgStepper(MG.lf.dias, 0, 30, 1, function (v) { MG.lf.dias = v; mgLabRepintar(); }, MG.lf.dias === 1 ? 'dia' : 'dias', 'Dias desde o orçamento')) : null,
     mgOcupavel(botao(cheio ? 'Limite de ' + MG.lab.limite + ' leads' : MG.labOcupado === 'add' ? 'Adicionando…' : 'Adicionar lead de teste', 'pri', function () { if (!cheio && !MG.labOcupado) mgLabAdicionar(); }, MG.labOcupado === 'add' ? null : 'plus'), 'add'),
+    mgLabNumeros(),
     h('div', { class: 'mg-lab-ex' }, [h('small', { text: 'OU COMECE POR UM EXEMPLO' })].concat(MG_EXEMPLOS.map(function (x) {
       return h('button', { type: 'button', class: 'mg-ex', disabled: cheio || !!MG.labOcupado, onclick: function () { if (!MG.labOcupado) mgLabAdicionar(x.e); } }, [h('b', { text: x.r }), h('small', { text: x.d })]);
     })))
@@ -500,8 +529,9 @@ function mgLabCartao(l) {
     h('div', { class: 'mg-lc-d' }, [h('span', { class: 'mg-lc-p', text: rot }), h('span', { class: 'mg-lc-m', text: novo ? 'A IA enviou a Msg ' + res.msg + ' (simulado). ' : (dec ? dec.motivo : (l.proximo ? '' : 'Sem passo pendente: as regras do guia movem o lead com o passar dos dias.')) })]),
     h('div', { class: 'mg-zap' }, [
       l.telefoneInformado ? (function () { var bz = mgOcupavel(botao(l.enviosOk > 0 ? 'Enviar novamente' : 'Enviar no WhatsApp', '', function () { mgLabEnviar(l); }, 'message'), 'env'); if (!l.podeEnviar || !l.numeroLiberado) bz.setAttribute('disabled', 'true'); return bz; })() : null,
+      l.telefoneInformado && !l.numeroLiberado ? botao('Liberar este número', 'pri', function () { mgLiberar(l.telefone); }, 'check') : null,
       botao('Ver log' + (l.log && l.log.length ? ' (' + l.log.length + ')' : ''), '', function () { mgLogAbrir(l.id); }, 'list'),
-      h('small', { class: 'mut', text: !l.telefoneInformado ? 'Sem número: só simulado. Crie um lead com o seu número para receber a mensagem de verdade.' : !l.podeEnviar ? 'Rode a IA primeiro: ela decide qual mensagem sai.' : !l.numeroLiberado ? 'Este número ainda não está liberado para teste (SIMULACAO_NUMEROS). Abra o log para ver o que falta.' : l.enviosOk > 0 ? 'Já enviado ' + l.enviosOk + 'x. Se não chegou, abra o log.' : 'Manda a mensagem acima de verdade para ' + l.telefone + '.' })
+      h('small', { class: 'mut', text: !l.telefoneInformado ? 'Sem número: só simulado. Crie um lead com o seu número para receber a mensagem de verdade.' : !l.podeEnviar ? 'Rode a IA primeiro: ela decide qual mensagem sai.' : !l.numeroLiberado ? 'Este número ainda não está liberado para teste: clique em "Liberar este número" (não precisa mexer no Vercel).' : l.enviosOk > 0 ? 'Já enviado ' + l.enviosOk + 'x. Se não chegou, abra o log.' : 'Manda a mensagem acima de verdade para ' + l.telefone + '.' })
     ]),
     l.proximo ? h('p', { class: 'mut peq', text: 'Próximo passo do guia: ' + l.proximo.passo + (l.proximo.msg ? ' (Msg ' + l.proximo.msg + ')' : '') + ', vence ' + mgDm(l.proximo.vence) + '.' }) : null,
     msgs.length ? h('div', { class: 'mg-lab-wa' }, msgs) : null,

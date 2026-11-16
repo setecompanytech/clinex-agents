@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Estado } from './banco.js';
 import { aplicar, automatizar, criarLead, hojeDe, proximoPasso, soDigitos, somaDias, type Lead } from './motor.js';
 import { MENSAGENS } from './modelo.js';
-import { avaliarLead, checagens, configAuto } from './ia-disparo.js';
+import { anotarNoHistorico, avaliarLead, checagens, configAuto } from './ia-disparo.js';
 import { paraE164Brasil } from '../integrations/inovstar.js';
 import { env } from '../lib/env.js';
 import { DisparoError, chaveFone, disparoAtivo, enviarModelo } from './whatsapp.js';
@@ -21,7 +21,11 @@ export const LIMITE_LAB = 12;
 export type LogLab = { quando: string; simulado: string; tipo: 'simulacao' | 'envio'; ok: boolean; titulo: string; detalhe: string; dica?: string; msg?: number; modelo?: string; mensagemId?: string };
 type LeadLab = Lead & { log?: LogLab[]; enviosOk?: number; telefoneInformado?: boolean; ultima?: { modelo: string; parametros: string[]; msg: number; passo: string } };
 /** Só estes números recebem mensagem de verdade a partir do laboratório: os de teste (DISPARO_NUMEROS) e os de SIMULACAO_NUMEROS. DISPARO_LIBERADO NÃO vale aqui: paciente real nunca recebe pela simulação. */
-export const numeroDeTeste = (tel: string) => [...(process.env.DISPARO_NUMEROS ?? '').split(','), ...(process.env.SIMULACAO_NUMEROS ?? '').split(',')].map((n) => n.trim()).filter(Boolean).some((n) => chaveFone(n) === chaveFone(tel));
+export type NumeroTeste = { numero: string; quem: string; quando: string };
+export const LIMITE_NUMEROS = 10;
+const numerosDoAmbiente = () => [...(process.env.DISPARO_NUMEROS ?? '').split(','), ...(process.env.SIMULACAO_NUMEROS ?? '').split(',')].map((n) => n.trim()).filter(Boolean);
+export const numerosDaTela = (estado: Estado): NumeroTeste[] => estado.disparoAuto?.simulacao?.numeros ?? [];
+export const numeroDeTeste = (estado: Estado, tel: string) => [...numerosDoAmbiente(), ...numerosDaTela(estado).map((n) => n.numero)].some((n) => chaveFone(n) === chaveFone(tel));
 export type TipoLab = 'orcamento' | 'noshow';
 
 const erroLab = (m: string, status = 400) => new DisparoError('lab', m, status);
@@ -32,12 +36,12 @@ function dicaDoErro(e: DisparoError): string | undefined {
   if (e.codigo === 'config') return 'Falta o token da Inovstar (INOVSTAR_TOKEN) neste ambiente.';
   if (e.codigo === 'envio') return 'A Inovstar recusou o pedido. Causas comuns: modelo (template) não aprovado ou com variáveis diferentes das cadastradas, número sem WhatsApp, ou canal da Inovstar desconectado. O motivo dela está acima.';
   if (e.codigo === 'telefone') return 'Confira o número: DDD + número com 9 dígitos.';
-  if (e.codigo === 'lab' && e.status === 403) return 'Inclua este número em SIMULACAO_NUMEROS no Vercel (com DDD, separado por vírgula) e faça um redeploy.';
+  if (e.codigo === 'lab' && e.status === 403) return 'Clique em "Liberar este número" (no cartão do lead ou na lista de números liberados). Não precisa mexer no Vercel.';
   if (e.codigo === 'lab') return 'Passos: 1) informe o número ao criar o lead; 2) rode a IA; 3) envie.';
   return undefined;
 }
 const leadsDe = (estado: Estado): Lead[] => estado.disparoAuto?.simulacao?.leads ?? [];
-const guardar = (estado: Estado, leads: Lead[]) => { estado.disparoAuto = { ...(estado.disparoAuto ?? { modo: 'desligado' }), simulacao: { leads } }; };
+const guardar = (estado: Estado, leads: Lead[]) => { estado.disparoAuto = { ...(estado.disparoAuto ?? { modo: 'desligado' }), simulacao: { ...(estado.disparoAuto?.simulacao ?? {}), leads } }; };
 
 /** O texto da mensagem como o paciente receberia: o corpo do guia com os [campos] trocados pelos parâmetros, na ordem. */
 export function textoDaMensagem(msg: number, parametros: string[]): { msg: number; texto: string; botoes: string[] } | null {
@@ -54,9 +58,28 @@ export function instanteDoRelogio(v: unknown, agora = new Date()): Date {
   return Number.isNaN(d.getTime()) ? agora : d;
 }
 
-export type EntradaLab = { telefone?: unknown; nome?: unknown; valor?: unknown; unidade?: unknown; exame?: unknown; atendente?: unknown; tipo?: unknown; diasAtras?: unknown };
+export type EntradaLab = { liberar?: unknown; telefone?: unknown; nome?: unknown; valor?: unknown; unidade?: unknown; exame?: unknown; atendente?: unknown; tipo?: unknown; diasAtras?: unknown };
 
-export function criarLeadLab(estado: Estado, e: EntradaLab, agora: Date): Lead {
+/** Libera um número para receber de verdade as mensagens de teste do laboratório (sem mexer no Vercel). Fica no histórico da IA: quem liberou e quando. */
+export function liberarNumeroTeste(estado: Estado, numero: unknown, quem: string, agora: Date): NumeroTeste {
+  const n = soDigitos(String(numero ?? '').slice(0, 30));
+  if (!n || !paraE164Brasil(n)) throw erroLab('Número inválido: use DDD + número, por exemplo (91) 98888-7777.');
+  if (numeroDeTeste(estado, n)) throw erroLab('Este número já está liberado para teste.', 409);
+  if (numerosDaTela(estado).length >= LIMITE_NUMEROS) throw erroLab(`Você já liberou ${LIMITE_NUMEROS} números. Remova algum para liberar outro.`, 409);
+  const novo = { numero: n, quem, quando: agora.toISOString() };
+  estado.disparoAuto = { ...(estado.disparoAuto ?? { modo: 'desligado' }), simulacao: { leads: leadsDe(estado), numeros: [...numerosDaTela(estado), novo] } };
+  anotarNoHistorico(estado, quem, `Número de teste liberado: final ${n.slice(-4)}`, agora);
+  return novo;
+}
+export function bloquearNumeroTeste(estado: Estado, numero: unknown, quem: string, agora: Date): boolean {
+  const k = chaveFone(String(numero ?? '')), todos = numerosDaTela(estado), resto = todos.filter((x) => chaveFone(x.numero) !== k);
+  if (resto.length === todos.length) return false;
+  estado.disparoAuto = { ...(estado.disparoAuto ?? { modo: 'desligado' }), simulacao: { leads: leadsDe(estado), numeros: resto } };
+  anotarNoHistorico(estado, quem, `Número de teste removido: final ${String(numero).slice(-4)}`, agora);
+  return true;
+}
+
+export function criarLeadLab(estado: Estado, e: EntradaLab, agora: Date, quem = 'painel'): Lead {
   const atuais = leadsDe(estado);
   if (atuais.length >= LIMITE_LAB) throw erroLab(`O laboratório comporta ${LIMITE_LAB} leads de teste. Remova algum para criar outro.`, 409);
   const nome = String(e.nome ?? '').trim();
@@ -78,6 +101,7 @@ export function criarLeadLab(estado: Estado, e: EntradaLab, agora: Date): Lead {
     lead.status = 'negociacao'; lead.noShow = true; lead.pulados = ['orcamento']; lead.statusDesde = hoje; lead.faseId = `negociacao:${hoje}:1`;
   }
   guardar(estado, [...atuais, lead]);
+  if (informado && e.liberar === true && !numeroDeTeste(estado, informado)) liberarNumeroTeste(estado, informado, quem, agora);
   return lead;
 }
 
@@ -96,7 +120,7 @@ export async function enviarLeadLab(estado: Estado, id: string, agora: Date, que
   try {
     if (!l.telefoneInformado) throw erroLab('Este lead de teste não tem número. Crie um lead com o seu número para receber a mensagem de verdade.');
     if (!l.ultima) throw erroLab('Rode a IA antes: ela decide qual mensagem sai, e só então dá para enviar essa mensagem de verdade.');
-    if (!numeroDeTeste(l.telefone)) throw erroLab('Por segurança, só envio de verdade para números de teste. Peça ao administrador para incluir este número em SIMULACAO_NUMEROS (ou DISPARO_NUMEROS) no Vercel.', 403);
+    if (!numeroDeTeste(estado, l.telefone)) throw erroLab('Por segurança, só envio de verdade para números de teste. Libere este número no laboratório (botão "Liberar este número").', 403);
     const u = l.ultima, r = await enviarModelo(estado, l, { modelo: u.modelo, parametros: u.parametros, passo: u.passo, msg: u.msg, atendente: `Simulação (${quem})`, ignorarLista: true, teste: true }, agora);
     l.enviosOk = (l.enviosOk ?? 0) + 1;
     anotar(l, agora, { tipo: 'envio', ok: true, titulo: `Inovstar aceitou o envio (${l.enviosOk}º)`, detalhe: `Msg ${u.msg} · modelo ${u.modelo} · para ${l.telefone}${r.mensagemId ? ` · id ${r.mensagemId}` : ''} · pedido por ${quem}`, dica: 'Aceito quer dizer que a Inovstar recebeu o pedido. A entrega no WhatsApp não é acompanhada aqui: se não chegar, confira se o número tem WhatsApp e o status desta mensagem no painel da Inovstar (use o id acima).', msg: u.msg, modelo: u.modelo, mensagemId: r.mensagemId });
@@ -148,11 +172,12 @@ export function resumoLab(estado: Estado, agora: Date) {
   const cfg = configAuto(estado), hoje = hojeDe(agora);
   return {
     quando: agora.toISOString(), limite: LIMITE_LAB,
+    numeros: [...numerosDoAmbiente().map((n) => ({ numero: n, quem: 'Vercel (ambiente)', quando: '', origem: 'ambiente' })), ...numerosDaTela(estado).map((n) => ({ ...n, origem: 'tela' }))],
     leads: leadsDe(estado).map((l) => {
       const px = proximoPasso(l, hoje), av = avaliarLead(estado, l, agora, { ignorarLista: true }, cfg), r = checagens(estado, l, agora, cfg, { ignorarLista: true });
       return {
-        log: (l as LeadLab).log ?? [], enviosOk: (l as LeadLab).enviosOk ?? 0, diagnostico: { whatsappLigado: disparoAtivo(), token: Boolean(env.inovstarToken), numeroInformado: !!(l as LeadLab).telefoneInformado, numeroLiberado: !!(l as LeadLab).telefoneInformado && numeroDeTeste(l.telefone) },
-        id: l.id, nome: l.nome, telefone: l.telefone, telefoneInformado: !!(l as LeadLab).telefoneInformado, podeEnviar: !!(l as LeadLab).ultima, ultimaMsg: (l as LeadLab).ultima?.msg ?? null, numeroLiberado: !!(l as LeadLab).telefoneInformado && numeroDeTeste(l.telefone), valor: l.valor, unidade: l.unidade ?? '', exame: l.exame, atendente: l.atendente ?? '', tipo: l.noShow ? 'noshow' : 'orcamento', d0: l.d0, status: l.status,
+        log: (l as LeadLab).log ?? [], enviosOk: (l as LeadLab).enviosOk ?? 0, diagnostico: { whatsappLigado: disparoAtivo(), token: Boolean(env.inovstarToken), numeroInformado: !!(l as LeadLab).telefoneInformado, numeroLiberado: !!(l as LeadLab).telefoneInformado && numeroDeTeste(estado, l.telefone) },
+        id: l.id, nome: l.nome, telefone: l.telefone, telefoneInformado: !!(l as LeadLab).telefoneInformado, podeEnviar: !!(l as LeadLab).ultima, ultimaMsg: (l as LeadLab).ultima?.msg ?? null, numeroLiberado: !!(l as LeadLab).telefoneInformado && numeroDeTeste(estado, l.telefone), valor: l.valor, unidade: l.unidade ?? '', exame: l.exame, atendente: l.atendente ?? '', tipo: l.noShow ? 'noshow' : 'orcamento', d0: l.d0, status: l.status,
         proximo: px ? { passo: px.passo.rotulo, msg: px.passo.msg ?? null, vence: px.vence, situacao: px.situacao } : null,
         decisao: av ? { tipo: av.tipo, motivo: av.tipo === 'pronto' ? 'Todas as condições atendidas' : av.motivo } : null,
         checks: r.checks,
