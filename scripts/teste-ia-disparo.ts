@@ -338,6 +338,28 @@ await teste('laboratório com número: telefone inválido é recusado; enviar de
   await assert.rejects(() => enviarLeadLab(e, 'sim-nao-existe', MANHA, 'Ana'), /não encontrado/);
   delete process.env.SIMULACAO_NUMEROS;
 });
+await teste('laboratório: log do lead (simulação e envios), reenvio e a razão de cada recusa', async () => {
+  const e = simulando(); process.env.SIMULACAO_NUMEROS = '91988884545';
+  const eu = criarLeadLab(e, { nome: 'Eu Mesmo', telefone: '91988884545', valor: 300, diasAtras: 1 }, MANHA);
+  const log = () => resumoLab(e, MANHA).leads[0].log;
+  await assert.rejects(() => enviarLeadLab(e, eu.id, MANHA, 'Ana'), /Rode a IA antes/);
+  assert.match(log()[0].titulo, /não saiu/); assert.equal(log()[0].ok, false); assert.match(log()[0].dica ?? '', /Rode|Passos/);
+  rodarLab(e, CEDO); assert.match(log()[0].titulo, /aguardaria/); assert.match(log()[0].detalhe, /horário/);
+  rodarLab(e, MANHA); assert.match(log()[0].titulo, /a IA enviaria/); assert.equal(log()[0].ok, true); assert.match(log()[0].detalhe, /Msg 1/);
+  pedidos.length = 0;
+  const envios = () => pedidos.filter((p) => /whatsapp\/send\/template/.test(p.caminho)).length;
+  await enviarLeadLab(e, eu.id, MANHA, 'Ana'); assert.equal(envios(), 1); assert.match(log()[0].titulo, /Inovstar aceitou o envio \(1º\)/); assert.match(log()[0].detalhe, /id wamid/); assert.match(log()[0].dica ?? '', /não é acompanhada/);
+  await enviarLeadLab(e, eu.id, MANHA, 'Ana'); assert.equal(envios(), 2, 'dá para enviar novamente (a trava de 24 h é para pacientes)'); assert.match(log()[0].titulo, /\(2º\)/); assert.equal(resumoLab(e, MANHA).leads[0].enviosOk, 2);
+  recusar = true;
+  await assert.rejects(() => enviarLeadLab(e, eu.id, MANHA, 'Ana'), /recusou/);
+  assert.match(log()[0].detalhe, /O WhatsApp recusou o envio: recusado/); assert.match(log()[0].dica ?? '', /Inovstar recusou/); recusar = false;
+  const antes = process.env.DISPARO_WHATSAPP; process.env.DISPARO_WHATSAPP = 'false';
+  await assert.rejects(() => enviarLeadLab(e, eu.id, MANHA, 'Ana'), /desligado/); assert.match(log()[0].dica ?? '', /DISPARO_WHATSAPP=true/); process.env.DISPARO_WHATSAPP = antes;
+  delete process.env.SIMULACAO_NUMEROS;
+  await assert.rejects(() => enviarLeadLab(e, eu.id, MANHA, 'Ana'), /só envio de verdade/); assert.match(log()[0].dica ?? '', /SIMULACAO_NUMEROS/);
+  const d = resumoLab(e, MANHA).leads[0].diagnostico; assert.deepEqual([d.whatsappLigado, d.token, d.numeroInformado, d.numeroLiberado], [true, true, true, false]);
+  assert.ok(log().length <= 40);
+});
 await teste('laboratório: o relógio simulado vem em horário de Belém', () => {
   assert.equal(instanteDoRelogio('2026-11-09T08:30').toISOString(), '2026-11-09T11:30:00.000Z');
   const agora = new Date('2026-01-01T00:00:00Z'); assert.equal(instanteDoRelogio('lixo', agora), agora);

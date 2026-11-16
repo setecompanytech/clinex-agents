@@ -107,17 +107,18 @@ const motivoDaInovstar = (e: Error) => {
   try { const j = JSON.parse(corpo) as { error?: { message?: string } | string; message?: string }; return (typeof j.error === 'object' ? j.error?.message : j.error) ?? j.message ?? corpo; } catch { return corpo; }
 };
 
-export type PedidoEnvio = { modelo: string; parametros?: unknown; passo?: string; msg?: number; atendente?: string; auto?: boolean; ignorarLista?: boolean };
+export type PedidoEnvio = { modelo: string; parametros?: unknown; passo?: string; msg?: number; atendente?: string; auto?: boolean; ignorarLista?: boolean; teste?: boolean };
 
 /** Valida tudo, envia e registra o contato no lead. Lança DisparoError com mensagem pronta para a tela. */
 /**
  * Todas as travas de um envio a este lead, numa função só (o envio manual e a IA de disparo usam a mesma): devolve o erro que
  * impede o envio, ou null se pode enviar. `ignorarLista` serve ao modo sombra, que mostra o que iria em produção liberada.
  */
-export function checarEnvio(estado: Estado, l: Lead, modeloId: string, agora: Date, opcoes: { ignorarLista?: boolean } = {}): DisparoError | null {
+export function checarEnvio(estado: Estado, l: Lead, modeloId: string, agora: Date, opcoes: { ignorarLista?: boolean; teste?: boolean } = {}): DisparoError | null {
   if (l.status === 'convertido_ativo' || l.status === 'convertido_organico' || l.status === 'descarte') return new DisparoError('estado', 'Este lead já foi encerrado: não dá para enviar mensagem.', 409);
   if (!paraE164Brasil(l.telefone)) return new DisparoError('telefone', 'Telefone inválido: confira o número do lead (DDD + número).', 400);
   if (!opcoes.ignorarLista && !numeroPermitido(l.telefone)) return new DisparoError('fora_da_lista', 'Este número não está liberado para disparo (fase de testes: só os números de DISPARO_NUMEROS).', 403);
+  if (opcoes.teste) return null; // número de teste do próprio gerente (laboratório): sem as travas de cadência dos pacientes, para poder reenviar
   const vista = vistaDoLead(l, agora).contato;
   if (!vista.ok) return new DisparoError('regra', vista.motivo ?? 'Fora das regras de contato.', 409);
   const marca = `${MARCA}${modeloId}`;
@@ -133,7 +134,7 @@ export async function enviarModelo(estado: Estado, l: Lead, p: PedidoEnvio, agor
   if (!modelo) throw new DisparoError('modelo', 'Modelo desconhecido.', 400);
   const params = Array.isArray(p.parametros) ? p.parametros.map((x) => String(x ?? '').trim()) : [];
   if (params.length !== modelo.variaveis.length || params.some((x) => !x)) throw new DisparoError('parametros', `Preencha as ${modelo.variaveis.length} variáveis do modelo (${modelo.variaveis.map((v) => v.rotulo).join(', ')}).`, 400);
-  const bloqueio = checarEnvio(estado, l, modelo.id, agora, { ignorarLista: p.ignorarLista });
+  const bloqueio = checarEnvio(estado, l, modelo.id, agora, { ignorarLista: p.ignorarLista, teste: p.teste });
   if (bloqueio) throw bloqueio;
   const to = paraE164Brasil(l.telefone)!;
 

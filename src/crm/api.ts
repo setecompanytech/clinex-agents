@@ -400,7 +400,7 @@ router.post('/ia-manager/lab/leads/:id/enviar', async (req, res, next) => {
     exigeSimulacao();
     const q = instanteDoRelogio((req.body ?? {}).quando), r = await enviarLeadLab(estado, String(req.params.id), q, req.sessao?.nome ?? 'painel');
     salvar(); res.json({ ...r, lab: resumoLab(estado, q) });
-  } catch (e) { if (e instanceof DisparoError) return void res.status(e.status).json({ erro: e.codigo, mensagem: e.message }); next(e); }
+  } catch (e) { if (e instanceof DisparoError) { salvar(); return void res.status(e.status).json({ erro: e.codigo, mensagem: e.message }); } next(e); } // salva também a recusa: ela fica no log do lead
 });
 router.delete('/ia-manager/lab/leads/:id', (req, res) => lab(res, () => { if (!removerLeadLab(estado, String(req.params.id))) throw new DisparoError('nao_encontrado', 'Lead de teste não encontrado.', 404); return resumoLab(estado, instanteDoRelogio(req.query.quando)); }));
 router.delete('/ia-manager/lab', (req, res) => lab(res, () => { limparLab(estado); return resumoLab(estado, instanteDoRelogio(req.query.quando)); }));
