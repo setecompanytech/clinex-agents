@@ -170,9 +170,14 @@ function carregar(auto) {
     var ass = ''; try { ass = JSON.stringify(d); } catch (e) { ass = ''; }
     var igual = !!ass && ass === CARGA_ASSINATURA; CARGA_ASSINATURA = ass;
     if (auto === true && igual && S.D) return d;
+    if (auto === true && S.aba === 'iamanager' && S.D) { S.D = d; return d; } /* o IA Manager tem os próprios dados e a própria atualização: não refaz a tela por causa dos leads */
     S.D = d; S.AUstale = true; S.FVstale = true; S.ANfresh = {}; S.EXfresh = {}; S.RPfresh = {}; desenhar(); if (S.leadAberto && typeof atualizarGaveta === 'function') atualizarGaveta(); return d; })
     .catch(function (e) { aviso('Não consegui carregar o CRM: ' + e.message, 'erro'); throw e; });
 }
+/* última vez que a pessoa mexeu na tela (clique, tecla, toque ou rolagem): a atualização automática de fundo espera ela parar, para nunca fechar ou apagar o que está sendo feito */
+var TOQUE = 0;
+['pointerdown', 'keydown', 'touchstart', 'wheel'].forEach(function (ev) { document.addEventListener(ev, function () { TOQUE = Date.now(); }, { passive: true, capture: true }); });
+function ocupado() { return Date.now() - TOQUE < 12000; }
 /* true enquanto alguém está com o cursor num campo de texto: a atualização automática espera, para não apagar o que está sendo digitado */
 function digitando() { var a = document.activeElement; return !!(a && (a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && ['checkbox', 'radio', 'button', 'submit'].indexOf(a.type) < 0))); }
 /* redesenha e devolve o cursor ao mesmo campo (a busca é refeita junto com a tela e perdia o foco a cada letra) */

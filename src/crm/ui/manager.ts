@@ -1,7 +1,7 @@
 // JavaScript do CRM (navegador): página "IA Manager", o painel de controle da IA de disparo. Dados de /painel/crm/api/ia-manager.
 // Dentro dele não usar crases nem "dollar-chave".
 export const manager = String.raw`
-var MG = { labVistos: {}, aba: 'controle', d: null, c: null, base: null, car: false, t: 0, erro: '', salvando: false, entrou: false, lab: null, labCar: false, labQ: '', labRes: null, labNovo: null, lf: { telefone: '', nome: '', tipo: 'orcamento', valor: '400', unidade: '', dias: 1, exame: 'Ultrassom', atendente: '' } };
+var MG = { detAbertos: {}, labVistos: {}, aba: 'controle', d: null, c: null, base: null, car: false, t: 0, erro: '', salvando: false, entrou: false, lab: null, labCar: false, labQ: '', labRes: null, labNovo: null, lf: { telefone: '', nome: '', tipo: 'orcamento', valor: '400', unidade: '', dias: 1, exame: 'Ultrassom', atendente: '' } };
 var MG_PAL = ['#4cc9f0', '#a78bfa', '#f5b942', '#fb7185', '#2ee6a6'];
 var MG_DIAS = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'], MG_DIAS_L = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
 var MG_TXT = {
@@ -32,7 +32,7 @@ function mgAssina(d) {
   var x = Object.assign({}, d); delete x.agoraBrt; delete x.minutosDesdeUltimaRodada; x.proximo = { tipo: d.proximo.tipo, gatilho: d.proximo.gatilho, hora: d.proximo.hora };
   try { return JSON.stringify(x); } catch (e) { return String(Math.random()); }
 }
-function mgPedir(forcar, silencioso) {
+function mgPedir(forcar, silencioso, urgente) {
   if (MG.car || MG.pend) return;
   if (!forcar && MG.d && Date.now() - MG.t < 15000) return;
   MG.car = true;
@@ -40,11 +40,12 @@ function mgPedir(forcar, silencioso) {
     var ass = mgAssina(d), mudou = ass !== MG.ass || Date.now() - (MG.tDes || 0) > 300000; /* sem mudança de verdade: só o relógio muda, e isso se atualiza a cada 5 min */
     MG.d = d; MG.t = Date.now(); MG.car = false;
     if (!mgSujo()) { MG.c = mgClone(d.config); MG.base = mgClone(d.config); }
+    if (mudou && MG.ass && !urgente && !silencioso && ocupado()) return; /* a pessoa está mexendo: guarda os dados e só refaz a tela quando ela parar */
     if (silencioso && MG.d.modo === MG.modoTela) { MG.ass = ass; return; } /* confirmação de fundo de algo que a tela já mostra: não redesenha */
     if (S.aba === 'iamanager' && mudou) { MG.ass = ass; MG.tDes = Date.now(); MG.modoTela = d.modo; desenhar(true); }
   }).catch(function (e) { MG.car = false; MG.t = Date.now(); aviso('Não consegui carregar o IA Manager: ' + e.message, 'erro'); });
 }
-setInterval(function () { if (S.aba === 'iamanager' && document.visibilityState === 'visible' && !digitando()) mgPedir(true); }, 20000);
+setInterval(function () { if (S.aba === 'iamanager' && document.visibilityState === 'visible' && !digitando() && !ocupado()) mgPedir(true); }, 20000);
 
 /* ------------------------------------------------------------------ Power e modos */
 function mgDefinirModo(modo) {
@@ -118,7 +119,7 @@ function mgHero(D) {
         mgContador('Respostas hoje', D.hoje.respostas, 'rastreadas', ''),
         mgContador('Simuladas hoje', D.hoje.simulados, 'modo sombra', '')
       ]),
-      h('div', { class: 'mg-acoes' }, sim ? [botao('Ir ao laboratório', 'pri', function () { var el = document.getElementById('mg-lab'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 'arrow')] : ativo ? [botao('Rodar agora', 'pri', function (e) { var b = e.currentTarget; b.setAttribute('disabled', 'true'); api('POST', '/disparo-auto/rodar').then(function (r) { IA_C = {}; if (r.pulou) aviso(r.pulou, 'erro'); else aviso('Rodada feita: ' + r.rodada.enviados + ' enviadas, ' + r.rodada.sombra + ' simuladas, ' + r.rodada.erros + ' com erro.', 'ok'); MG.t = 0; mgPedir(true); }).catch(function (er) { aviso(er.message, 'erro'); b.removeAttribute('disabled'); }); }, 'bolt')] : [])
+      h('div', { class: 'mg-acoes' }, sim ? [botao('Ir ao laboratório', 'pri', function () { var el = document.getElementById('mg-lab'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 'arrow')] : ativo ? [botao('Rodar agora', 'pri', function (e) { var b = e.currentTarget; b.setAttribute('disabled', 'true'); api('POST', '/disparo-auto/rodar').then(function (r) { IA_C = {}; if (r.pulou) aviso(r.pulou, 'erro'); else aviso('Rodada feita: ' + r.rodada.enviados + ' enviadas, ' + r.rodada.sombra + ' simuladas, ' + r.rodada.erros + ' com erro.', 'ok'); MG.t = 0; mgPedir(true, false, true); }).catch(function (er) { aviso(er.message, 'erro'); b.removeAttribute('disabled'); }); }, 'bolt')] : [])
     ])
   ]);
 }
@@ -412,6 +413,12 @@ function mgLabRelogioUi(D) {
     ])
   ]);
 }
+/* "ver detalhes" que lembra se estava aberto: continua aberto depois de qualquer atualização da tela */
+function mgDetalhes(chave, titulo, corpo) {
+  var d = h('details', { class: 'mg-det', open: !!MG.detAbertos[chave] }, [h('summary', { text: titulo }), corpo]);
+  d.addEventListener('toggle', function () { MG.detAbertos[chave] = d.open; });
+  return d;
+}
 function mgLabCartao(l) {
   var dec = l.decisao;
   var res = (MG.labRes || []).filter(function (x) { return x.leadId === l.id; })[0];
@@ -433,7 +440,7 @@ function mgLabCartao(l) {
     l.telefoneInformado ? h('div', { class: 'mg-zap' }, [(function () { var bz = mgOcupavel(botao('Enviar no WhatsApp', '', function () { mgLabEnviar(l); }, 'message'), 'env'); if (!l.podeEnviar || !l.numeroLiberado) bz.setAttribute('disabled', 'true'); return bz; })(), h('small', { class: 'mut', text: !l.podeEnviar ? 'Rode a IA primeiro: ela decide qual mensagem sai.' : !l.numeroLiberado ? 'Este número ainda não está liberado para teste: peça ao administrador para incluí-lo em SIMULACAO_NUMEROS.' : 'Manda a mensagem acima de verdade para ' + l.telefone + '.' })]) : null,
     l.proximo ? h('p', { class: 'mut peq', text: 'Próximo passo do guia: ' + l.proximo.passo + (l.proximo.msg ? ' (Msg ' + l.proximo.msg + ')' : '') + ', vence ' + mgDm(l.proximo.vence) + '.' }) : null,
     msgs.length ? h('div', { class: 'mg-lab-wa' }, msgs) : null,
-    checks.length ? h('details', { class: 'mg-det' }, [h('summary', { text: 'Ver as ' + checks.length + ' checagens desta decisão' }), h('ul', { class: 'mg-cks' }, checks)]) : null
+    checks.length ? mgDetalhes(l.id, 'Ver as ' + checks.length + ' checagens desta decisão', h('ul', { class: 'mg-cks' }, checks)) : null
   ]);
 }
 function mgLab(D) {
