@@ -18,15 +18,16 @@ function mgAssina(d) {
   var x = Object.assign({}, d); delete x.agoraBrt; delete x.minutosDesdeUltimaRodada; x.proximo = { tipo: d.proximo.tipo, gatilho: d.proximo.gatilho, hora: d.proximo.hora };
   try { return JSON.stringify(x); } catch (e) { return String(Math.random()); }
 }
-function mgPedir(forcar) {
-  if (MG.car) return;
+function mgPedir(forcar, silencioso) {
+  if (MG.car || MG.pend) return;
   if (!forcar && MG.d && Date.now() - MG.t < 15000) return;
   MG.car = true;
   api('GET', '/ia-manager').then(function (d) {
     var ass = mgAssina(d), mudou = ass !== MG.ass || Date.now() - (MG.tDes || 0) > 300000; /* sem mudança de verdade: só o relógio muda, e isso se atualiza a cada 5 min */
     MG.d = d; MG.t = Date.now(); MG.car = false;
     if (!mgSujo()) { MG.c = mgClone(d.config); MG.base = mgClone(d.config); }
-    if (S.aba === 'iamanager' && mudou) { MG.ass = ass; MG.tDes = Date.now(); desenhar(true); }
+    if (silencioso && MG.d.modo === MG.modoTela) { MG.ass = ass; return; } /* confirmação de fundo de algo que a tela já mostra: não redesenha */
+    if (S.aba === 'iamanager' && mudou) { MG.ass = ass; MG.tDes = Date.now(); MG.modoTela = d.modo; desenhar(true); }
   }).catch(function (e) { MG.car = false; MG.t = Date.now(); aviso('Não consegui carregar o IA Manager: ' + e.message, 'erro'); });
 }
 setInterval(function () { if (S.aba === 'iamanager' && document.visibilityState === 'visible' && !digitando()) mgPedir(true); }, 20000);
@@ -34,11 +35,16 @@ setInterval(function () { if (S.aba === 'iamanager' && document.visibilityState 
 /* ------------------------------------------------------------------ Power e modos */
 function mgDefinirModo(modo) {
   if (modo === 'ligado' && !window.confirm('Ligar o envio automático? A IA vai mandar mensagens REAIS para pacientes, sozinha, no horário de cada gatilho. Você pode desligar a qualquer momento no botão Power.')) return;
+  /* a tela muda NA HORA (o servidor grava no banco antes de responder e isso demora); se der erro, volta ao que era */
+  if (MG.pend || !MG.d) return;
+  var antes = MG.d.modo;
+  MG.d.modo = modo; MG.modoTela = modo; MG.pend = modo; if (modo === 'simulacao') { MG.lab = null; MG.labRes = null; }
+  desenhar(true);
   api('PUT', '/disparo-auto', { modo: modo }).then(function () {
+    MG.pend = null;
     aviso(modo === 'desligado' ? 'IA desligada.' : modo === 'simulacao' ? 'Modo simulação: a IA só trabalha com leads de teste.' : modo === 'sombra' ? 'IA em modo sombra: nada será enviado.' : 'IA ligada.', 'ok');
-    if (modo === 'simulacao') { MG.lab = null; MG.labRes = null; }
-    IA_C = {}; MG.t = 0; mgPedir(true);
-  }).catch(function (e) { aviso(e.message, 'erro'); });
+    IA_C = {}; var tl = document.querySelector('.tela.mg'); if (tl) tl.classList.remove('mg-pend'); MG.t = 0; mgPedir(true, true);
+  }).catch(function (e) { MG.pend = null; MG.d.modo = antes; MG.modoTela = antes; aviso(e.message, 'erro'); desenhar(true); });
 }
 function mgPower(D) {
   if (D.forcadoPeloAmbiente) { aviso('A IA está travada em desligada pelo ambiente (DISPARO_AUTO=desligado).', 'erro'); return; }
@@ -440,6 +446,6 @@ function telaIAManager() {
   if (MG.aba === 'respostas') return h('div', { class: 'tela mg' }, [cab, abas, corpoIA(), mgBarraSalvar()]);
   if (!MG.d || !MG.c) return h('div', { class: 'tela mg' }, [cab, abas, esqueleto()]);
   MG.animar = !MG.entrou; MG.entrou = true;
-  return h('div', { class: 'tela mg' + (MG.animar ? ' mg-anim' : '') + ' mg-' + MG.d.modo }, [cab, abas, mgHero(MG.d), mgLinha(MG.d), mgGatilhos(MG.d), mgGlobais(MG.d), mgSimulador(MG.d), mgHistorico(MG.d), mgBarraSalvar()]);
+  return h('div', { class: 'tela mg' + (MG.animar ? ' mg-anim' : '') + (MG.pend ? ' mg-pend' : '') + ' mg-' + MG.d.modo }, [cab, abas, mgHero(MG.d), mgLinha(MG.d), mgGatilhos(MG.d), mgGlobais(MG.d), mgSimulador(MG.d), mgHistorico(MG.d), mgBarraSalvar()]);
 }
 `;

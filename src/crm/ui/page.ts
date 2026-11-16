@@ -601,7 +601,7 @@ ${parte_abas}
 }
 /* ===== IA Manager (mg-) ===== */
 .mg{display:flex;flex-direction:column;gap:26px;padding-bottom:90px}
-.mg-resp{display:flex;flex-direction:column;gap:22px}.mg-resp>.g12{margin:0}.mg-sec{opacity:1}.mg-anim .mg-sec{animation:mgRise .6s cubic-bezier(.2,.8,.2,1) both;animation-delay:calc(var(--i,0)*70ms)}
+.mg-resp{display:flex;flex-direction:column;gap:22px}.mg-resp>.g12{margin:0}.mg-pend .mg-orbe,.mg-pend .mg-modo{pointer-events:none}.mg-pend .mg-anel{animation-duration:2.2s}.mg-pend .mg-nucleo b:after{content:"…"}.mg-sec{opacity:1}.mg-anim .mg-sec{animation:mgRise .6s cubic-bezier(.2,.8,.2,1) both;animation-delay:calc(var(--i,0)*70ms)}
 @keyframes mgRise{from{opacity:0;transform:translateY(18px) scale(.985)}to{opacity:1;transform:none}}
 .mg-hero{position:relative;overflow:hidden;display:grid;grid-template-columns:minmax(260px,330px) 1fr;gap:34px;align-items:center;padding:34px 38px;border-radius:26px;border:1px solid var(--line);background:radial-gradient(900px 380px at 12% 0%,var(--mgh,rgba(76,201,240,.16)),transparent 60%),linear-gradient(160deg,var(--card2),var(--card));box-shadow:var(--shadow);--mgc:#ff5d6c;--mgh:rgba(255,93,108,.16)}
 .mg-sombra .mg-hero{--mgc:#f5b942;--mgh:rgba(245,185,66,.18)}.mg-ligado .mg-hero{--mgc:#2ee6a6;--mgh:rgba(46,230,166,.2)}
