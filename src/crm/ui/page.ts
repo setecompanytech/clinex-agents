@@ -761,6 +761,14 @@ ${parte_abas}
 .mg .btn{transition:transform .12s,filter .15s,border-color .2s,opacity .2s}.mg .btn:active:not(:disabled),.mg .mg-ex:active:not(:disabled),.mg .mg-chip:active,.mg .mg-seg button:active{transform:scale(.96)}
 .mg .btn:disabled{opacity:.55;cursor:progress}.mg .btn.ocupado{opacity:1;cursor:progress}.mg-gira{display:inline-block;width:14px;height:14px;margin-right:8px;border-radius:50%;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;animation:mgSpin .7s linear infinite;vertical-align:-2px}
 .mg-tel-d{margin:-4px 0 4px;line-height:1.45}.mg-zap{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding-top:2px}.mg-zap small{flex:1;min-width:180px;font-size:12px}
+/* ===== busca dentro do modal do fluxo (fl-) ===== */
+.fl-busca-w{position:sticky;top:0;z-index:4;margin:-18px -22px 16px;padding:12px 22px;background:var(--solid);border-bottom:1px solid var(--line)}
+.fl-busca{display:flex;align-items:center;gap:10px;padding:0 8px 0 14px;border:1px solid var(--line2);border-radius:13px;background:var(--card);transition:border-color .2s,box-shadow .2s}.fl-busca:focus-within{border-color:var(--cy);box-shadow:0 0 0 3px color-mix(in srgb,var(--cy) 18%,transparent)}
+.fl-ic{color:var(--mut);display:grid}.fl-busca .fl-q{flex:1;min-width:0;border:0!important;background:transparent!important;box-shadow:none!important;padding:11px 0!important;font-size:14.5px}.fl-busca .fl-q::-webkit-search-cancel-button{display:none}
+.fl-cont{color:var(--mut);font-size:12px;white-space:nowrap}.fl-x{visibility:hidden}.fl-busca.tem .fl-x{visibility:visible}
+.fl-nada{display:none;margin-top:12px}.fl-nada.on{display:block}
+.fl-oculto{display:none!important}.fl-mais{margin:8px 2px 0}
+mark.fl-mk{background:color-mix(in srgb,var(--warn) 42%,transparent);color:inherit;border-radius:4px;padding:0 2px}
 `;
 
 export const pagina = `<!doctype html>

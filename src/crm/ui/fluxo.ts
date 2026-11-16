@@ -185,11 +185,76 @@ function corpoItem(it) {
   if (it.fluxo === 'noshow') { var secN = cardsNS(it); if (secN) Dir.push(secN); }
   var ls = leadsDoItem(it.id);
   if (S.D && it.tipo !== 'regra' && it.id !== 'lead' && it.fluxo !== 'noshow') {
-    Dir.push(secao('Leads aqui agora', ls.length ? h('div', { class: 'leads-mini' }, ls.slice(0, 40).map(function (l) {
-      return h('button', { class: 'lm', type: 'button', onclick: function () { abrirLead(l.id); } }, [avatar(l.nome), h('span', null, [h('b', { text: l.nome }), h('small', { text: (l.exame || 'sem exame') + ' · ' + brl(l.valor) })]), l.v.proximo ? pill(l.v.proximo.situacao === 'atrasada' ? 'atrasado ' + l.v.proximo.atraso + 'd' : l.v.proximo.situacao === 'hoje' ? 'hoje' : 'D' + dBR(l.v.proximo.vence), 'pl-' + l.v.proximo.situacao) : null]);
-    })) : vazio('Nenhum lead nesta etapa agora.'), h('span', { class: 'cont', text: String(ls.length) })));
+    Dir.push(secao('Leads aqui agora', listaBusca(ls, lmLead, txtLead, 'Nenhum lead nesta etapa agora.'), h('span', { class: 'cont', text: String(ls.length) })));
   }
-  return Topo.concat([h('div', { class: 'it-det' }, [h('div', { class: 'it-col' }, C), h('div', { class: 'it-col' }, Dir)])]);
+  return [barraBuscaItem()].concat(Topo, [h('div', { class: 'it-det' }, [h('div', { class: 'it-col' }, C), h('div', { class: 'it-col' }, Dir)])]);
+}
+
+/* ---- busca dentro do modal do fluxo: filtra leads e cards (a lista inteira), mensagens, passos, regras e links, e destaca o que achou */
+var ITEM_Q = '';
+var BUSCA_GRUPOS = ['.msgs-modal > *', '.regras-mini > .rm', 'ul.lista-o > li', '.cad > .cad-p', '.lks > *', '.chips .pl-motivo'];
+function txtLead(l) { return [l.nome, l.telefone, l.exame, l.unidade, l.atendente, l.origem].join(' '); }
+function txtCard(c) { return [c.nome, c.unidade, c.responsavel || ''].join(' '); }
+function lmLead(l) {
+  return h('button', { class: 'lm', type: 'button', onclick: function () { abrirLead(l.id); } }, [avatar(l.nome), h('span', null, [h('b', { text: l.nome }), h('small', { text: (l.exame || 'sem exame') + ' · ' + brl(l.valor) })]), l.v.proximo ? pill(l.v.proximo.situacao === 'atrasada' ? 'atrasado ' + l.v.proximo.atraso + 'd' : l.v.proximo.situacao === 'hoje' ? 'hoje' : 'D' + dBR(l.v.proximo.vence), 'pl-' + l.v.proximo.situacao) : null]);
+}
+function lmCard(c) {
+  return h('button', { class: 'lm', type: 'button', onclick: function () { fvAbrirCard(c.id); } }, [avatar(c.nome), h('span', null, [h('b', { text: c.nome }), h('small', { text: (c.unidade ? fvUnidadeCurta(c.unidade) + ' · ' : '') + brl(c.valor) })]), pill(c.dias + (c.dias === 1 ? ' dia' : ' dias'), 'pl-num')]);
+}
+function listaBusca(itens, mk, txt, textoVazio) {
+  var box = h('div', { class: 'fl-lista' }); box._it = itens; box._mk = mk; box._txt = txt; box._vazio = textoVazio;
+  pintaLista(box); return box;
+}
+function pintaLista(box) {
+  var q = semAcento(ITEM_Q).trim(), f = q ? box._it.filter(function (x) { return semAcento(box._txt(x)).indexOf(q) >= 0; }) : box._it, lim = q ? 80 : 40;
+  limpar(box); box._n = f.length;
+  if (!box._it.length) { box.appendChild(vazio(box._vazio)); return; }
+  if (!f.length) { box.appendChild(vazio('Nada encontrado', 'Nenhum resultado para "' + ITEM_Q.trim() + '" nesta lista.')); return; }
+  box.appendChild(h('div', { class: 'leads-mini' }, f.slice(0, lim).map(box._mk)));
+  if (f.length > lim) box.appendChild(h('p', { class: 'mut peq fl-mais', text: 'Mostrando ' + lim + ' de ' + f.length + '. Escreva mais para refinar.' }));
+  if (q) realcar(box, q);
+}
+function realcar(raiz, q) {
+  var w = document.createTreeWalker(raiz, NodeFilter.SHOW_TEXT, null), nos = [], n;
+  while ((n = w.nextNode())) { if (n.nodeValue.trim() && !(n.parentNode.closest && n.parentNode.closest('.cont, mark, .ic-btn'))) nos.push(n); }
+  nos.forEach(function (no) {
+    var txt = no.nodeValue, sem = semAcento(txt), i = sem.indexOf(q);
+    if (i < 0 || sem.length !== txt.length) return;
+    var frag = document.createDocumentFragment(), ult = 0;
+    while (i >= 0) { frag.appendChild(document.createTextNode(txt.slice(ult, i))); frag.appendChild(h('mark', { class: 'fl-mk', text: txt.slice(i, i + q.length) })); ult = i + q.length; i = sem.indexOf(q, ult); }
+    frag.appendChild(document.createTextNode(txt.slice(ult))); no.parentNode.replaceChild(frag, no);
+  });
+}
+function tirarRealce(raiz) { Array.prototype.forEach.call(raiz.querySelectorAll('mark.fl-mk'), function (m) { m.replaceWith(document.createTextNode(m.textContent)); }); raiz.normalize(); }
+function aplicarBuscaItem() {
+  if (!itemModal) return;
+  var corpo = itemModal.corpo, q = semAcento(ITEM_Q).trim(), res = 0;
+  tirarRealce(corpo);
+  Array.prototype.forEach.call(corpo.querySelectorAll('section.sec, section.it-au-c, .it-col > .callout'), function (sec) {
+    var lista = sec.querySelector('.fl-lista'), grupo = sec.querySelectorAll(BUSCA_GRUPOS.join(',')), n = 0;
+    if (lista) { pintaLista(lista); n = lista._n || 0; }
+    else if (grupo.length) { Array.prototype.forEach.call(grupo, function (el) { var bate = !q || semAcento(el.textContent).indexOf(q) >= 0; el.classList.toggle('fl-oculto', !bate); if (bate) { n++; if (q) realcar(el, q); } }); }
+    else { n = !q || semAcento(sec.textContent).indexOf(q) >= 0 ? 1 : 0; if (q && n) realcar(sec, q); }
+    sec.classList.toggle('fl-oculto', !!q && n === 0);
+    if (q) res += n;
+  });
+  Array.prototype.forEach.call(corpo.querySelectorAll('.it-auto'), function (w) { w.classList.toggle('fl-oculto', !!q && !w.querySelector('.it-au-c:not(.fl-oculto)')); });
+  var cont = corpo.querySelector('.fl-cont'), nada = corpo.querySelector('.fl-nada'), barra = corpo.querySelector('.fl-busca');
+  if (barra) barra.classList.toggle('tem', !!ITEM_Q);
+  if (cont) cont.textContent = q ? res + (res === 1 ? ' resultado' : ' resultados') : '';
+  if (nada) nada.classList.toggle('on', !!q && res === 0);
+}
+function barraBuscaItem() {
+  var inp = h('input', { class: 'in fl-q', type: 'search', placeholder: 'Buscar nesta etapa: leads, cards, mensagens, regras…', 'aria-label': 'Buscar dentro desta etapa', autocomplete: 'off', spellcheck: 'false' });
+  inp.value = ITEM_Q;
+  var t = 0;
+  var limpa = function () { inp.value = ''; ITEM_Q = ''; aplicarBuscaItem(); };
+  inp.addEventListener('input', function () { ITEM_Q = inp.value; clearTimeout(t); t = setTimeout(aplicarBuscaItem, 80); });
+  inp.addEventListener('keydown', function (e) { if (e.key === 'Escape' && inp.value) { e.stopPropagation(); e.preventDefault(); limpa(); } });
+  return h('div', { class: 'fl-busca-w' }, [
+    h('div', { class: 'fl-busca' + (ITEM_Q ? ' tem' : '') }, [h('span', { class: 'fl-ic', 'aria-hidden': 'true' }, ico('search', 16)), inp, h('small', { class: 'fl-cont', 'aria-live': 'polite' }), h('button', { type: 'button', class: 'ic-btn fl-x', 'aria-label': 'Limpar a busca', onclick: function () { limpa(); inp.focus(); } }, ico('x', 14))]),
+    h('div', { class: 'fl-nada' }, vazio('Nada encontrado', 'Tente outra palavra: nome, exame, unidade, parte de uma mensagem ou de uma regra.'))
+  ]);
 }
 
 function cabecalhoItem(it) {
@@ -198,10 +263,11 @@ function cabecalhoItem(it) {
 
 function mostrarItem(id, empilhar) {
   var it = itemDef(id); if (!it) return;
+  if (!itemModal || itemModal.itemId !== id) ITEM_Q = '';
   if (empilhar && itemModal) { var atual = itemModal.itemId; if (atual) HIST_ITEM.push(atual); }
   if (!itemModal) {
     HIST_ITEM = [];
-    itemModal = modal({ cabecalho: cabecalhoItem(it), corpo: montarItem(it), largura: 1180, classe: 'item larga t-' + it.tipo, aoFechar: function () { itemModal = null; HIST_ITEM = []; history.replaceState(null, '', '#' + S.aba); } });
+    itemModal = modal({ cabecalho: cabecalhoItem(it), corpo: montarItem(it), largura: 1180, classe: 'item larga t-' + it.tipo, aoFechar: function () { itemModal = null; ITEM_Q = ''; HIST_ITEM = []; history.replaceState(null, '', '#' + S.aba); } });
   } else {
     limpar(itemModal.corpo); kids(itemModal.corpo, montarItem(it));
     var tit = itemModal.topo.querySelector('.m-titulos'); limpar(tit); kids(tit, cabecalhoItem(it));
@@ -209,6 +275,7 @@ function mostrarItem(id, empilhar) {
     itemModal.corpo.scrollTop = 0;
   }
   itemModal.itemId = id;
+  if (ITEM_Q) aplicarBuscaItem();
   var antigo = itemModal.topo.querySelector('.voltar-i'); if (antigo) antigo.remove();
   if (HIST_ITEM.length) itemModal.topo.insertBefore(h('button', { class: 'ic-btn voltar-i', type: 'button', 'aria-label': 'Voltar', onclick: function () { var ant = HIST_ITEM.pop(); mostrarItem(ant, false); } }, ico('back')), itemModal.topo.firstChild);
   var u = location.hash.split('/')[0]; history.replaceState(null, '', u + '/' + id);
@@ -361,9 +428,7 @@ function cardsNS(it) {
   if (['ns-faltou', 'ns-antes', 'ns-mover'].indexOf(alvo) >= 0) return null;
   if (!S.NS && !S.NScarregando) pedirNoShow();
   var ls = (S.NS && S.NS.cards && S.NS.cards[alvo]) || [], tot = (S.NS && S.NS.contagens && S.NS.contagens[alvo]) || 0;
-  return secao('Cards aqui agora', ls.length ? h('div', { class: 'leads-mini' }, ls.map(function (c) {
-    return h('button', { class: 'lm', type: 'button', onclick: function () { fvAbrirCard(c.id); } }, [avatar(c.nome), h('span', null, [h('b', { text: c.nome }), h('small', { text: (c.unidade ? fvUnidadeCurta(c.unidade) + ' · ' : '') + brl(c.valor) })]), pill(c.dias + (c.dias === 1 ? ' dia' : ' dias'), 'pl-num')]);
-  })) : vazio(S.NS ? (S.NS.funilId ? 'Nenhum card nesta etapa agora.' : 'O funil No-show não existe nos Pipelines.') : 'Carregando…'), h('span', { class: 'cont', text: String(tot) }));
+  return secao('Cards aqui agora', listaBusca(ls, lmCard, txtCard, S.NS ? (S.NS.funilId ? 'Nenhum card nesta etapa agora.' : 'O funil No-show não existe nos Pipelines.') : 'Carregando…'), h('span', { class: 'cont', text: String(tot) }));
 }
 
 function celulaNS(ln, dia, c, row, j) {
