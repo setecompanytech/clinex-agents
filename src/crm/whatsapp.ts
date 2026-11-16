@@ -107,7 +107,7 @@ const motivoDaInovstar = (e: Error) => {
   try { const j = JSON.parse(corpo) as { error?: { message?: string } | string; message?: string }; return (typeof j.error === 'object' ? j.error?.message : j.error) ?? j.message ?? corpo; } catch { return corpo; }
 };
 
-export type PedidoEnvio = { modelo: string; parametros?: unknown; passo?: string; msg?: number; atendente?: string; auto?: boolean };
+export type PedidoEnvio = { modelo: string; parametros?: unknown; passo?: string; msg?: number; atendente?: string; auto?: boolean; ignorarLista?: boolean };
 
 /** Valida tudo, envia e registra o contato no lead. Lança DisparoError com mensagem pronta para a tela. */
 /**
@@ -133,7 +133,7 @@ export async function enviarModelo(estado: Estado, l: Lead, p: PedidoEnvio, agor
   if (!modelo) throw new DisparoError('modelo', 'Modelo desconhecido.', 400);
   const params = Array.isArray(p.parametros) ? p.parametros.map((x) => String(x ?? '').trim()) : [];
   if (params.length !== modelo.variaveis.length || params.some((x) => !x)) throw new DisparoError('parametros', `Preencha as ${modelo.variaveis.length} variáveis do modelo (${modelo.variaveis.map((v) => v.rotulo).join(', ')}).`, 400);
-  const bloqueio = checarEnvio(estado, l, modelo.id, agora);
+  const bloqueio = checarEnvio(estado, l, modelo.id, agora, { ignorarLista: p.ignorarLista });
   if (bloqueio) throw bloqueio;
   const to = paraE164Brasil(l.telefone)!;
 

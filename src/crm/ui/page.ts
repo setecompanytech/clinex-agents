@@ -760,6 +760,7 @@ ${parte_abas}
 .mg-lc.criando{min-height:150px;display:flex;flex-direction:row;align-items:center;justify-content:center;gap:8px;animation:mgRise .3s both}.mg-lc.criando i{width:9px;height:9px;border-radius:50%;background:#4cc9f0;animation:mgPulsa 1s ease-in-out infinite}.mg-lc.criando i:nth-child(2){animation-delay:.15s}.mg-lc.criando i:nth-child(3){animation-delay:.3s}@keyframes mgPulsa{50%{transform:translateY(-8px);opacity:.4}}
 .mg .btn{transition:transform .12s,filter .15s,border-color .2s,opacity .2s}.mg .btn:active:not(:disabled),.mg .mg-ex:active:not(:disabled),.mg .mg-chip:active,.mg .mg-seg button:active{transform:scale(.96)}
 .mg .btn:disabled{opacity:.55;cursor:progress}.mg .btn.ocupado{opacity:1;cursor:progress}.mg-gira{display:inline-block;width:14px;height:14px;margin-right:8px;border-radius:50%;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;animation:mgSpin .7s linear infinite;vertical-align:-2px}
+.mg-tel-d{margin:-4px 0 4px;line-height:1.45}.mg-zap{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding-top:2px}.mg-zap small{flex:1;min-width:180px;font-size:12px}
 `;
 
 export const pagina = `<!doctype html>

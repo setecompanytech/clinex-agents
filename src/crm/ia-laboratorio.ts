@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import type { Estado } from './banco.js';
-import { aplicar, automatizar, criarLead, hojeDe, proximoPasso, somaDias, type Lead } from './motor.js';
+import { aplicar, automatizar, criarLead, hojeDe, proximoPasso, soDigitos, somaDias, type Lead } from './motor.js';
 import { MENSAGENS } from './modelo.js';
 import { avaliarLead, checagens, configAuto } from './ia-disparo.js';
-import { DisparoError, MARCA } from './whatsapp.js';
+import { paraE164Brasil } from '../integrations/inovstar.js';
+import { DisparoError, chaveFone, enviarModelo } from './whatsapp.js';
 
 /**
  * Laboratório do "Modo Simulação" do IA Manager: leads FICTÍCIOS que o gerente cria para ver a IA trabalhando de ponta a ponta
@@ -14,6 +15,10 @@ import { DisparoError, MARCA } from './whatsapp.js';
  */
 
 export const LIMITE_LAB = 12;
+/** Lead de teste: guarda se o número foi informado (pode receber de verdade) e a última mensagem que a IA "enviou" na simulação. */
+type LeadLab = Lead & { telefoneInformado?: boolean; ultima?: { modelo: string; parametros: string[]; msg: number; passo: string } };
+/** Só estes números recebem mensagem de verdade a partir do laboratório: os de teste (DISPARO_NUMEROS) e os de SIMULACAO_NUMEROS. DISPARO_LIBERADO NÃO vale aqui: paciente real nunca recebe pela simulação. */
+export const numeroDeTeste = (tel: string) => [...(process.env.DISPARO_NUMEROS ?? '').split(','), ...(process.env.SIMULACAO_NUMEROS ?? '').split(',')].map((n) => n.trim()).filter(Boolean).some((n) => chaveFone(n) === chaveFone(tel));
 export type TipoLab = 'orcamento' | 'noshow';
 
 const erroLab = (m: string, status = 400) => new DisparoError('lab', m, status);
@@ -35,7 +40,7 @@ export function instanteDoRelogio(v: unknown, agora = new Date()): Date {
   return Number.isNaN(d.getTime()) ? agora : d;
 }
 
-export type EntradaLab = { nome?: unknown; valor?: unknown; unidade?: unknown; exame?: unknown; atendente?: unknown; tipo?: unknown; diasAtras?: unknown };
+export type EntradaLab = { telefone?: unknown; nome?: unknown; valor?: unknown; unidade?: unknown; exame?: unknown; atendente?: unknown; tipo?: unknown; diasAtras?: unknown };
 
 export function criarLeadLab(estado: Estado, e: EntradaLab, agora: Date): Lead {
   const atuais = leadsDe(estado);
@@ -49,10 +54,12 @@ export function criarLeadLab(estado: Estado, e: EntradaLab, agora: Date): Lead {
   if (!Number.isInteger(diasAtras) || diasAtras < 0 || diasAtras > 30) throw erroLab('A idade do orçamento vai de 0 a 30 dias.');
   const tipo: TipoLab = e.tipo === 'noshow' ? 'noshow' : 'orcamento';
   const hoje = hojeDe(agora);
-  // número fictício, válido para o formato brasileiro, mas que nunca é usado: nada é enviado de verdade
-  const telefone = `9199${String(Math.floor(Math.random() * 9_000_000) + 1_000_000)}`;
+  // sem número: fictício (formato válido, nunca usado). Com número: é o que a pessoa digitou (o seu, para receber a mensagem de verdade)
+  const informado = soDigitos(String(e.telefone ?? '').slice(0, 30));
+  if (informado && !paraE164Brasil(informado)) throw erroLab('Telefone inválido: use DDD + número, por exemplo (91) 98888-7777.');
+  const telefone = informado || `9199${String(Math.floor(Math.random() * 9_000_000) + 1_000_000)}`;
   const lead = criarLead({ nome, telefone, valor, exame: String(e.exame ?? '').trim().slice(0, 60) || 'Ultrassom', unidade: String(e.unidade ?? '').trim().slice(0, 60) || undefined, atendente: String(e.atendente ?? '').trim().slice(0, 40) || undefined, origem: 'Simulação', d0: somaDias(hoje, -diasAtras) }, agora);
-  lead.id = `sim-${randomUUID().slice(0, 6)}`;
+  lead.id = `sim-${randomUUID().slice(0, 6)}`; if (informado) (lead as LeadLab).telefoneInformado = true;
   if (tipo === 'noshow') {
     lead.status = 'negociacao'; lead.noShow = true; lead.pulados = ['orcamento']; lead.statusDesde = hoje; lead.faseId = `negociacao:${hoje}:1`;
   }
@@ -67,6 +74,20 @@ export function removerLeadLab(estado: Estado, id: string): boolean {
   return true;
 }
 export const limparLab = (estado: Estado) => guardar(estado, []);
+
+/** Manda DE VERDADE a última mensagem simulada ao número que a pessoa informou. Só para números de teste; passa pelas travas normais do envio. */
+export async function enviarLeadLab(estado: Estado, id: string, agora: Date, quem: string): Promise<{ mensagemId?: string }> {
+  const l = leadsDe(estado).find((x) => x.id === id) as LeadLab | undefined;
+  if (!l) throw erroLab('Lead de teste não encontrado.', 404);
+  if (!l.telefoneInformado) throw erroLab('Este lead de teste não tem número. Crie um lead com o seu número para receber a mensagem de verdade.');
+  if (!l.ultima) throw erroLab('Rode a IA antes: ela decide qual mensagem sai, e só então dá para enviar essa mensagem de verdade.');
+  if (!numeroDeTeste(l.telefone)) throw erroLab('Por segurança, só envio de verdade para números de teste. Peça ao administrador para incluir este número em SIMULACAO_NUMEROS (ou DISPARO_NUMEROS) no Vercel.', 403);
+  try {
+    const r = await enviarModelo(estado, l, { modelo: l.ultima.modelo, parametros: l.ultima.parametros, passo: l.ultima.passo, msg: l.ultima.msg, atendente: `Simulação (${quem})`, ignorarLista: true }, agora);
+    guardar(estado, leadsDe(estado));
+    return { mensagemId: r.mensagemId };
+  } catch (e) { if (e instanceof DisparoError) throw erroLab(e.message, e.status); throw e; }
+}
 
 export type ResultadoLab = { leadId: string; nome: string; passo: string | null; msg?: number; resultado: 'enviaria' | 'espera' | 'pulado' | 'nada'; motivo: string; texto?: string };
 
@@ -86,9 +107,10 @@ export function rodarLab(estado: Estado, agora: Date): { quando: string; resulta
     if (av.tipo !== 'pronto') { resultados.push({ ...base, resultado: av.tipo, motivo: av.motivo }); continue; }
     if (feitos >= cfg.limites.porRodada) { resultados.push({ ...base, resultado: 'espera', motivo: `Fica para a próxima rodada (máximo de ${cfg.limites.porRodada} por rodada)` }); continue; }
     const m = textoDaMensagem(av.msg, av.parametros);
-    const texto = `${MARCA}${av.modelo} · simulado\n${m?.texto ?? ''}`;
+    const texto = `Simulação · modelo ${av.modelo}\n${m?.texto ?? ''}`;
     try { aplicar(l, { tipo: 'contato', canal: 'whatsapp', naoFoiRecepcao: true, passo: av.passo.id, msg: av.msg, texto, atendente: 'IA', auto: true }, agora); }
     catch (e) { resultados.push({ ...base, resultado: 'pulado', motivo: (e as Error).message }); continue; }
+    (l as LeadLab).ultima = { modelo: av.modelo, parametros: av.parametros, msg: av.msg, passo: av.passo.id };
     automatizar(l, agora); // como no envio de verdade
     feitos++;
     resultados.push({ ...base, resultado: 'enviaria', motivo: 'Todas as condições atendidas', texto: m?.texto });
@@ -105,7 +127,7 @@ export function resumoLab(estado: Estado, agora: Date) {
     leads: leadsDe(estado).map((l) => {
       const px = proximoPasso(l, hoje), av = avaliarLead(estado, l, agora, { ignorarLista: true }, cfg), r = checagens(estado, l, agora, cfg, { ignorarLista: true });
       return {
-        id: l.id, nome: l.nome, telefone: l.telefone, valor: l.valor, unidade: l.unidade ?? '', exame: l.exame, atendente: l.atendente ?? '', tipo: l.noShow ? 'noshow' : 'orcamento', d0: l.d0, status: l.status,
+        id: l.id, nome: l.nome, telefone: l.telefone, telefoneInformado: !!(l as LeadLab).telefoneInformado, podeEnviar: !!(l as LeadLab).ultima, ultimaMsg: (l as LeadLab).ultima?.msg ?? null, numeroLiberado: !!(l as LeadLab).telefoneInformado && numeroDeTeste(l.telefone), valor: l.valor, unidade: l.unidade ?? '', exame: l.exame, atendente: l.atendente ?? '', tipo: l.noShow ? 'noshow' : 'orcamento', d0: l.d0, status: l.status,
         proximo: px ? { passo: px.passo.rotulo, msg: px.passo.msg ?? null, vence: px.vence, situacao: px.situacao } : null,
         decisao: av ? { tipo: av.tipo, motivo: av.tipo === 'pronto' ? 'Todas as condições atendidas' : av.motivo } : null,
         checks: r.checks,

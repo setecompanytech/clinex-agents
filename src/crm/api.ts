@@ -12,7 +12,7 @@ import { analisarHoje } from './analise.js';
 import { analisarTempo } from './tempo.js';
 import { janelaDaQuery } from './periodo.js';
 import { dadosDisparoAuto, dadosManager, rodarAgora } from './disparo-auto-servico.js';
-import { criarLeadLab, instanteDoRelogio, limparLab, removerLeadLab, resumoLab, rodarLab } from './ia-laboratorio.js';
+import { criarLeadLab, enviarLeadLab, instanteDoRelogio, limparLab, removerLeadLab, resumoLab, rodarLab } from './ia-laboratorio.js';
 import { configAuto, definirModoDisparoAuto, modoDisparoAuto, salvarConfigAuto, validarConfigAuto } from './ia-disparo.js';
 import { analisarExecutivo, analisarTime, detalhePessoa, meuReport } from './executivo.js';
 import { analisarEtapa } from './etapa.js';
@@ -394,6 +394,14 @@ const lab = (res: import('express').Response, fn: () => unknown) => {
 const exigeSimulacao = () => { if (modoDisparoAuto(estado) !== 'simulacao') throw new DisparoError('modo', 'Ative o Modo Simulação para usar o laboratório.', 409); };
 router.get('/ia-manager/lab', (req, res) => { res.json(resumoLab(estado, instanteDoRelogio(req.query.quando))); });
 router.post('/ia-manager/lab/leads', (req, res) => lab(res, () => { exigeSimulacao(); const b = req.body ?? {}; const q = instanteDoRelogio(b.quando); criarLeadLab(estado, b, q); return resumoLab(estado, q); }));
+router.post('/ia-manager/lab/leads/:id/enviar', async (req, res, next) => {
+  try {
+    if (!permissoesDe(req.sessao).has('enviar_whatsapp')) throw new DisparoError('permissao', 'Sem permissão: o seu perfil não pode enviar WhatsApp.', 403);
+    exigeSimulacao();
+    const q = instanteDoRelogio((req.body ?? {}).quando), r = await enviarLeadLab(estado, String(req.params.id), q, req.sessao?.nome ?? 'painel');
+    salvar(); res.json({ ...r, lab: resumoLab(estado, q) });
+  } catch (e) { if (e instanceof DisparoError) return void res.status(e.status).json({ erro: e.codigo, mensagem: e.message }); next(e); }
+});
 router.delete('/ia-manager/lab/leads/:id', (req, res) => lab(res, () => { if (!removerLeadLab(estado, String(req.params.id))) throw new DisparoError('nao_encontrado', 'Lead de teste não encontrado.', 404); return resumoLab(estado, instanteDoRelogio(req.query.quando)); }));
 router.delete('/ia-manager/lab', (req, res) => lab(res, () => { limparLab(estado); return resumoLab(estado, instanteDoRelogio(req.query.quando)); }));
 router.post('/ia-manager/lab/rodar', (req, res) => lab(res, () => { exigeSimulacao(); const q = instanteDoRelogio((req.body ?? {}).quando); const r = rodarLab(estado, q); return { ...r, lab: resumoLab(estado, q) }; }));

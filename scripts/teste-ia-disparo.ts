@@ -283,7 +283,7 @@ await teste('simulador: lista todas as checagens, na ordem, com o motivo de cada
 });
 
 console.log('Modo Simulação (laboratório de leads fictícios)');
-const { criarLeadLab, rodarLab, resumoLab, removerLeadLab, limparLab, instanteDoRelogio, LIMITE_LAB } = await import('../src/crm/ia-laboratorio.js');
+const { criarLeadLab, rodarLab, resumoLab, removerLeadLab, limparLab, instanteDoRelogio, enviarLeadLab, LIMITE_LAB } = await import('../src/crm/ia-laboratorio.js');
 const simulando = () => { const e = novo(); definirModoDisparoAuto(e, 'simulacao', 'Ana', MANHA); return e; };
 await teste('modo simulação: aceito, vai para o histórico e a rodada real não toca em paciente real', async () => {
   pedidos.length = 0; const e = simulando(); const real = lead(e, 'MARIA SILVA', '91988887777');
@@ -317,6 +317,26 @@ await teste('laboratório: no-show, avançar o dia e limites de criação', () =
   for (let i = 0; i < LIMITE_LAB; i++) { try { criarLeadLab(o, { nome: 'L' + i }, MANHA); } catch { /* limite */ } }
   assert.match(erro({ nome: 'Mais um' }), /comporta/);
   assert.equal(removerLeadLab(o, resumoLab(o, MANHA).leads[0].id), true); limparLab(o); assert.equal(resumoLab(o, MANHA).leads.length, 0);
+});
+await teste('laboratório com número: telefone inválido é recusado; enviar de verdade exige rodar a IA e um número de TESTE (DISPARO_LIBERADO não vale)', async () => {
+  const e = simulando(); delete process.env.SIMULACAO_NUMEROS;
+  assert.throws(() => criarLeadLab(e, { nome: 'X', telefone: '123' }, MANHA), /Telefone inválido/);
+  const eu = criarLeadLab(e, { nome: 'Eu Mesmo', telefone: '(91) 98888-4545', valor: 300, diasAtras: 1 }, MANHA);
+  const sem = criarLeadLab(e, { nome: 'Sem Numero', valor: 300, diasAtras: 1 }, MANHA);
+  assert.equal(eu.telefone, '91988884545'); const r0 = resumoLab(e, MANHA).leads; assert.equal(r0[0].telefoneInformado, true); assert.equal(r0[1].telefoneInformado, false);
+  assert.equal(r0[0].podeEnviar, false); assert.equal(r0[0].numeroLiberado, false);
+  const envios = () => pedidos.filter((p) => /whatsapp\/send\/template/.test(p.caminho)).length;
+  await assert.rejects(() => enviarLeadLab(e, eu.id, MANHA, 'Ana'), /Rode a IA antes/);
+  rodarLab(e, MANHA); assert.equal(resumoLab(e, MANHA).leads[0].podeEnviar, true);
+  pedidos.length = 0;
+  await assert.rejects(() => enviarLeadLab(e, eu.id, MANHA, 'Ana'), (er: any) => er.status === 403 && /só envio de verdade para números de teste/.test(er.message));
+  assert.equal(envios(), 0, 'DISPARO_LIBERADO=true no ambiente, mas a simulação nunca manda para número fora da lista');
+  process.env.SIMULACAO_NUMEROS = '91 98888-4545, 91999990000'; assert.equal(resumoLab(e, MANHA).leads[0].numeroLiberado, true);
+  const r = await enviarLeadLab(e, eu.id, MANHA, 'Ana'); assert.ok(r.mensagemId); assert.equal(envios(), 1);
+  const corpo = pedidos.find((p) => /whatsapp\/send\/template/.test(p.caminho))!.corpo; assert.match(JSON.stringify(corpo), /91988884545|5591988884545/);
+  await assert.rejects(() => enviarLeadLab(e, sem.id, MANHA, 'Ana'), /não tem número/);
+  await assert.rejects(() => enviarLeadLab(e, 'sim-nao-existe', MANHA, 'Ana'), /não encontrado/);
+  delete process.env.SIMULACAO_NUMEROS;
 });
 await teste('laboratório: o relógio simulado vem em horário de Belém', () => {
   assert.equal(instanteDoRelogio('2026-11-09T08:30').toISOString(), '2026-11-09T11:30:00.000Z');
