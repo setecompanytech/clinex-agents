@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { env } from '../../lib/env.js';
 import { evt } from '../../lib/log.js';
 import { cancelarLembrete, lembretesVencidos, travaCurta } from '../../lib/estado.js';
-import { getHistory, sendText } from '../../integrations/inovstar.js';
+import { ehMensagemDaEquipe, getHistory, sendText, usuarioDaIntegracao } from '../../integrations/inovstar.js';
 
 /**
  * Lembrete de inatividade (Amanda IA): o paciente entrou no fluxo de agendamento, a Amanda respondeu e ele parou de responder.
@@ -42,7 +42,7 @@ export async function rodarLembretes(): Promise<{ vencidos: number; enviados: nu
         // só se, depois da mensagem que a Amanda respondeu, o paciente não escreveu mais e a resposta dela está lá (com o título dela)
         const iAte = messages.findIndex((m) => m._id === l.ate);
         const depois = iAte >= 0 ? messages.slice(iAte + 1).filter((m) => m.type !== 'system' && m.status !== 'whisper' && !m.isWhisper) : [];
-        const pacienteVoltou = depois.some((m) => m.direction === 'in');
+        const pacienteVoltou = depois.some((m) => m.direction === 'in') || depois.some((m) => ehMensagemDaEquipe(m, usuarioDaIntegracao(messages))); // a equipe entrou: não manda lembrete
         const amandaRespondeu = depois.some((m) => m.direction === 'out' && titulos.some((t) => m.text?.includes(t)));
         if (iAte < 0 || pacienteVoltou || !amandaRespondeu) { pulados.push(`${l.attendanceId}: conversa andou`); continue; }
         const texto = `${env.agentTitle ? `${env.agentTitle}\n` : ''}Oi${l.nome ? `, ${l.nome}` : ''}! Você ainda quer seguir com o agendamento${l.servico ? ` (${l.servico})` : ''}? É só me responder que eu continuo de onde paramos.`;

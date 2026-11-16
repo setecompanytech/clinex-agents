@@ -1,5 +1,5 @@
 import { env } from '../../lib/env.js';
-import { closeAttendance, describe, getHistory, ilegivel, sendText, textoRoteiro, transcribeMessage, transferToSector, type InovstarMessage, type MessageReceivedEvent } from '../../integrations/inovstar.js';
+import { closeAttendance, describe, ehMensagemDaEquipe, getHistory, ilegivel, usuarioDaIntegracao, sendText, textoRoteiro, transcribeMessage, transferToSector, type InovstarMessage, type MessageReceivedEvent } from '../../integrations/inovstar.js';
 import { analisarComprovante, type Comprovante } from '../../lib/comprovante.js';
 import { analisarPedidoMedico, type PedidoLido } from '../../lib/pedidoMedico.js';
 import { escolherExames } from '../../lib/interpretarExames.js';
@@ -241,6 +241,14 @@ async function processar(ev: MessageReceivedEvent) {
   // não é pedido de atendimento. A Amanda fica fora desse atendimento inteiro (e não puxa a conversa para o setor dela).
   const modelo = history.find((m) => m.direction === 'in' && (m.replyTo?.type === 'template' || m.interactiveReply?.kind === 'template_button'));
   if (modelo) return skip(`resposta a mensagem automática da clínica (${modelo.replyTo?.template?.name ?? modelo.interactiveReply?.kind ?? 'modelo'}): a Amanda não entra`);
+  // Alguém da EQUIPE já está nesta conversa (escreveu pela Inovstar, inclusive pelo "Interagir", sem assumir) nas últimas 4 h: a Amanda não entra.
+  // Caso real (16/11): a Rafaela respondeu e a Amanda respondeu no mesmo segundo, e depois ainda mandou o lembrete de inatividade.
+  const apiUser = usuarioDaIntegracao(history);
+  const daEquipe = [...history].reverse().find((m) => ehMensagemDaEquipe(m, apiUser));
+  if (daEquipe && Date.now() - +new Date(daEquipe.createdAt) < 4 * 3600_000) return skip(`atendente da equipe já está na conversa (${String((daEquipe as { text?: string }).text ?? '').match(/^\*_?([^*:_\n]+)/)?.[1]?.trim() ?? 'equipe'}): a Amanda não entra`);
+  // O paciente COPIOU a mensagem de confirmação da clínica (em vez de tocar no botão): também é resposta a mensagem automática
+  const confirmacaoCopiada = history.find((m) => m.direction === 'in' && /somos da clinex[\s\S]{0,60}entrando em contato|entrando em contato para \*?confirmar/i.test(String(m.text ?? '')));
+  if (confirmacaoCopiada) return skip('resposta a mensagem automática da clínica (texto da confirmação copiado pelo paciente): a Amanda não entra');
   if (podeTerIdoPraIA) {
     const iMsg = history.findIndex((m) => m._id === ev.messageId);
     const foiPraIA = history.some((m, i) => i > iMsg && m.type === 'system' && TRANSF_PARA_IA.test(m.text ?? ''));
@@ -512,7 +520,7 @@ async function responderComIA(ev: MessageReceivedEvent, history: InovstarMessage
   } catch (e) {
     console.error(`${tag} IA falhou:`, (e as Error).message);
     evt('erro', { mensagem: `IA falhou: ${(e as Error).message}`.slice(0, 300) });
-    a = { texto: 'Tô com uma instabilidade aqui agora. Vou chamar alguém da equipe pra te ajudar. Só um instante.', handoff: { motivo: `Falha da Amanda IA: ${(e as Error).message.slice(0, 160)}` }, encerrar: false, agendou: false, mem: mem ?? memoriaNova(), resposta: { texto: '', rodadas: 0, ferramentas: [], modelo: 'erro' } };
+    a = { texto: 'Vou chamar alguém da nossa equipe pra continuar o seu atendimento. Só um instante.', handoff: { motivo: `Falha da Amanda IA: ${(e as Error).message.slice(0, 160)}` }, encerrar: false, agendou: false, mem: mem ?? memoriaNova(), resposta: { texto: '', rodadas: 0, ferramentas: [], modelo: 'erro' } };
   }
   if (!a) { console.log(`${tag} ignorado: IA sem resposta`); evt('ignorado', { motivo: 'IA sem resposta' }); return; }
   let texto = a.texto;
@@ -544,6 +552,9 @@ async function responderComIA(ev: MessageReceivedEvent, history: InovstarMessage
   const mensagemMaisNova = async (): Promise<string | undefined> => {
     try {
       const { messages } = await getHistory(ev.attendanceId, 15);
+      const iMsg = messages.findIndex((m) => m._id === ev.messageId);
+      const equipe = messages.slice(iMsg >= 0 ? iMsg + 1 : 0).find((m) => ehMensagemDaEquipe(m, usuarioDaIntegracao(messages)));
+      if (equipe) return `equipe:${equipe._id}`; // alguém da equipe respondeu enquanto ela preparava a resposta
       const l = [...messages].reverse().find((m) => m.direction === 'in' && m.type !== 'system');
       return l && l._id !== ev.messageId ? l._id : undefined;
     } catch { return undefined; }

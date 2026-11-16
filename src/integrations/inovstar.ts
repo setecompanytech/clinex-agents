@@ -103,6 +103,27 @@ export function sendText(params: { channelId: string; to: string; attendanceId: 
   return request('POST', '/whatsapp/send/text', params);
 }
 
+/**
+ * Mensagem escrita por uma PESSOA da equipe (pela tela da Inovstar, inclusive pelo "Interagir"): tem usuário e não é da integração.
+ * A Amanda e os disparos do CRM saem pela integração (clientMessageId "agente-..." ou o mesmo usuário da API); mensagens automáticas
+ * da clínica (fora do expediente, modelos) não têm usuário.
+ */
+export function ehMensagemDaEquipe(m: InovstarMessage, usuarioDaApi?: string): boolean {
+  const x = m as InovstarMessage & { user?: { userId?: string }; clientMessageId?: string };
+  if (m.direction !== 'out' || m.isWhisper || m.status === 'whisper' || m.type === 'system') return false;
+  const uid = x.user?.userId;
+  if (!uid) return false;
+  const cid = String(x.clientMessageId ?? '');
+  if (/^(agente-|crm|disparo)/i.test(cid)) return false;
+  if (usuarioDaApi && uid === usuarioDaApi) return false;
+  return true;
+}
+/** O usuário da integração (o mesmo das mensagens da Amanda), lido do próprio histórico. */
+export function usuarioDaIntegracao(msgs: InovstarMessage[]): string | undefined {
+  const m = msgs.find((x) => String((x as { clientMessageId?: string }).clientMessageId ?? '').startsWith('agente-')) as (InovstarMessage & { user?: { userId?: string } }) | undefined;
+  return m?.user?.userId ?? process.env.INOVSTAR_API_USER_ID ?? '6a7e2c3e30637a07c0e1a164';
+}
+
 /** Finaliza o atendimento (o mesmo que o botão "Finalizar" da Inovstar). */
 export function closeAttendance(attendanceId: string) {
   return request('PUT', `/attendance/${attendanceId}/close`, {});

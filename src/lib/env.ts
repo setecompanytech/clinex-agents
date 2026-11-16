@@ -57,6 +57,8 @@ export const env = {
   openaiVisionModel: process.env.OPENAI_VISION_MODEL ?? 'gpt-4o',
   // chave pix para o pagamento antecipado e nome que deve aparecer como recebedor no comprovante
   pixKey: process.env.PIX_KEY ?? 'clinicaclinex@gmail.com',
+  // CNPJ(s) da conta que recebe o pix (separados por vírgula): comprovante que mostra o CNPJ de destino em vez da chave (ex.: Stone)
+  pixCnpjs: (process.env.PIX_CNPJ ?? '22065464000132').split(',').map((x) => x.replace(/\D/g, '')).filter((x) => x.length === 14),
   // horário de atendimento da equipe, como a Amanda informa (o mesmo da resposta automática da clínica)
   clinicHorario: process.env.CLINIC_HORARIO ?? 'Nosso horário de atendimento é de segunda a sexta, das 7h às 17h, e aos sábados das 7h às 11h.',
   // palavras (separadas por vírgula) que identificam o recebedor no comprovante; basta uma aparecer no nome ou na chave
