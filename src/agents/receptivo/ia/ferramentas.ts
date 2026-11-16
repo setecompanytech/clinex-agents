@@ -491,12 +491,15 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
         if (!cp || cp.tipo !== 'comprovante') return { erro: 'a imagem não parece um comprovante de pix' };
         // REGRA DA CLÍNICA: a CHAVE PIX de destino tem de ser lida e tem de ser a da clínica (o nome do recebedor sozinho não basta)
         const chaveLida = String(cp.chave ?? '').trim();
-        const okChave = chaveDaClinica(chaveLida);
+        // a chave da clínica OU o CNPJ da clínica como recebedor (comprovante Stone mostra "CNPJ 22.065.464/0001-32" e não a chave)
+        const cnpjLido = String(cp.documento ?? '').replace(/\D/g, '') || chaveLida.replace(/\D/g, '');
+        const okCnpj = cnpjLido.length === 14 && env.pixCnpjs.includes(cnpjLido);
+        const okChave = chaveDaClinica(chaveLida) || okCnpj;
         const okReceb = okChave;
         const valido = okChave && cp.status !== 'falhou' && cp.status !== 'agendado';
         if (valido) c.mem.pix = { valor: cp.valor ?? undefined, transacao: cp.transacao ?? undefined, em: new Date().toISOString() };
-        if (!chaveLida) return { valor: cp.valor != null ? reais(cp.valor) : 'não legível', chave_lida: null, orientacao: `O comprovante não mostra a chave pix de destino. NÃO agende. Peça ao paciente o comprovante completo, em que apareça a chave (${env.pixKey}). Se ele não conseguir, transfira para a equipe conferir.` };
-        if (!okChave) return { valor: cp.valor != null ? reais(cp.valor) : 'não legível', chave_lida: chaveLida, chave_confere: false, orientacao: `A chave do comprovante (${chaveLida}) não é a chave da clínica (${env.pixKey}). NÃO agende. Avise com gentileza, sem acusar, que o pix parece ter ido para outra chave, e passe a chave certa. Se ele insistir que está certo, transfira para a equipe conferir.` };
+        if (!chaveLida && !okCnpj) return { valor: cp.valor != null ? reais(cp.valor) : 'não legível', chave_lida: null, orientacao: `O comprovante não mostra a chave pix nem o CNPJ da clínica como recebedor. NÃO agende. Peça ao paciente o comprovante completo, em que apareça a chave (${env.pixKey}). Se ele não conseguir, transfira para a equipe conferir.` };
+        if (!okChave) return { valor: cp.valor != null ? reais(cp.valor) : 'não legível', chave_lida: chaveLida || cp.documento, chave_confere: false, orientacao: `O recebedor do comprovante (${chaveLida || cp.documento}) não é a chave da clínica (${env.pixKey}). NÃO agende. Avise com gentileza, sem acusar, que o pix parece ter ido para outra chave, e passe a chave certa. Se ele insistir que está certo, transfira para a equipe conferir.` };
         return { valor: cp.valor != null ? reais(cp.valor) : 'não legível', chave_lida: chaveLida, chave_confere: true, recebedor_confere: okReceb, status: cp.status ?? 'desconhecido', orientacao: valido ? 'Comprovante conferido: agora chame agendar com pagamento pix (com os dados do paciente) para reservar.' : !okReceb ? 'O recebedor não parece ser a clínica: peça para conferir, sem acusar. Não agende.' : 'O pix não aparece como concluído (agendado ou falhou): peça o comprovante do pix já feito. Não agende.' };
       }
       case 'transferir_para_humano': {
