@@ -24,6 +24,7 @@ const CASOS: Record<string, string[]> = {
   sangue: ['quero fazer exame de sangue', 'hemograma, glicose e colesterol total', 'quero agendar a coleta'],
   preco: ['quanto custa a consulta com cardiologista?', 'e qual o endereço do guamá?'],
   resultado: ['quero saber o resultado do meu exame de ontem'],
+  nomeja: ['oi, sou a Rafaela dos Reis Barros, quero agendar ginecologista', 'guamá', 'o primeiro', '10/04/1992, pode ser esse número', 'sim', 'feminino'],
   tres: ['quero fazer usg de abdome total', 'guamá', 'tem outros dias?'],
   hc1: ['quero agendar ginecologista', 'guamá', 'o primeiro', 'Maria Clara Souza 12/03/1990, pode ser esse número', 'sim, está certo', 'feminino', 'vou pagar em dinheiro'],
   hc2: ['quero o combo feminino 1', 'guamá', 'o primeiro', 'Josy Teste Fonseca 17/02/1980, pode ser esse número', 'sim, correto', 'feminino', 'sim', 'o primeiro', 'pix'],

@@ -184,9 +184,10 @@ export async function atenderComIA(p: {
   // HORÁRIO COMERCIAL e agendou: sem confirmação ao paciente; próxima etapa do combo, ou a forma de pagamento e a equipe assume
   if (c.saida.agendouComercial) {
     const ac = c.saida.agendouComercial;
-    if (ac.proxima) texto = `Prontinho, reservado! ${ac.proxima}`;
+    // não diz que está reservado: quem passa as informações do agendamento é a equipe (regra de 16/11/2026)
+    if (ac.proxima) texto = `Perfeito! ${ac.proxima}`;
     else {
-      texto = `Prontinho${ac.primeiroNome ? `, ${ac.primeiroNome}` : ''}! Seu horário está reservado.\n\nQual a sua forma de pagamento?`;
+      texto = `Perfeito${ac.primeiroNome ? `, ${ac.primeiroNome}` : ''}! Qual a sua forma de pagamento?`;
       c.saida.handoff = { motivo: 'Agendamento feito pela Amanda (horário comercial). Falta: combinar a forma de pagamento e enviar a confirmação ao paciente (a confirmação pronta está na nota interna).' };
     }
   }

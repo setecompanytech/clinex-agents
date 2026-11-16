@@ -420,7 +420,7 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
           (c.saida.notas ??= []).push(`📋 Confirmação do agendamento feito pela Amanda (enviar ao paciente depois de combinar a forma de pagamento):\n\n${confirmacao.replace(/\n\nSe puder, chega cedinho[\s\S]*$/, '')}`);
           const pendente = proxima && !/todas as etapas/.test(proxima) ? proxima : undefined;
           c.saida.agendouComercial = { proxima: pendente, primeiroNome: quem.split(' ')[0] };
-          return { ok: true, orientacao: pendente ? 'Agendado. NÃO mande confirmação nem dados. O sistema já oferece a próxima etapa do combo: não escreva nada além de no máximo "Prontinho!".' : 'Agendado. NÃO mande confirmação nem dados e NÃO pergunte nada: o sistema pergunta a forma de pagamento e passa para a equipe. Não escreva nada.' };
+          return { ok: true, orientacao: pendente ? 'Agendado. NÃO mande confirmação nem dados e NÃO diga que está reservado. O sistema já oferece a próxima etapa do combo: não escreva nada.' : 'Agendado. NÃO mande confirmação nem dados e NÃO pergunte nada: o sistema pergunta a forma de pagamento e passa para a equipe. Não escreva nada.' };
         }
         // combo: o fecho genérico ("quer agendar mais algum exame?") vira a próxima etapa (caso real: agendou só a consulta do Feminino 1 e parou)
         c.saida.confirmacoes.push(proxima ? confirmacao.replace(/Quer aproveitar e agendar mais algum exame ou consulta\?/, proxima) : confirmacao);
