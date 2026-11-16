@@ -24,6 +24,9 @@ const CASOS: Record<string, string[]> = {
   sangue: ['quero fazer exame de sangue', 'hemograma, glicose e colesterol total', 'quero agendar a coleta'],
   preco: ['quanto custa a consulta com cardiologista?', 'e qual o endereço do guamá?'],
   resultado: ['quero saber o resultado do meu exame de ontem'],
+  tres: ['quero fazer usg de abdome total', 'guamá', 'tem outros dias?'],
+  hc1: ['quero agendar ginecologista', 'guamá', 'o primeiro', 'Maria Clara Souza 12/03/1990, pode ser esse número', 'sim, está certo', 'feminino', 'vou pagar em dinheiro'],
+  hc2: ['quero o combo feminino 1', 'guamá', 'o primeiro', 'Josy Teste Fonseca 17/02/1980, pode ser esse número', 'sim, correto', 'feminino', 'sim', 'o primeiro', 'pix'],
   abdtarde: ['quero fazer usg de abdome total', 'guamá', 'tem à tarde?'],
   folic: ['quero usg transvaginal com contagem de foliculos antrais', 'guamá'],
   cardio2: ['quais combos de cardio vocês têm?', 'Cardio 2 teste ergométrico'],
@@ -62,6 +65,7 @@ async function rodar(nome: string, falas: string[]) {
     mem = r.mem;
     console.log(`🤖 [${((Date.now() - t0) / 1000).toFixed(1)}s | ${r.resposta.ferramentas.map((f) => `${f.nome}(${f.ms}ms)`).join(', ') || 'sem ferramenta'}]${r.handoff ? ` [TRANSFERE: ${r.handoff.motivo}]` : ''}${r.encerrar ? ' [ENCERRA]' : ''}`);
     console.log(r.texto.split('\n').map((l) => `   ${l}`).join('\n'));
+    for (const n of (r as any).notas ?? []) console.log('   [NOTA INTERNA] ' + n.split('\n').join(' | ').slice(0, 260));
     for (const f of r.resposta.ferramentas) if (/erro/.test(f.res)) console.log(`   ⚠ ${f.nome} ${JSON.stringify(f.args)} -> ${f.res}`);
     history.push({ _id: `out${history.length}`, direction: 'out', type: 'text', text: `${TITULO}\n${r.texto}`, createdAt: new Date(t += 20_000).toISOString() } as any);
   }
