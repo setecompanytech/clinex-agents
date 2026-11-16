@@ -82,7 +82,7 @@ function mgHero(D) {
     h('span', { class: 'mg-nucleo' }, [mgSvgPower(), h('b', { text: modo === 'ligado' ? 'LIGADA' : modo === 'simulacao' ? 'SIMULAÇÃO' : modo === 'sombra' ? 'SOMBRA' : 'DESLIGADA' })])
   ]);
   var seg = h('div', { class: 'mg-modos', role: 'group', 'aria-label': 'Modo de operação' }, [['simulacao', 'Modo simulação', 'leads fictícios'], ['sombra', 'Modo sombra', 'só observa'], ['ligado', 'Ligada', 'envia de verdade']].map(function (m) {
-    return h('button', { type: 'button', class: 'mg-modo' + (D.modo === m[0] ? ' on' : ''), 'aria-pressed': String(D.modo === m[0]), disabled: D.forcadoPeloAmbiente, onclick: function () { if (D.modo !== m[0]) mgDefinirModo(m[0]); } }, [h('b', { text: m[1] }), h('small', { text: m[2] })]);
+    return h('button', { type: 'button', class: 'mg-modo' + (D.modo === m[0] ? ' on' : ''), 'aria-pressed': String(D.modo === m[0]), disabled: D.forcadoPeloAmbiente, title: D.modo === m[0] ? 'Clique de novo para desligar a IA' : 'Mudar para ' + m[1], onclick: function () { mgDefinirModo(D.modo === m[0] ? 'desligado' : m[0]); } }, [h('b', { text: m[1] }), h('small', { text: D.modo === m[0] ? 'toque p/ desligar' : m[2] })]);
   }));
   var min = D.minutosDesdeUltimaRodada, bat = 'off', batT = 'Ainda não rodou';
   if (min !== null) { batT = 'Última rodada há ' + (min < 1 ? 'menos de 1 min' : min + ' min'); bat = !ativo ? 'off' : min <= 20 ? 'ok' : min <= 60 ? 'at' : 'ruim'; }
