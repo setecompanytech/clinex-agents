@@ -13,14 +13,20 @@ var MG_TXT = {
 var mgClone = function (o) { return JSON.parse(JSON.stringify(o)); };
 function mgSujo() { return !!(MG.c && MG.base) && JSON.stringify(MG.c) !== JSON.stringify(MG.base); }
 
+/* o que a tela mostra, sem os campos que só mudam com o relógio: serve para não redesenhar (e reiniciar as animações) à toa */
+function mgAssina(d) {
+  var x = Object.assign({}, d); delete x.agoraBrt; delete x.minutosDesdeUltimaRodada; x.proximo = { tipo: d.proximo.tipo, gatilho: d.proximo.gatilho, hora: d.proximo.hora };
+  try { return JSON.stringify(x); } catch (e) { return String(Math.random()); }
+}
 function mgPedir(forcar) {
   if (MG.car) return;
   if (!forcar && MG.d && Date.now() - MG.t < 15000) return;
   MG.car = true;
   api('GET', '/ia-manager').then(function (d) {
+    var ass = mgAssina(d), mudou = ass !== MG.ass || Date.now() - (MG.tDes || 0) > 300000; /* sem mudança de verdade: só o relógio muda, e isso se atualiza a cada 5 min */
     MG.d = d; MG.t = Date.now(); MG.car = false;
     if (!mgSujo()) { MG.c = mgClone(d.config); MG.base = mgClone(d.config); }
-    if (S.aba === 'iamanager') desenhar(true);
+    if (S.aba === 'iamanager' && mudou) { MG.ass = ass; MG.tDes = Date.now(); desenhar(true); }
   }).catch(function (e) { MG.car = false; MG.t = Date.now(); aviso('Não consegui carregar o IA Manager: ' + e.message, 'erro'); });
 }
 setInterval(function () { if (S.aba === 'iamanager' && document.visibilityState === 'visible' && !digitando()) mgPedir(true); }, 20000);

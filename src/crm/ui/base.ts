@@ -163,8 +163,14 @@ function api(metodo, caminho, corpo) {
 /* ------------------------------------------------------------------ estado */
 var S = { fnTab: lerLS('crm-fntab') === 'pipeline' ? 'pipeline' : 'quadro', AU: null, AUstale: false, AUcarregando: false, auLogTudo: false, anTab: ['executivo', 'evolucao', 'time', 'report'].indexOf(lerLS('crm-antab')) >= 0 ? lerLS('crm-antab') : 'executivo', unidade: '', repNome: '', EX: {}, EXfresh: {}, EXcarregando: {}, RP: {}, RPfresh: {}, RPcarregando: {}, filaQ: '', filaP: '', unModo: 'orc', dias: [14, 30, 90].indexOf(Number(lerLS('crm-dias'))) >= 0 ? Number(lerLS('crm-dias')) : 30, AN: {}, ANfresh: {}, ANcarregando: {}, D: null, aba: 'hoje', eu: '', euInfo: null, q: '', fStatus: '', fAtend: '', hojeAtend: 'todos', msgGrupo: 'todas', fluxoVista: null, fluxoTab: lerLS('crm-flxtab') === 'noshow' ? 'noshow' : 'leads', NS: null, NSerro: null, NScarregando: false, leadAberto: null };
 function lead(id) { var L = S.D ? S.D.leads : []; for (var i = 0; i < L.length; i++) if (L[i].id === id) return L[i]; return null; }
-function carregar() {
-  return api('GET', '/estado').then(function (d) { S.D = d; S.AUstale = true; S.FVstale = true; S.ANfresh = {}; S.EXfresh = {}; S.RPfresh = {}; desenhar(); if (S.leadAberto && typeof atualizarGaveta === 'function') atualizarGaveta(); return d; })
+/* auto = atualização automática de fundo: se nada mudou desde a última vez, não redesenha a tela (era isso que fazia as telas piscarem sozinhas) */
+var CARGA_ASSINATURA = '';
+function carregar(auto) {
+  return api('GET', '/estado').then(function (d) {
+    var ass = ''; try { ass = JSON.stringify(d); } catch (e) { ass = ''; }
+    var igual = !!ass && ass === CARGA_ASSINATURA; CARGA_ASSINATURA = ass;
+    if (auto === true && igual && S.D) return d;
+    S.D = d; S.AUstale = true; S.FVstale = true; S.ANfresh = {}; S.EXfresh = {}; S.RPfresh = {}; desenhar(); if (S.leadAberto && typeof atualizarGaveta === 'function') atualizarGaveta(); return d; })
     .catch(function (e) { aviso('Não consegui carregar o CRM: ' + e.message, 'erro'); throw e; });
 }
 /* true enquanto alguém está com o cursor num campo de texto: a atualização automática espera, para não apagar o que está sendo digitado */
