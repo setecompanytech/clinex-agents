@@ -110,7 +110,7 @@ export function construirConversas(eventos: Evento[], ate: number): Conversa[] {
       semEnvio: e.enviou_de_verdade === false,
     }));
     if (!turnos.length) continue;
-    const ag = turnos.find((t) => t.amanda.includes('Agendamento confirmado'));
+    const ag = turnos.find((t) => t.amanda.includes('Agendamento confirmado') || t.etapa === 'IA: agendado'); // no horário comercial não há a mensagem de confirmação
     const tr = turnos.find((t) => t.transferiu);
     const ultimo = turnos[turnos.length - 1];
     const c: Conversa = {

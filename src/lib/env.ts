@@ -57,6 +57,11 @@ export const env = {
   openaiVisionModel: process.env.OPENAI_VISION_MODEL ?? 'gpt-4o',
   // chave pix para o pagamento antecipado e nome que deve aparecer como recebedor no comprovante
   pixKey: process.env.PIX_KEY ?? 'clinicaclinex@gmail.com',
+  // HORÁRIO COMERCIAL (regra de 16/11/2026): dentro dele a Amanda agenda, NÃO manda a confirmação ao paciente (vai como nota interna),
+  // pergunta a forma de pagamento e passa para a equipe. Fora dele, segue o fluxo completo. Dias: 0=domingo ... 6=sábado.
+  comercialInicio: process.env.HORARIO_COMERCIAL_INICIO ?? '07:00',
+  comercialFim: process.env.HORARIO_COMERCIAL_FIM ?? '17:00',
+  comercialDias: (process.env.HORARIO_COMERCIAL_DIAS ?? '1,2,3,4,5,6').split(',').map((d) => Number(d.trim())).filter((d) => d >= 0 && d <= 6),
   // CNPJ(s) da conta que recebe o pix (separados por vírgula): comprovante que mostra o CNPJ de destino em vez da chave (ex.: Stone)
   pixCnpjs: (process.env.PIX_CNPJ ?? '22065464000132').split(',').map((x) => x.replace(/\D/g, '')).filter((x) => x.length === 14),
   // horário de atendimento da equipe, como a Amanda informa (o mesmo da resposta automática da clínica)

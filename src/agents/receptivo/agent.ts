@@ -1,5 +1,5 @@
 import { env } from '../../lib/env.js';
-import { closeAttendance, describe, ehMensagemDaEquipe, getHistory, ilegivel, usuarioDaIntegracao, sendText, textoRoteiro, transcribeMessage, transferToSector, type InovstarMessage, type MessageReceivedEvent } from '../../integrations/inovstar.js';
+import { closeAttendance, describe, ehMensagemDaEquipe, sendNote, getHistory, ilegivel, usuarioDaIntegracao, sendText, textoRoteiro, transcribeMessage, transferToSector, type InovstarMessage, type MessageReceivedEvent } from '../../integrations/inovstar.js';
 import { analisarComprovante, type Comprovante } from '../../lib/comprovante.js';
 import { analisarPedidoMedico, type PedidoLido } from '../../lib/pedidoMedico.js';
 import { escolherExames } from '../../lib/interpretarExames.js';
@@ -520,7 +520,7 @@ async function responderComIA(ev: MessageReceivedEvent, history: InovstarMessage
   } catch (e) {
     console.error(`${tag} IA falhou:`, (e as Error).message);
     evt('erro', { mensagem: `IA falhou: ${(e as Error).message}`.slice(0, 300) });
-    a = { texto: 'Vou chamar alguém da nossa equipe pra continuar o seu atendimento. Só um instante.', handoff: { motivo: `Falha da Amanda IA: ${(e as Error).message.slice(0, 160)}` }, encerrar: false, agendou: false, mem: mem ?? memoriaNova(), resposta: { texto: '', rodadas: 0, ferramentas: [], modelo: 'erro' } };
+    a = { texto: 'Vou chamar alguém da nossa equipe pra continuar o seu atendimento. Só um instante.', handoff: { motivo: `Falha da Amanda IA: ${(e as Error).message.slice(0, 160)}` }, notas: [], encerrar: false, agendou: false, mem: mem ?? memoriaNova(), resposta: { texto: '', rodadas: 0, ferramentas: [], modelo: 'erro' } };
   }
   if (!a) { console.log(`${tag} ignorado: IA sem resposta`); evt('ignorado', { motivo: 'IA sem resposta' }); return; }
   let texto = a.texto;
@@ -573,6 +573,11 @@ async function responderComIA(ev: MessageReceivedEvent, history: InovstarMessage
     const nova = urgente || a.agendou ? undefined : await mensagemMaisNova();
     if (nova) { enviouTudo = false; evt('ignorado', { motivo: `IA: chegou mensagem nova (${nova}) enquanto a resposta era enviada: ${i} de ${baloes.length} balões` }); break; }
     await sendText({ channelId: ev.channelId, to: ev.to, attendanceId: ev.attendanceId, text: i === 0 ? withTitle(baloes[i]) : baloes[i], clientMessageId: i === 0 ? `agente-receptivo-${ev.messageId}` : `agente-receptivo-${ev.messageId}-${i + 1}` });
+  }
+  // notas internas (horário comercial: a confirmação do agendamento, só para a equipe ver) — antes de passar para a equipe
+  for (const [i, nota] of a.notas.entries()) {
+    try { await sendNote({ channelId: ev.channelId, to: ev.to, attendanceId: ev.attendanceId, text: nota, clientMessageId: `agente-nota-${ev.messageId}-${i + 1}` }); }
+    catch (e) { evt('erro', { mensagem: `IA: não consegui gravar a nota interna: ${(e as Error).message.slice(0, 160)}` }); }
   }
   if (a.handoff && env.humanSectorId && !naFilaDaEquipe) await transferir(env.humanSectorId, a.handoff.motivo);
   // o paciente encerrou ("só isso", "obrigado, tchau"): depois da despedida, o atendimento é finalizado na Inovstar (como o botão Finalizar)

@@ -13,7 +13,16 @@ import { evt } from '../../../lib/log.js';
 import { DESPEDIDA, memoriaNova, type Contexto, type MemoriaIA } from './ferramentas.js';
 import { promptAmanda, type Unidades } from './prompt.js';
 
+/** Agora está no horário comercial da clínica (Belém)? */
+export function noHorarioComercial(agora = new Date()): boolean {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: env.timezone, weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(agora).map((x) => [x.type, x.value]));
+  const dia = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(String(p.weekday));
+  const hm = `${String(Number(p.hour) % 24).padStart(2, '0')}:${p.minute}`;
+  return env.comercialDias.includes(dia) && hm >= env.comercialInicio && hm < env.comercialFim;
+}
+
 export type Atendimento = {
+  notas: string[]; // notas internas para gravar no atendimento (horário comercial: a confirmação)
   texto: string;
   handoff?: { motivo: string; urgente?: boolean };
   encerrar: boolean;
@@ -145,8 +154,9 @@ export async function atenderComIA(p: {
   const hoje = new Intl.DateTimeFormat('en-CA', { timeZone: env.timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(agora);
   const listaUnidades = await unidades();
   const telWa = p.telefone.replace(/\D/g, '').replace(/^55(?=\d{10,11}$)/, '');
-  const system = promptAmanda({ agora, nomeContato: p.nomeContato, telefone: telWa.length === 11 ? `(${telWa.slice(0, 2)}) ${telWa.slice(2, 7)}-${telWa.slice(7)}` : telWa, primeiraResposta, mem, unidades: listaUnidades, hoje });
-  const c: Contexto = { fonte: p.fonte, mem, telefone: p.telefone, agora, lerComprovante: p.lerComprovante, lerPedidos: p.lerPedidos, ultimaDoPaciente: semAcento(conversa.filter((m) => m.role === 'user').slice(-1)[0]?.content ?? ''), pedidoOrcamento: PEDIU_ORCAMENTO.test(conversa.filter((m) => m.role === 'user').slice(-4).map((m) => semAcento(m.content)).join(' \n ')), saida: { confirmacoes: [], usadas: [] } };
+  const modoComercial = noHorarioComercial(agora);
+  const system = promptAmanda({ modoComercial, agora, nomeContato: p.nomeContato, telefone: telWa.length === 11 ? `(${telWa.slice(0, 2)}) ${telWa.slice(2, 7)}-${telWa.slice(7)}` : telWa, primeiraResposta, mem, unidades: listaUnidades, hoje });
+  const c: Contexto = { modoComercial, fonte: p.fonte, mem, telefone: p.telefone, agora, lerComprovante: p.lerComprovante, lerPedidos: p.lerPedidos, ultimaDoPaciente: semAcento(conversa.filter((m) => m.role === 'user').slice(-1)[0]?.content ?? ''), pedidoOrcamento: PEDIU_ORCAMENTO.test(conversa.filter((m) => m.role === 'user').slice(-4).map((m) => semAcento(m.content)).join(' \n ')), saida: { confirmacoes: [], usadas: [] } };
   let resposta = await pensar(system, conversa, c);
   // conferência: médico ou valor que não veio do Clinilink -> refaz UMA vez, obrigando a consultar; se insistir, não envia o inventado
   const doPaciente = conversa.filter((m) => m.role === 'user').map((m) => m.content).join('\n');
@@ -171,6 +181,16 @@ export async function atenderComIA(p: {
   }
   let texto = acabamento(resposta.texto);
   // agendou: a confirmação oficial já traz tudo; do texto do modelo só fica o que for do pix (chave/comprovante), nunca o resumo repetido
+  // HORÁRIO COMERCIAL e agendou: sem confirmação ao paciente; próxima etapa do combo, ou a forma de pagamento e a equipe assume
+  if (c.saida.agendouComercial) {
+    const ac = c.saida.agendouComercial;
+    // não diz que está reservado: quem passa as informações do agendamento é a equipe (regra de 16/11/2026)
+    if (ac.proxima) texto = `Perfeito! ${ac.proxima}`;
+    else {
+      texto = `Perfeito${ac.primeiroNome ? `, ${ac.primeiroNome}` : ''}! Qual a sua forma de pagamento?`;
+      c.saida.handoff = { motivo: 'Agendamento feito pela Amanda (horário comercial). Falta: combinar a forma de pagamento e enviar a confirmação ao paciente (a confirmação pronta está na nota interna).' };
+    }
+  }
   // depois de agendar, a confirmação oficial já traz tudo (inclusive a próxima etapa do combo); do texto do modelo só fica o do pix
   if (c.saida.confirmacoes.length) texto = [...c.saida.confirmacoes, /\bpix\b/i.test(texto) ? texto : ''].filter(Boolean).join('\n\n');
   if (!c.saida.encerrar && !c.saida.handoff && !c.saida.confirmacoes.length && DESPEDIDA.test(c.ultimaDoPaciente ?? '') && /\b(qualquer coisa|estou a disposicao|estou à disposição|e so chamar|é só chamar|ate (mais|logo)|até (mais|logo)|boa sorte|tenha um (otimo|ótimo|bom))\b/i.test(texto) && !/\?\s*$/.test(texto)) c.saida.encerrar = true;
@@ -190,5 +210,5 @@ export async function atenderComIA(p: {
   }
   if (!texto && c.saida.handoff) texto = 'Vou passar pra alguém da equipe te ajudar com isso. Só um instante.';
   if (!texto) return null;
-  return { texto, handoff: c.saida.handoff, encerrar: Boolean(c.saida.encerrar), agendou: c.saida.confirmacoes.length > 0, mem, resposta };
+  return { texto, notas: c.saida.notas ?? [], handoff: c.saida.handoff, encerrar: Boolean(c.saida.encerrar), agendou: c.saida.confirmacoes.length > 0 || Boolean(c.saida.agendouComercial), mem, resposta };
 }
