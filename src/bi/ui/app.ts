@@ -309,6 +309,14 @@ function cartaoIA(bi) {
       { valor: fmtN(a.finalizados), rotulo: 'atendimentos finalizados' },
       { valor: fmtN(a.os.geradas) + (a.os.falhas ? ' (' + a.os.falhas + ' falha)' : ''), rotulo: 'O.S. geradas (pix)' }
     ]),
+    a.custo ? h('h4', { class: 'sub-t', text: 'Custo da OpenAI (estimado pelos tokens de cada resposta)' }) : null,
+    a.custo ? stats([
+      { valor: 'US$ ' + a.custo.usd.toFixed(2), rotulo: 'no período (' + fmtN(a.custo.respostas) + ' respostas)' },
+      { valor: a.custo.porDia != null ? 'US$ ' + a.custo.porDia.toFixed(2) : '-', rotulo: 'por dia' },
+      { valor: a.custo.porConversa != null ? 'US$ ' + a.custo.porConversa.toFixed(3) : '-', rotulo: 'por conversa' },
+      { valor: String(a.custo.chamadasPorResposta).replace('.', ','), rotulo: 'chamadas ao modelo por resposta' },
+      { valor: fmtN(a.custo.tokensPorResposta), rotulo: 'tokens lidos por resposta (' + a.custo.pctCache + '% com desconto de cache)' }
+    ]) : null,
     a.ferramentas.length ? h('h4', { class: 'sub-t', text: 'O que ela mais consulta e faz' }) : null,
     barras(a.ferramentas.map(function (f) { return { rotulo: nomesF[f.nome] || f.nome, valor: f.n, extra: f.erros ? f.erros + ' recusadas' : '', sub: 'usos', cor: f.erros / f.n >= 0.3 ? 'var(--st-atencao)' : 'var(--s1)' }; }), { vazio: 'A Amanda IA não atendeu no período.' })
   ]);

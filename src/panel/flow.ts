@@ -844,7 +844,7 @@ export const flow = {
     { nome: 'AGENT_TITLE', efeito: 'Título em negrito que abre toda mensagem enviada pelo agente. Vazio = sem título.' },
     { nome: 'CLINIC_TZ', efeito: 'Fuso usado na saudação e nas datas. Padrão: America/Sao_Paulo (mesma hora de Belém).' },
     { nome: 'CLINILINK_API_KEY', efeito: 'Chave do Clinilink para CONSULTAR (agenda, preços, pacientes); perfil só de leitura basta. Sem ela, o agente usa o catálogo simulado de exemplo.' },
-    { nome: 'CLINIC_HORARIO', efeito: 'Frase com o horário de atendimento da equipe que a Amanda informa quando perguntam. Padrão: segunda a sexta, das 7h às 17h, e sábados das 7h às 11h (o mesmo da resposta automática da clínica).' },
+    { nome: 'CLINIC_HORARIO', efeito: 'Frase com o horário de atendimento da equipe que a Amanda informa quando perguntam. Padrão: segunda a sexta, das 07h às 11h e das 14h às 16h, e sábados das 07h às 10h30.' },
     { nome: 'PIX_KEY', efeito: 'Chave pix que a Amanda envia para o pagamento antecipado. Padrão: clinicaclinex@gmail.com.' },
     { nome: 'PIX_RECEBEDOR', efeito: 'Palavras (separadas por vírgula) que identificam o recebedor no comprovante, no nome ou na chave. Basta uma aparecer. Padrão: clinex. Se o recebedor do comprovante não bater, a conversa vai para a equipe.' },
     { nome: 'CLINILINK_API_KEY_ESCRITA', efeito: 'Chave do Clinilink com perfil de escrita ("rw"), usada somente para cadastrar paciente novo e reservar. Se faltar, usa CLINILINK_API_KEY; com chave só de leitura a reserva é recusada e a conversa vai para a equipe.' },

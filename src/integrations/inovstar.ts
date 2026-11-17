@@ -17,7 +17,12 @@ export type InovstarMessage = {
   interactiveReply?: { title?: string | null; kind?: string | null };
   /** Mensagem respondida ("responder" do WhatsApp). type 'template' = mensagem automática da clínica (confirmação de consulta, campanha). */
   replyTo?: { type?: string | null; template?: { name?: string | null } | null } | null;
+  /** Reação do WhatsApp (emoji numa mensagem): type 'reaction'. Não é mensagem do paciente. */
+  reaction?: { message_id?: string | null; emoji?: string | null; targetPreview?: string | null } | null;
 };
+
+/** Reação (👍, ❤️ numa mensagem): não é mensagem do paciente, não pede resposta (caso real 17/11: a Amanda respondeu cada reação e virou um ciclo de despedidas). */
+export const ehReacao = (m: { type?: string | null; reaction?: unknown }) => m.type === 'reaction' || Boolean(m.reaction);
 
 export type MessageReceivedEvent = {
   deliveryId: string;

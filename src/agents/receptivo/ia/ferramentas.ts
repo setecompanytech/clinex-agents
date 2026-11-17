@@ -99,7 +99,7 @@ function jaPassou(sl: Slot, agora: Date): boolean {
 
 // ------------------------------------------------------------------------------------------------ como o modelo vê um serviço
 /** Profissional de TESTE cadastrado no Clinilink ("... (teste Sistema Não Agenda)"): nunca aparece nem é agendado. */
-const ehTeste = (n?: string) => /\bteste\b|n[aã]o agenda/i.test(n ?? '');
+export const ehTeste = (n?: string) => /\bteste\b|n[aã]o agenda/i.test(n ?? '');
 function nomesMedicos(nomes: string[]): string[] { return exibirLista(nomes.filter((n) => n && !ehTeste(n))); }
 
 async function planoDoCombo(pac: NonNullable<Servico['pacote']>, c: Contexto): Promise<{ etapas: string[][]; medicos: (string[] | undefined)[] }> {
@@ -272,7 +272,7 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
       case 'servico_com_profissional': {
         const sv = await acharServico(String(args.servico_id), c);
         if (!sv) return { erro: 'servico_id desconhecido: use buscar_servico' };
-        const nomes = [...new Set(sv.unidades.flatMap((u) => u.profissionais ?? []))];
+        const nomes = [...new Set(sv.unidades.flatMap((u) => u.profissionais ?? []))].filter((n) => !ehTeste(n));
         const alvo = norm(String(args.profissional).replace(/^(dra?\.?|doutora?)\s+/i, ''));
         const real = nomes.find((n) => norm(n) === alvo) ?? nomes.find((n) => norm(n).includes(alvo) || norm(exibir(n)).includes(alvo));
         if (!real) return { erro: 'esse profissional não atende este serviço', profissionais_do_servico: nomesMedicos(nomes) };
