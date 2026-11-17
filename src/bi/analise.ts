@@ -387,6 +387,13 @@ export function analisar(todos: Evento[], o: Opcoes) {
   const msgErro = (re: RegExp) => naJanela.filter((e) => e.evt === 'erro' && re.test(txt(e.mensagem))).length;
   const motivoIgn = (re: RegExp) => naJanela.filter((e) => e.evt === 'ignorado' && re.test(txt(e.motivo))).length;
   const convIA = convs.filter((c) => c.motor === 'ia');
+  // custo da OpenAI: só as respostas gravadas a partir de 17/11/2026 trazem uso_ia/custo_usd
+  const comCusto = respIA.filter((e) => num(e.custo_usd) !== undefined);
+  const usoDe = (e: Evento) => (e.uso_ia && typeof e.uso_ia === 'object' ? (e.uso_ia as Record<string, unknown>) : {});
+  const somaUso = (k: string) => comCusto.reduce((t, e) => t + (num(usoDe(e)[k]) ?? 0), 0);
+  const custoTotal = comCusto.reduce((t, e) => t + (num(e.custo_usd) ?? 0), 0);
+  const convComCusto = new Set(comCusto.map((e) => String(e.atendimento ?? ''))).size;
+  const diasComCusto = new Set(comCusto.map((e) => inicioDoDia(quando(e)))).size;
   const ia = {
     respostas: respIA.length,
     conversas: convIA.length,
@@ -399,6 +406,16 @@ export function analisar(todos: Evento[], o: Opcoes) {
     lembretes: por('lembrete').length,
     finalizados: motivoIgn(/atendimento finalizado/),
     os: { geradas: motivoIgn(/O\.S\. gerada/), falhas: msgErro(/O\.S\. n[aã]o foi gerada/) },
+    custo: comCusto.length ? {
+      usd: Math.round(custoTotal * 100) / 100,
+      porDia: diasComCusto ? Math.round((custoTotal / diasComCusto) * 100) / 100 : null,
+      porConversa: convComCusto ? Math.round((custoTotal / convComCusto) * 1000) / 1000 : null,
+      porResposta: Math.round((custoTotal / comCusto.length) * 10000) / 10000,
+      chamadasPorResposta: Math.round((somaUso('chamadas') / comCusto.length) * 10) / 10,
+      tokensPorResposta: Math.round(somaUso('entrada') / comCusto.length),
+      pctCache: somaUso('entrada') ? arred(porcento(somaUso('cache'), somaUso('entrada'))) : 0,
+      respostas: comCusto.length,
+    } : null,
   };
   const falhas = naJanela
     .filter((e) => e.evt === 'erro' || ((e.evt === 'clinilink' || e.evt === 'inovstar') && e.ok === false) || (e.evt === 'gpt' && e.status === 'falhou') || (e.evt === 'comprovante' && e.erro))

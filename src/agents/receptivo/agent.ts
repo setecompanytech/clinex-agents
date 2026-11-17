@@ -8,6 +8,7 @@ import { soTelefone } from './script/engine.js';
 import { MARCAS_FIM, MARCA_ADEUS, MARCA_AGENDADO, MARCA_DUP, MARCA_MAIS, SEM_GPT, ehUrgencia, estadoDepoisDaResposta, etapa, handoffDuro, responder, type Pos, type Result, type State } from './script/engine.js';
 import { agendarLembrete, apagarEstado, cancelarLembrete, estadoAtivo, guardarContato, guardarEstado, guardarMemoriaIA, lerEstado, lerMemoriaIA, travarAtendimento } from '../../lib/estado.js';
 import { atenderComIA } from './ia/atender.js';
+import { custoUSD, usoZero } from './ia/cerebro.js';
 import { memoriaNova, type MemoriaIA } from './ia/ferramentas.js';
 import { fonteSimulada } from './script/catalog.js';
 import { fonteClinilink } from './script/clinilinkFonte.js';
@@ -520,7 +521,7 @@ async function responderComIA(ev: MessageReceivedEvent, history: InovstarMessage
   } catch (e) {
     console.error(`${tag} IA falhou:`, (e as Error).message);
     evt('erro', { mensagem: `IA falhou: ${(e as Error).message}`.slice(0, 300) });
-    a = { texto: 'Vou chamar alguém da nossa equipe pra continuar o seu atendimento. Só um instante.', handoff: { motivo: `Falha da Amanda IA: ${(e as Error).message.slice(0, 160)}` }, notas: [], encerrar: false, agendou: false, mem: mem ?? memoriaNova(), resposta: { texto: '', rodadas: 0, ferramentas: [], modelo: 'erro' } };
+    a = { texto: 'Vou chamar alguém da nossa equipe pra continuar o seu atendimento. Só um instante.', handoff: { motivo: `Falha da Amanda IA: ${(e as Error).message.slice(0, 160)}` }, notas: [], encerrar: false, agendou: false, mem: mem ?? memoriaNova(), resposta: { texto: '', rodadas: 0, ferramentas: [], modelo: 'erro', uso: usoZero() } };
   }
   if (!a) { console.log(`${tag} ignorado: IA sem resposta`); evt('ignorado', { motivo: 'IA sem resposta' }); return; }
   let texto = a.texto;
@@ -538,6 +539,8 @@ async function responderComIA(ev: MessageReceivedEvent, history: InovstarMessage
     enviado: msg,
     gpt: 'ia',
     ms_ia: Date.now() - t0IA, // tempo para pensar e consultar (sem a espera do paciente digitar)
+    uso_ia: a.resposta.uso, // tokens desta resposta (todas as rodadas)
+    custo_usd: custoUSD(a.resposta.modelo, a.resposta.uso),
     gpt_motivo: `${a.resposta.modelo}: ${a.resposta.ferramentas.map((f) => `${f.nome}(${f.ms}ms)`).join(', ') || 'sem ferramenta'}`,
     ferramentas: a.resposta.ferramentas.map((f) => ({ nome: f.nome, args: f.args, res: f.res, ms: f.ms })),
     retomou_da_fila: naFilaDaEquipe,

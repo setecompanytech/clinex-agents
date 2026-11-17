@@ -8,7 +8,7 @@ import { env } from '../../../lib/env.js';
 import { describe, textoRoteiro, type InovstarMessage } from '../../../integrations/inovstar.js';
 import type { Fonte } from '../script/catalog.js';
 import { unidadesDaClinica } from '../script/clinilinkFonte.js';
-import { pensar, type Msg, type Resposta } from './cerebro.js';
+import { pensar, somarUso, type Msg, type Resposta } from './cerebro.js';
 import { evt } from '../../../lib/log.js';
 import { DESPEDIDA, memoriaNova, type Contexto, type MemoriaIA } from './ferramentas.js';
 import { promptAmanda, type Unidades } from './prompt.js';
@@ -171,7 +171,9 @@ export async function atenderComIA(p: {
   if (ruins.length) {
     evt('erro', { mensagem: 'IA: resposta com dado que não veio do Clinilink (refazendo)', itens: ruins, rascunho: resposta.texto.slice(0, 400) });
     const correcao: Msg[] = [...conversa, { role: 'assistant', content: resposta.texto }, { role: 'user', content: '[CHECAGEM INTERNA DO SISTEMA, não é o paciente] Sua última resposta citou ' + ruins.join(', ') + ', que NÃO veio das ferramentas. Isso é proibido. Consulte agora as ferramentas (buscar_servico, servico_com_profissional, ver_horarios, buscar_paciente, orcar_exames) e reescreva a resposta ao paciente usando SOMENTE os profissionais e valores que elas devolverem. Não mencione esta checagem.' }];
+    const gastoAntes = resposta.uso;
     resposta = await pensar(system, correcao, c);
+    resposta = { ...resposta, uso: somarUso(gastoAntes, resposta.uso) }; // a 1ª tentativa também foi paga
     ruins = [...inventados(resposta.texto, fontesDe(), doPaciente), ...regras(resposta.texto)];
     if (ruins.length) {
       evt('erro', { mensagem: 'IA: insistiu em dado que não veio do Clinilink; resposta bloqueada', itens: ruins, rascunho: resposta.texto.slice(0, 400) });
