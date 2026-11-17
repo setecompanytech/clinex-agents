@@ -250,13 +250,13 @@ ${parte_modais}
 
 ${parte_avisos}
 /* ---- pipelines (funis do documento) */
-.fv-filtros{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}.fv-filtros>.in[type="search"]{flex:1 1 260px;min-width:200px}.fv-filtros>select.in,.fv-f .in{width:auto;min-width:150px}.fv-filtros>select.in{flex:0 1 210px}
+.fv-filtros{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}.fv-filtros>.in[type="search"]{flex:1 1 260px;min-width:200px}.fv-filtros>select.in,.fv-f .in{width:auto;min-width:150px}.fv-filtros>select.in{flex:0 1 180px;min-width:140px}
 .fv-f{display:flex;flex-direction:column;gap:5px;font-size:11.5px;color:var(--mut);font-weight:650}
 .fv-resumo{display:flex;flex-wrap:wrap;gap:6px 26px;align-items:center;font-size:13px;color:var(--ink2)}
 .fv-resumo b{font:800 18px "Segoe UI Variable Display","Segoe UI";color:var(--ink)}.fv-resumo .ruim b{color:var(--bad)}
 .fv-rot{display:inline-flex;gap:6px;align-items:center;color:var(--mut);font-size:12.5px;margin-left:auto}.fv-rot.ruim{color:var(--bad)}
 .fv-quadro{display:flex;gap:12px;overflow-x:auto;padding:2px 2px 14px;align-items:stretch;scroll-snap-type:x proximity}
-.fv-col{flex:0 0 268px;scroll-snap-align:start;display:flex;flex-direction:column;border:1px solid var(--line);border-top:3px solid var(--ec);border-radius:16px;background:linear-gradient(180deg,color-mix(in srgb,var(--ec) 7%,var(--card2)),var(--card));max-height:calc(100vh - 250px);min-height:220px;transition:box-shadow .15s,border-color .15s}
+.fv-col{flex:1 0 268px;max-width:520px;scroll-snap-align:start;display:flex;flex-direction:column;border:1px solid var(--line);border-top:3px solid var(--ec);border-radius:16px;background:linear-gradient(180deg,color-mix(in srgb,var(--ec) 7%,var(--card2)),var(--card));max-height:calc(100vh - 250px);min-height:220px;transition:box-shadow .15s,border-color .15s}
 .fv-col.alvo{border-color:var(--ec);box-shadow:0 0 0 2px color-mix(in srgb,var(--ec) 55%,transparent),0 12px 34px color-mix(in srgb,var(--ec) 25%,transparent)}
 .fv-col>header{padding:12px 13px 8px}
 .fv-col-t{display:flex;align-items:center;justify-content:space-between;gap:8px}.fv-col-t b{font-size:13.5px;letter-spacing:.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -787,6 +787,10 @@ mark.fl-mk{background:color-mix(in srgb,var(--warn) 42%,transparent);color:inher
 .mg-nums-c{display:flex;flex-wrap:wrap;gap:6px}.mg-num{display:inline-flex;align-items:center;gap:6px;padding:5px 6px 5px 11px;border-radius:999px;border:1px solid color-mix(in srgb,var(--ok) 45%,var(--line));background:color-mix(in srgb,var(--ok) 8%,var(--bg));font:600 12px ui-monospace,Consolas,monospace;color:var(--ink)}.mg-num.amb{padding-right:11px;border-color:var(--line2);color:var(--mut)}
 .mg-num-x{width:20px;height:20px;border-radius:50%;border:0;background:transparent;color:var(--mut);display:grid;place-items:center;cursor:pointer}.mg-num-x:hover{background:color-mix(in srgb,var(--bad) 22%,transparent);color:var(--bad)}
 .mg-nums-a{display:flex;gap:8px}.mg-nums-a .in{flex:1;min-width:0}.mg-lib-b{margin-top:8px}
+/* ===== Pipelines: largura total e colunas que esticam ===== */
+main#main.larga{max-width:none;margin-left:0;margin-right:0;padding-left:24px;padding-right:24px}
+.fv-quadro{scrollbar-width:thin;padding-right:10px}
+@media(min-width:1700px){main#main.larga{padding-left:32px;padding-right:32px}}
 `;
 
 export const pagina = `<!doctype html>

@@ -108,11 +108,15 @@ function fvFiltros() {
   var modo = h('div', { class: 'seg', role: 'group', 'aria-label': 'Recorte', title: 'V2: o período recorta todas as colunas, exceto Em aberto e Em negociação, que sempre mostram tudo. V1: o período só recorta a 1ª coluna.' }, [['v2', 'V2'], ['v1', 'V1']].map(function (p) {
     return h('button', { type: 'button', 'aria-pressed': String(f.modo === p[0]), text: p[1], onclick: function () { f.modo = p[0]; if (f.de || f.ate) fvRecarregarCards(); desenhar(true); } });
   }));
+  var ord = h('div', { class: 'seg', role: 'group', 'aria-label': 'Ordenar os cards' }, FV_ORDENS.map(function (p) {
+    return h('button', { type: 'button', title: p[2], 'aria-pressed': String(fvOrdem() === p[0]), text: p[1], onclick: function () { FV.ordem = p[0]; gravarLS('crm-fv-ordem', p[0]); desenhar(true); } });
+  }));
   var temFiltro = perFiltrando('pipelines') || f.unidade || f.responsavel || f.q || f.estrelas;
   return h('div', { class: 'fv-filtros' }, [
     busca,
     h('label', { class: 'fv-f' }, [h('span', { text: 'Filtrar por' }), por]),
     h('label', { class: 'fv-f' }, [h('span', { text: 'Recorte' }), modo]),
+    h('label', { class: 'fv-f' }, [h('span', { text: 'Ordenar' }), ord]),
     h('select', { class: 'in', 'aria-label': 'Unidade', onchange: function (e) { f.unidade = e.target.value; fvRecarregarCards(); } }, [h('option', { value: '', text: 'Todas as unidades' })].concat(D.unidades.map(function (u) { return h('option', { value: u, text: u, selected: f.unidade === u }); }))),
     h('select', { class: 'in', 'aria-label': 'Responsável', onchange: function (e) { f.responsavel = e.target.value; fvRecarregarCards(); } }, [h('option', { value: '', text: 'Todos os responsáveis' })].concat(D.responsaveis.map(function (u) { return h('option', { value: u, text: u, selected: f.responsavel === u }); }))),
     h('select', { class: 'in', 'aria-label': 'Estrelas', onchange: function (e) { f.estrelas = Number(e.target.value); desenhar(true); } }, [h('option', { value: '0', text: 'Todas as estrelas' })].concat([1, 2, 3, 4, 5].map(function (n) { return h('option', { value: String(n), text: fvEstrelas(n), selected: f.estrelas === n }); }))),
@@ -121,9 +125,16 @@ function fvFiltros() {
 }
 
 /* ---- kanban */
+/* ordem dos cards dentro de cada coluna. Padrão: o mais recente primeiro, pela data que aparece no card ("desde ...": quando entrou na coluna) */
+var FV_ORDENS = [['recentes', 'Recentes', 'Primeiro quem entrou na coluna por último (a data que aparece no card)'], ['antigos', 'Antigos', 'Primeiro quem está há mais tempo na coluna'], ['valor', 'Valor', 'Do maior para o menor valor; empate pelo mais recente']];
+function fvOrdem() { var o = FV.ordem || lerLS('crm-fv-ordem'); return o === 'antigos' || o === 'valor' ? o : 'recentes'; }
+function fvOrdenar(lista) {
+  var o = fvOrdem(), t = function (c) { return Date.parse(c.enteredAt) || 0; };
+  return lista.slice().sort(function (a, b) { return o === 'antigos' ? t(a) - t(b) : o === 'valor' ? (b.valor - a.valor) || (t(b) - t(a)) : t(b) - t(a); });
+}
 function fvCardsDaEtapa(id) {
   var e = FV.f.estrelas;
-  return FV.dados.cards.filter(function (c) { return c.stageId === id && (!e || c.estrelas === e); });
+  return fvOrdenar(FV.dados.cards.filter(function (c) { return c.stageId === id && (!e || c.estrelas === e); }));
 }
 function fvKanban() {
   var D = FV.dados, F = D.funil, rot = FV.rotina || {};
