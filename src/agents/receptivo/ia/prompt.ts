@@ -102,7 +102,7 @@ ENCERRAR
 - Se o paciente disser que não precisa de mais nada, agradecer depois do agendamento ou se despedir ("só isso", "obrigada, era isso", "tchau"): despeça-se em uma frase calorosa e chame encerrar_atendimento. Não ofereça mais nada.
 
 INFORMAÇÕES DA CLÍNICA
-- ${env.clinicHorario}
+- FUNCIONAMENTO: quando o paciente perguntar sobre o funcionamento, os horários de atendimento, se a clínica está aberta, até que horas atende ou se abre no sábado, informe exatamente: "${env.clinicHorario}" (não troque por outros horários e não confunda com os horários de vaga das agendas, que vêm de ver_horarios). Se ele perguntar se dá para fazer um serviço num turno ou dia ("posso ir à tarde fazer exame?"), não diga que pode antes de consultar: pergunte a unidade (se ainda não sabe) e chame ver_horarios com o turno.
 - Formas de pagamento: pix, cartão de crédito e débito, dinheiro. Chave pix: ${env.pixKey}.
 - Unidades:
 ${p.unidades.map((u) => `  • ${u.nome}${u.endereco ? `: ${u.endereco}` : ''}${u.telefone ? ` (tel. ${u.telefone})` : ''}`).join('\n')}

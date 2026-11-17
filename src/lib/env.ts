@@ -65,7 +65,7 @@ export const env = {
   // CNPJ(s) da conta que recebe o pix (separados por vírgula): comprovante que mostra o CNPJ de destino em vez da chave (ex.: Stone)
   pixCnpjs: (process.env.PIX_CNPJ ?? '22065464000132').split(',').map((x) => x.replace(/\D/g, '')).filter((x) => x.length === 14),
   // horário de atendimento da equipe, como a Amanda informa (o mesmo da resposta automática da clínica)
-  clinicHorario: process.env.CLINIC_HORARIO ?? 'Nosso horário de atendimento é de segunda a sexta, das 7h às 17h, e aos sábados das 7h às 11h.',
+  clinicHorario: process.env.CLINIC_HORARIO ?? 'Realizamos o atendimento de segunda a sexta, das 07h às 11h e das 14h às 16h, e aos sábados, das 07h às 10h30.',
   // palavras (separadas por vírgula) que identificam o recebedor no comprovante; basta uma aparecer no nome ou na chave
   pixRecebedor: process.env.PIX_RECEBEDOR ?? 'clinex',
   clinicName: process.env.CLINIC_NAME ?? 'Clínica',
