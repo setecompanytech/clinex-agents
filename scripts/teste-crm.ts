@@ -3,6 +3,7 @@
  * Cada cenário descreve uma regra do documento; se uma falhar, o processo sai com erro.
  */
 import assert from 'node:assert/strict';
+import { casa, MODELOS as MODELOS_AUTO } from '../src/crm/automacoes.js';
 import { aplicar, automatizar, criarLead, proximoPasso, RegraError, tarefasDoDia, vistaDoLead, hojeDe, somaDias, type Acao, type Lead } from '../src/crm/motor.js';
 
 let ok = 0;
@@ -257,6 +258,46 @@ teste('vista do lead mostra limite de dias da etapa e quando está estourado', (
 teste('dia do fuso: 22h em Belém ainda é o mesmo dia', () => {
   assert.equal(hojeDe(quando('2026-03-02', '22:30')), '2026-03-02');
   assert.equal(hojeDe(quando('2026-03-02', '00:10')), '2026-03-02');
+});
+
+console.log('Exceção dentro do fluxo: retorno personalizado direto, sem passar pelo fluxo inicial');
+const retorno = (l: Lead, d: string, data: string, motivo?: string) => aplicar(l, { tipo: 'retorno', data, motivo } as Acao, quando(d));
+teste('lead em Em aberto vai direto para Retorno personalizado na data combinada (sem Primeiro contato) e o motivo fica no histórico', () => {
+  const l = novo(); retorno(l, dia(0), dia(24), 'Paciente em tratamento: a mãe pediu para retomar só a partir do dia 26');
+  assert.equal(l.status, 'negociacao'); assert.equal(l.retornoData, dia(24));
+  const p = prox(l, dia(1))!; assert.equal(p.passo.id, 'retorno'); assert.equal(p.vence, dia(24)); assert.equal(p.situacao, 'futura');
+  assert.equal(tarefasDoDia([l], quando(dia(1))).length, 0, 'nada para fazer com ela antes da data (nem Primeiro contato no D1)');
+  const e = l.eventos.at(-1)!; assert.match(e.texto, /Exceção do fluxo.*direto para Retorno personalizado/); assert.match(e.texto, /Motivo: Paciente em tratamento/);
+});
+teste('na data combinada o retorno vence hoje (mensagem 9); depois dele a cadência segue sem repetir o orçamento', () => {
+  const l = novo(); retorno(l, dia(0), dia(24));
+  assert.equal(prox(l, dia(24))!.situacao, 'hoje'); assert.equal(tarefasDoDia([l], quando(dia(24))).map((t) => t.passoId).join(), 'retorno');
+  contato(l, dia(24), 'retorno'); assert.equal(l.retornoData, undefined);
+  const p = prox(l, dia(24))!; assert.equal(p.passo.id, 'followup'); assert.equal(p.vence, dia(25));
+});
+teste('esperando a data não estoura o prazo da etapa nem some da fila: a conta do prazo começa na data combinada', () => {
+  const l = novo(); retorno(l, dia(0), dia(24));
+  assert.equal(vistaDoLead(l, quando(dia(20))).limite!.excedido, false); assert.equal(vistaDoLead(l, quando(dia(20))).limite!.usados, 0);
+  roda(l, dia(20)); assert.equal(l.status, 'negociacao');
+  assert.equal(vistaDoLead(l, quando(dia(24 + 16))).limite!.excedido, true, 'passada a data + o prazo, volta a valer');
+});
+teste('as automações "parado na etapa" e "esfriando" não pegam quem espera a data; depois da data voltam a valer', () => {
+  const l = novo(); retorno(l, dia(0), dia(24));
+  const regra = (nome: string) => ({ id: 'teste-' + nome, ...MODELOS_AUTO.find((m) => m.nome === nome)! }) as never;
+  const parada = regra('Negociação sem avanço → Sem retorno'), esfriando = regra('Lead esfriando → etiqueta');
+  assert.equal(casa(l, parada, quando(dia(20))), false); assert.equal(casa(l, esfriando, quando(dia(20))), false);
+  assert.equal(casa(l, parada, quando(dia(24 + 12))), true, 'passou a data e continua parado: a regra volta');
+});
+teste('também vale para quem está em Sem retorno; "Deu uma data" de quem já está em negociação continua igual', () => {
+  const l = novo(); contato(l, dia(1), 'primeiro'); roda(l, dia(3)); assert.equal(l.status, 'sem_retorno');
+  retorno(l, dia(3), dia(10), 'Pediu para falar na semana que vem'); assert.equal(l.status, 'negociacao'); assert.match(l.eventos.at(-1)!.texto, /saiu de Sem retorno/);
+  const n = novo(); aplicar(n, { tipo: 'resposta' } as Acao, quando(dia(1))); assert.equal(n.status, 'negociacao');
+  retorno(n, dia(1), dia(9)); assert.equal(n.retornoData, dia(9)); assert.match(n.eventos.at(-1)!.texto, /Deu uma data/); assert.equal(n.pulados.length, 0, 'não mexe nas etapas de quem já estava em negociação');
+});
+teste('a exceção só aceita data de hoje em diante e só para quem ainda está no fluxo (não vale para agendado, convertido ou descartado)', () => {
+  const l = novo(); falha(() => retorno(l, dia(5), dia(4)), 'dados'); falha(() => retorno(l, dia(5), 'amanhã'), 'dados');
+  const d = novo(); aplicar(d, { tipo: 'descartar', motivo: 'Preço' } as Acao, quando(dia(1))); falha(() => retorno(d, dia(2), dia(9)), 'estado');
+  const ag = novo(); aplicar(ag, { tipo: 'agendou', data: dia(6) } as Acao, quando(dia(1))); falha(() => retorno(ag, dia(2), dia(9)), 'estado');
 });
 
 console.log(`\n${ok} testes passaram${process.exitCode ? ', COM FALHAS' : ''}.`);

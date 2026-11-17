@@ -159,6 +159,8 @@ export function casa(l: Lead, r: Regra, agora: Date): boolean {
   const g = r.gatilho;
   if (l.autoRegras?.[chave(r, l)]) return false;
   if (!passaFiltros(l, r.filtros)) return false;
+  // quem tem retorno personalizado combinado para uma data futura está "esperando a data", não parado nem esfriando
+  if (l.status === 'negociacao' && l.retornoData && l.retornoData >= hoje && (g.tipo === 'parado_etapa' || g.tipo === 'sem_contato')) return false;
   switch (g.tipo) {
     case 'parado_etapa': {
       if (l.status !== g.etapa) return false;

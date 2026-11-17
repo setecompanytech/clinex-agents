@@ -212,7 +212,7 @@ export type Acao =
   | { tipo: 'contato'; canal: Canal; naoFoiRecepcao: boolean; passo?: string; msg?: number; texto?: string; atendente?: string; auto?: boolean }
   | { tipo: 'resposta'; botao?: string; atendente?: string; texto?: string; intencao?: string; msgId?: string; msg?: number; soRegistrar?: boolean }
   | { tipo: 'agendou'; data: string; hora?: string; exame?: string; atendente?: string }
-  | { tipo: 'retorno'; data: string; atendente?: string }
+  | { tipo: 'retorno'; data: string; motivo?: string; atendente?: string }
   | { tipo: 'parou'; atendente?: string }
   | { tipo: 'compareceu'; atendente?: string }
   | { tipo: 'noshow'; atendente?: string }
@@ -281,10 +281,22 @@ export function aplicar(lead: Lead, a: Acao, agora: Date): void {
       return;
     }
     case 'retorno': {
-      if (lead.status !== 'negociacao') throw erro('estado', 'Retorno personalizado só existe em Em negociação.');
+      if (!ABERTOS.includes(lead.status)) throw erro('estado', 'Retorno personalizado vale para leads em Em aberto, Sem retorno ou Em negociação.');
       if (!DIA_OK.test(a.data ?? '') || a.data < hoje) throw erro('dados', 'Informe a data combinada (hoje ou depois).');
+      const motivo = a.motivo?.trim().slice(0, 300), dd = `${a.data.slice(8, 10)}/${a.data.slice(5, 7)}`;
+      if (lead.status !== 'negociacao') {
+        // EXCEÇÃO DENTRO DO FLUXO: quem tem data combinada (ex.: a família pediu para retomar só no dia 26) não passa pelo fluxo inicial.
+        // Vai direto para Retorno personalizado: sem Primeiro contato, Nova tentativa, Desconto nem Encerramento, e a cadência de
+        // negociação passa a contar da data combinada (a mensagem 9 sai nela; a Msg 5 já não repete, o follow-up vem no dia seguinte).
+        const de = lead.status;
+        entrar(lead, 'negociacao', hoje, { pulados: ['orcamento'] });
+        lead.negD0 = a.data;
+        lead.retornoData = a.data;
+        ev({ tipo: 'retorno', texto: `Exceção do fluxo: saiu de ${de === 'aberto' ? 'Em aberto' : 'Sem retorno'} direto para Retorno personalizado em ${dd} (mensagem 9), sem passar pelo fluxo inicial.${motivo ? ` Motivo: ${motivo}` : ''}` });
+        return;
+      }
       lead.retornoData = a.data;
-      ev({ tipo: 'retorno', texto: `Deu uma data: retorno personalizado em ${a.data} (mensagem 9).` });
+      ev({ tipo: 'retorno', texto: `Deu uma data: retorno personalizado em ${a.data} (mensagem 9).${motivo ? ` Motivo: ${motivo}` : ''}` });
       return;
     }
     case 'parou': {
@@ -463,7 +475,7 @@ export function vistaDoLead(lead: Lead, agora: Date): Vista {
   let limite: Vista['limite'] = null;
   if (lead.status === 'aberto') { const u = diffDias(lead.d0, hoje); limite = { dias: LIMITES.aberto, usados: u, excedido: u > LIMITES.aberto }; }
   else if (lead.status === 'sem_retorno') { const u = diffDias(lead.statusDesde, hoje); limite = { dias: LIMITES.sem_retorno, usados: u, excedido: u > LIMITES.sem_retorno }; }
-  else if (lead.status === 'negociacao') { const u = diffDias(lead.statusDesde, hoje); limite = { dias: LIMITES.negociacao, usados: u, excedido: u > LIMITES.negociacao }; }
+  else if (lead.status === 'negociacao') { const base = lead.retornoData && lead.retornoData > lead.statusDesde ? lead.retornoData : lead.statusDesde; const u = Math.max(0, diffDias(base, hoje)); limite = { dias: LIMITES.negociacao, usados: u, excedido: u > LIMITES.negociacao }; } // com retorno combinado, o prazo conta da data combinada
   const dia = lead.status === 'negociacao' ? diffDias(lead.negD0 ?? lead.statusDesde, hoje) : diffDias(lead.d0, hoje);
   let reativacao: Vista['reativacao'];
   if (lead.status === 'descarte' && lead.descarte) {

@@ -185,6 +185,7 @@ function blocoRespostas(l) {
   }
   if (ativo || (s === 'descarte' && l.reativacaoTentada)) b.push(botao('Paciente respondeu', '', function () { agir(l.id, { tipo: 'resposta' }).then(function () { aviso('Resposta registrada.', 'ok'); }); }, 'message'));
   if (ativo) b.push(botao('Agendou', 'pri', function () { dialogoAgendou(l); }, 'calendar'));
+  if (ativo && s !== 'negociacao') b.push(botao('Retorno personalizado', '', function () { dialogoRetorno(l); }, 'clock'));
   if (s === 'negociacao') {
     b.push(botao('Deu uma data', '', function () { dialogoRetorno(l); }, 'clock'));
     b.push(botao('Parou de responder', '', function () { confirmar({ titulo: 'Parou de responder?', texto: 'O lead vai para Sem retorno e segue para o Encerramento (Msg 4).', sim: 'Sim, mover', aoSim: function () { agir(l.id, { tipo: 'parou' }); } }); }, 'arrow'));
@@ -430,13 +431,16 @@ function dialogoAgendou(l) {
 }
 
 function dialogoRetorno(l) {
+  var excecao = l.status !== 'negociacao', onde = l.status === 'aberto' ? 'Em aberto' : 'Sem retorno';
   var data = h('input', { class: 'in', type: 'date', min: S.D.hoje, 'aria-label': 'Data combinada' });
+  var motivo = h('textarea', { class: 'in', rows: '3', maxlength: '300', placeholder: 'Ex.: paciente em tratamento; a mãe pediu para retomar só a partir do dia 26', 'aria-label': 'Motivo do retorno personalizado' });
+  var aviso0 = excecao ? h('p', { class: 'callout aviso' }, [h('b', { text: 'Exceção do fluxo. ' }), 'Este lead está em ' + onde + '. Ao combinar a data ele sai do fluxo inicial e vai direto para Retorno personalizado: não terá Primeiro contato, Nova tentativa, Desconto nem Encerramento. Nada é cobrado dele até a data.']) : null;
   var m = modal({
-    titulo: 'Deu uma data', sub: 'Retorno personalizado · ' + l.nome, largura: 460, classe: 'peq',
-    corpo: [campo('Data combinada para retomar', data), h('p', { class: 'mut peq', text: 'Nessa data o lead entra na fila com a mensagem 9 (2 horários). A cadência da negociação fica em pausa até lá.' })],
-    rodape: [botao('Cancelar', '', function () { m.fechar(); }), botao('Combinar retorno', 'pri', function () {
+    titulo: excecao ? 'Retorno personalizado' : 'Deu uma data', sub: (excecao ? 'Pular o fluxo inicial · ' : 'Retorno personalizado · ') + l.nome, largura: 520, classe: 'peq',
+    corpo: [aviso0, campo('Data combinada para retomar', data), excecao ? campo('Motivo (fica registrado no histórico)', motivo) : null, h('p', { class: 'mut peq', text: 'Nessa data o lead entra na fila com a mensagem 9 (2 horários). Depois dela, a cadência da negociação segue normalmente (o follow-up vem no dia seguinte).' })],
+    rodape: [botao('Cancelar', '', function () { m.fechar(); }), botao(excecao ? 'Pular o fluxo e combinar retorno' : 'Combinar retorno', 'pri', function () {
       if (!data.value) { aviso('Informe a data combinada.', 'erro'); return; }
-      agir(l.id, { tipo: 'retorno', data: data.value }).then(function () { m.fechar(); aviso('Retorno personalizado combinado.', 'ok'); });
+      agir(l.id, { tipo: 'retorno', data: data.value, motivo: motivo.value.trim() || undefined }).then(function () { m.fechar(); aviso(excecao ? 'Lead movido para Retorno personalizado em ' + dBRfull(data.value) + '.' : 'Retorno personalizado combinado.', 'ok'); });
     })]
   });
 }
