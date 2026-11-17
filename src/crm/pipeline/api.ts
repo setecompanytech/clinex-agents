@@ -6,6 +6,8 @@ import { aplicarAutomacoes, atrasado, diaBRT, diasNaEtapa, diffDia, estrelas, fu
 import { sincronizar } from './ingestao.js';
 import { leadsDosOrcamentos } from '../leadsOrcamento.js';
 import { alinharCardsELeads, atribuirResponsaveis } from '../sincroniaCardLead.js';
+import type { Lead } from '../motor.js';
+import { ehEnvio } from '../whatsapp.js';
 import { logMovimentacoes, painelExecutivo, relatorio } from './metricas.js';
 import { janelaDaQuery } from '../periodo.js';
 import { FunilError, type Atribuicao, type Dimensao, type Funil } from './tipos.js';
@@ -90,12 +92,22 @@ pipelines.put('/:id', (req, res) => {
 
 // ------------------------------------------------------------------------------------------------ cards
 
-const dto = (a: Atribuicao, f: Funil, agora: Date) => {
+/** Já foi mandada mensagem de WhatsApp para o lead deste card? (pela IA, pelo CRM ou registrada pela equipe). Aparece como a etiqueta "Mensagem enviada" no card. */
+export type MensagemDoCard = { n: number; ultima: string; msg?: number; porIA: boolean; peloCrm: boolean };
+export function mensagemDoLead(l: Lead | undefined): MensagemDoCard | null {
+  if (!l) return null;
+  const c = l.eventos.filter((e) => e.tipo === 'contato' && e.canal === 'whatsapp');
+  if (!c.length) return null;
+  const u = c[c.length - 1];
+  return { n: c.length, ultima: u.quando, msg: u.msg, porIA: u.auto === true, peloCrm: ehEnvio(u.texto) };
+}
+const dto = (a: Atribuicao, f: Funil, agora: Date, leads?: Map<string, Lead>) => {
   const x = P().extras[a.cardId];
   const v = valorExibido(a, x);
   return {
     cardId: a.cardId, stageId: a.stageId, enteredAt: a.enteredAt, manual: a.manual, caseStatus: a.caseStatus, diasNaEtapa: diasNaEtapa(a, agora), atrasado: atrasado(a, f, agora),
     snap: a.ultimoSnapshot, valor: v, valorNegociado: x?.valorNegociado ?? null, estrelas: estrelas(v, f.valorEstrela), responsavel: x?.responsavel ?? null, proximoContato: x?.proximoContato ?? null, nMov: a.historico.length - 1,
+    mensagem: mensagemDoLead(leads ? leads.get(a.cardId) : estado.leads.find((l) => l.cardId === a.cardId)),
   };
 };
 
@@ -111,7 +123,8 @@ pipelines.get('/:id/cards', (req, res) => {
     const t = q.q.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
     lista = lista.filter((a) => { const s = a.ultimoSnapshot; const x = P().extras[a.cardId]; return [s.paciente, s.contato, s.codigo, s.itens.join(' '), s.observacao, x?.observacoesCrm, String(valorExibido(a, x))].join(' ').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').includes(t); });
   }
-  const cards = lista.map((a) => dto(a, f, agora));
+  const leadsPorCard = new Map(estado.leads.filter((l) => l.cardId).map((l) => [l.cardId as string, l] as const));
+  const cards = lista.map((a) => dto(a, f, agora, leadsPorCard));
   const unidades = [...new Set(visiveis(f, P().atribuicoes).map((a) => a.ultimoSnapshot.unidade).filter(Boolean))].sort();
   const responsaveis = [...new Set(Object.values(P().extras).map((x) => x.responsavel).filter(Boolean))].sort();
   res.json({ funil: resumoFunil(f), cards, unidades, responsaveis, total: visiveis(f, P().atribuicoes).length });

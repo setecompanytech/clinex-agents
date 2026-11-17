@@ -791,6 +791,7 @@ mark.fl-mk{background:color-mix(in srgb,var(--warn) 42%,transparent);color:inher
 main#main.larga{max-width:none;margin-left:0;margin-right:0;padding-left:24px;padding-right:24px}
 .fv-quadro{scrollbar-width:thin;padding-right:10px}
 @media(min-width:1700px){main#main.larga{padding-left:32px;padding-right:32px}}
+.fv-tag.msg{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 50%,var(--line));background:color-mix(in srgb,var(--ok) 11%,transparent);font-weight:700}
 `;
 
 export const pagina = `<!doctype html>

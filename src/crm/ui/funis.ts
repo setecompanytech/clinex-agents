@@ -169,6 +169,9 @@ function fvColuna(e, ehTopo) {
   col.addEventListener('drop', function (ev) { ev.preventDefault(); col.classList.remove('alvo'); if (FV.drag) { var d = FV.drag; FV.drag = null; fvMover(d, e.id); } });
   return col;
 }
+function fvMsgTitulo(m) {
+  return 'Última: ' + fvQuando(m.ultima) + (m.msg ? ' · Msg ' + m.msg : '') + (m.porIA ? ' · enviada pela IA' : m.peloCrm ? ' · enviada pelo CRM' : ' · registrada pela equipe') + ' · ' + m.n + (m.n === 1 ? ' mensagem no total' : ' mensagens no total');
+}
 function fvCartao(c) {
   var s = c.snap, F = FV.dados.funil;
   var permitido = F.statusPermitidos.indexOf(s.status) >= 0;
@@ -177,6 +180,7 @@ function fvCartao(c) {
     s.subtitulo ? h('p', { class: 'fv-sub', text: s.subtitulo }) : null,
     h('div', { class: 'fv-card-v' }, [h('b', { text: brl(c.valor) }), c.valorNegociado !== null ? h('span', { class: 'fv-neg', title: 'Valor negociado (substitui o do Clinilink)', text: 'negociado' }) : null]),
     h('div', { class: 'fv-tags' }, [
+      c.mensagem ? h('span', { class: 'fv-tag msg', title: fvMsgTitulo(c.mensagem), text: '✓ Mensagem enviada' }) : null,
       s.codigo ? h('span', { class: 'fv-tag', text: '#' + s.codigo }) : null,
       s.unidade ? h('span', { class: 'fv-tag un', text: fvUnidadeCurta(s.unidade) }) : null,
       !permitido ? h('span', { class: 'fv-tag st', title: 'Status atual no Clinilink', text: s.status }) : null

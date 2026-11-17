@@ -6,6 +6,8 @@ import { funilDestino, ingerir, janelaDoPedido, janelaPadrao, snapDeAgendamento,
 import { painelExecutivo, relatorio } from '../src/crm/pipeline/metricas.js';
 import { aplicarAutomacoes, atrasado, classeDaEtapa, diaBRT, estrelas, funisPadrao, moverCard, recortar, validarAutomacoes, validarConfig, valorExibido } from '../src/crm/pipeline/regras.js';
 import { FunilError, type CardSnap, type EstadoFunis } from '../src/crm/pipeline/tipos.js';
+import { mensagemDoLead } from '../src/crm/pipeline/api.js';
+import { criarLead } from '../src/crm/motor.js';
 
 let ok = 0;
 const teste = (nome: string, fn: () => void) => { try { fn(); ok++; console.log(`  ok  ${nome}`); } catch (e) { console.error(`FALHOU  ${nome}\n        ${(e as Error).message}`); process.exitCode = 1; } };
@@ -197,5 +199,15 @@ teste('cards antigos já separados não são mexidos (nunca conta o mesmo valor 
   const r = ingerir(est, fn, snapsDeAgendamentos([ag('a1', 'Maria', 'Ultrassom', 90), ag('a2', 'Maria', 'Glicemia', 20)], est.atribuicoes.map((a) => a.originSnapshot)), AGORA);
   assert.equal(r.criados, 0); assert.equal(est.atribuicoes.length, 2);
   assert.deepEqual(est.atribuicoes.map((a) => a.ultimoSnapshot.valor).sort(), [20, 90]);
+});
+teste('etiqueta "Mensagem enviada": só conta WhatsApp (IA, CRM ou registrado pela equipe); ligação e lead sem contato não contam', () => {
+  const l = criarLead({ nome: 'Maria', telefone: '91981628017', valor: 300 }, em('2026-11-02', '09:00'));
+  const ev = (id: string, quando: string, extra: Record<string, unknown>) => l.eventos.push({ id, quando, tipo: 'contato', texto: 'x', ...extra } as never);
+  assert.equal(mensagemDoLead(undefined), null); assert.equal(mensagemDoLead(l), null);
+  ev('a', '2026-11-02T13:00:00Z', { canal: 'ligacao' }); assert.equal(mensagemDoLead(l), null, 'ligação não é mensagem');
+  ev('b', '2026-11-02T14:00:00Z', { canal: 'whatsapp', msg: 1, auto: true, texto: 'WhatsApp · modelo primeiro_contato (pt_BR) para +55*******7777' });
+  const m = mensagemDoLead(l)!; assert.equal(m.n, 1); assert.equal(m.msg, 1); assert.equal(m.porIA, true); assert.equal(m.peloCrm, true); assert.equal(m.ultima, '2026-11-02T14:00:00Z');
+  ev('c', '2026-11-02T15:00:00Z', { canal: 'whatsapp', texto: 'Mandei pelo meu WhatsApp' });
+  const m2 = mensagemDoLead(l)!; assert.equal(m2.n, 2); assert.equal(m2.porIA, false); assert.equal(m2.peloCrm, false, 'a última foi registrada pela equipe'); assert.equal(m2.ultima, '2026-11-02T15:00:00Z');
 });
 console.log(`${ok} testes passaram.`);
