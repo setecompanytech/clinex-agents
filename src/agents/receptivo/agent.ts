@@ -1,5 +1,5 @@
 import { env } from '../../lib/env.js';
-import { closeAttendance, describe, ehMensagemDaEquipe, sendNote, getHistory, ilegivel, usuarioDaIntegracao, sendText, textoRoteiro, transcribeMessage, transferToSector, type InovstarMessage, type MessageReceivedEvent } from '../../integrations/inovstar.js';
+import { closeAttendance, describe, ehMensagemDaEquipe, ehReacao, sendNote, getHistory, ilegivel, usuarioDaIntegracao, sendText, textoRoteiro, transcribeMessage, transferToSector, type InovstarMessage, type MessageReceivedEvent } from '../../integrations/inovstar.js';
 import { analisarComprovante, type Comprovante } from '../../lib/comprovante.js';
 import { analisarPedidoMedico, type PedidoLido } from '../../lib/pedidoMedico.js';
 import { escolherExames } from '../../lib/interpretarExames.js';
@@ -197,7 +197,7 @@ export function montarTurnos(history: InovstarMessage[], fimIdx: number, desde: 
 export function lerConversa(history: InovstarMessage[]): { conversa: MensagemConversa[]; confirmacao?: string } {
   const limpa = (t: string) => t.replace(/^\*[^*\n]+\*\s*/, '').replace(/\[\[midia:[^\]]+\]\]/g, '[imagem]').trim();
   const conversa: MensagemConversa[] = history
-    .filter((m) => m.type !== 'system' && m.status !== 'whisper' && !m.isWhisper)
+    .filter((m) => m.type !== 'system' && m.status !== 'whisper' && !m.isWhisper && !ehReacao(m))
     .map((m) => ({ de: (m.direction === 'in' ? 'paciente' : 'amanda') as MensagemConversa['de'], texto: limpa(textoRoteiro(m) ?? '').slice(0, 400) }))
     .filter((m) => m.texto)
     .slice(-12);
@@ -217,6 +217,7 @@ async function processar(ev: MessageReceivedEvent) {
   if (env.allowedNumbers.length === 0 && !env.agentSectorId) return skip('sem AGENT_SECTOR_ID e sem lista de números: não atende ninguém');
   if (!isAllowed(ev.to)) return skip(`número ${ev.to} fora da whitelist`);
   if (ev.isGroup) return skip('grupo');
+  if (ehReacao(ev)) return skip('reação do paciente (emoji numa mensagem): não é mensagem, a Amanda não responde');
   if (ev.isAssigned) return skip(`atendimento já tem atendente humano ${ev.attendanceInfo}`);
   // Conversa parada na fila da equipe, sem atendente: se foi a Amanda que transferiu, ela pode retomar quando o paciente volta a escrever.
   let naFilaDaEquipe = Boolean(env.humanSectorId) && ev.sectorId === env.humanSectorId;
@@ -236,7 +237,8 @@ async function processar(ev: MessageReceivedEvent) {
   if (!trava) return skip('a resposta anterior deste atendimento demorou demais; a próxima mensagem dele retoma');
   try {
   const { messages: history } = await getHistory(ev.attendanceId, 80); // a jornada inteira (o padrão de 30 mensagens cortava o começo das conversas longas)
-  const lastIn = [...history].reverse().find((m) => m.direction === 'in' && m.type !== 'system');
+  if (history.some((m) => m._id === ev.messageId && ehReacao(m))) return skip('reação do paciente (emoji numa mensagem): não é mensagem, a Amanda não responde');
+  const lastIn = [...history].reverse().find((m) => m.direction === 'in' && m.type !== 'system' && !ehReacao(m));
   if (lastIn && lastIn._id !== ev.messageId) return skip(`chegou mensagem mais nova (${lastIn._id} != ${ev.messageId}); o webhook dela responde`);
   // Resposta a uma mensagem AUTOMÁTICA da clínica (modelo do WhatsApp: confirmação de consulta com "Confirmar/Reagendar/Cancelar", campanha):
   // não é pedido de atendimento. A Amanda fica fora desse atendimento inteiro (e não puxa a conversa para o setor dela).
@@ -350,7 +352,7 @@ async function processar(ev: MessageReceivedEvent) {
     // o que a Amanda acabou de dizer: o GPT varia as expressões em vez de repetir o mesmo elogio
     const anteriores = history.filter((m) => m.direction === 'out' && m.text && m.status !== 'whisper').slice(-2).map((m) => (m.text ?? '').replace(/^\*[^*\n]+\*\s*/, ''));
     // a última mensagem é um áudio sem transcrição ou um arquivo sem texto: pede para escrever (não conta como "não entendi")
-    const ultimaMsg = [...history].reverse().find((m) => m.direction === 'in' && m.type !== 'system');
+    const ultimaMsg = [...history].reverse().find((m) => m.direction === 'in' && m.type !== 'system' && !ehReacao(m));
     const ilg = ultimaMsg && ultimaMsg._id === ev.messageId ? ilegivel(ultimaMsg) : null;
     if (textos.length === 0 && !ilg) return skip('sem mensagens do paciente na jornada atual');
     const fonte = env.clinilinkKey ? fonteClinilink : fonteSimulada;
@@ -405,7 +407,7 @@ async function processar(ev: MessageReceivedEvent) {
     const mensagemMaisNova = async (): Promise<string | undefined> => {
       try {
         const { messages } = await getHistory(ev.attendanceId, 15);
-        const l = [...messages].reverse().find((m) => m.direction === 'in' && m.type !== 'system');
+        const l = [...messages].reverse().find((m) => m.direction === 'in' && m.type !== 'system' && !ehReacao(m));
         return l && l._id !== ev.messageId ? l._id : undefined;
       } catch { return undefined; } // não conseguiu conferir: envia (melhor responder do que ficar mudo)
     };
@@ -508,7 +510,7 @@ async function responderComIA(ev: MessageReceivedEvent, history: InovstarMessage
   if (naFilaDaEquipe && mem?.transferiu) { console.log(`${tag} ignorado: conversa passada para a equipe pela Amanda IA`); evt('ignorado', { motivo: 'IA: conversa já passada para a equipe' }); return; }
   const fonte = env.clinilinkKey ? fonteClinilink : fonteSimulada;
   const ultimaImagem = [...history].reverse().find((m) => m.direction === 'in' && (m.type === 'image' || m.type === 'document'));
-  const pacienteDisse = [...history].reverse().find((m) => m.direction === 'in' && m.type !== 'system');
+  const pacienteDisse = [...history].reverse().find((m) => m.direction === 'in' && m.type !== 'system' && !ehReacao(m));
   const t0IA = Date.now();
   let a: Awaited<ReturnType<typeof atenderComIA>>;
   try {
@@ -558,7 +560,7 @@ async function responderComIA(ev: MessageReceivedEvent, history: InovstarMessage
       const iMsg = messages.findIndex((m) => m._id === ev.messageId);
       const equipe = messages.slice(iMsg >= 0 ? iMsg + 1 : 0).find((m) => ehMensagemDaEquipe(m, usuarioDaIntegracao(messages)));
       if (equipe) return `equipe:${equipe._id}`; // alguém da equipe respondeu enquanto ela preparava a resposta
-      const l = [...messages].reverse().find((m) => m.direction === 'in' && m.type !== 'system');
+      const l = [...messages].reverse().find((m) => m.direction === 'in' && m.type !== 'system' && !ehReacao(m));
       return l && l._id !== ev.messageId ? l._id : undefined;
     } catch { return undefined; }
   };

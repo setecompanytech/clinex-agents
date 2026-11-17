@@ -1,6 +1,6 @@
 import { env } from '../../../lib/env.js';
 import { greeting, nowParts } from '../../../lib/humanize.js';
-import { dataFalada, type MemoriaIA } from './ferramentas.js';
+import { dataFalada, ehTeste, type MemoriaIA } from './ferramentas.js';
 
 export type Unidades = { nome: string; endereco?: string; telefone?: string }[];
 
@@ -10,7 +10,7 @@ export function promptAmanda(p: { modoComercial?: boolean; agora: Date; nomeCont
   const memoria = [
     p.mem.paciente ? `Paciente identificado: ${p.mem.paciente.nome}${p.mem.paciente.id ? ' (já cadastrado)' : ''}.` : '',
     p.mem.agendados.length ? `Já agendado nesta conversa: ${p.mem.agendados.map((a) => a.resumo).join('; ')}.` : '',
-    Object.keys(p.mem.servicos).length ? `Serviços já consultados (dados do Clinilink; são os ÚNICOS profissionais e valores que você pode citar sem consultar de novo):\n${Object.values(p.mem.servicos).slice(-6).map((s) => `- ${s.id}: ${s.frase} | ${s.precoTexto || 'sem valor cadastrado'} | ${s.unidades.map((u) => `${u.nome}: ${(u.profissionais ?? []).join(', ') || 'sem profissional listado'}`).join(' / ')}`).join('\n')}` : '',
+    Object.keys(p.mem.servicos).length ? `Serviços já consultados (dados do Clinilink; são os ÚNICOS profissionais e valores que você pode citar sem consultar de novo):\n${Object.values(p.mem.servicos).slice(-6).map((s) => `- ${s.id}: ${s.frase} | ${s.precoTexto || 'sem valor cadastrado'} | ${s.unidades.map((u) => `${u.nome}: ${(u.profissionais ?? []).filter((n) => !ehTeste(n)).join(', ') || 'sem profissional listado'}`).join(' / ')}`).join('\n')}` : '',
     Object.keys(p.mem.etapas ?? {}).length ? `Combo em andamento (agende todas as etapas): ${Object.entries(p.mem.etapas ?? {}).map(([k, e]) => `${e.comboRotulo} etapa ${e.etapa}/${e.de} (${e.rotulo}) ${e.feita ? 'AGENDADA' : `pendente, servico_id ${k}`}`).join('; ')}. O combo tem ${Object.values(p.mem.etapas ?? {})[0]?.de} etapas; as que não aparecem aqui ainda não foram abertas (use etapa_do_combo com o servico_id ${Object.values(p.mem.etapas ?? {})[0]?.comboServicoId}).` : '',
     p.mem.combosOferecidos?.length ? `Combos já citados: ${p.mem.combosOferecidos.map((x) => `${x.combo} (${x.total}, economia ${x.economia})`).join('; ')}.` : '',
     Object.keys(p.mem.slots).length ? `Últimos horários oferecidos: ${Object.entries(p.mem.slots).slice(-8).map(([id, g]) => `${id} = ${p.mem.servicos[g.servicoId]?.frase ?? g.servicoId}, ${g.unidade}, ${dataFalada(g.slot.ymd, p.hoje)}, ${g.slot.turno} a partir das ${g.slot.inicio}${g.slot.profissional ? `, ${g.slot.profissional}` : ''}`).join(' | ')}.` : '',
