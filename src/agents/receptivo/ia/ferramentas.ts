@@ -287,8 +287,8 @@ export const DEFINICOES: Def[] = [
   { name: 'encerrar_atendimento', description: 'SÓ quando o paciente se despedir ou disser que não precisa de mais nada ("só isso", "obrigado, tchau"). Nunca por conta própria, nunca logo depois de um agendamento sem o paciente se despedir. Encerra e finaliza o atendimento (escreva a despedida na resposta).', parameters: obj({}) },
 ];
 
-/** Retorno: procura a consulta anterior da especialidade nesta janela (a clínica não definiu prazo; a equipe vê a data na observação). */
-const DIAS_RETORNO = 90;
+/** REGRA DA CLÍNICA (18/11/2026): retorno vale até 30 dias depois da consulta da especialidade; passou disso, é consulta nova. */
+const DIAS_RETORNO = 30;
 
 /** O paciente diz que já pagou (não o pix desta conversa, que é conferido pelo comprovante). Texto sem acento. */
 const JA_PAGOU = /\b(ja paguei|eu paguei|havia pago|tinha pago|ja (esta|ta|foi|estava) pag[oa]|ja (esta|ta) quitad[oa]|paguei (o|um|a|pelo|meu) (combo|exame|consulta|pacote))\b/;
