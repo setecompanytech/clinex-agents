@@ -226,4 +226,12 @@ teste('conferência Pipelines x Fluxo: nomes de coluna viram etapa do Fluxo; ali
   assert.equal(al2.movidos, 0, 'segunda vez não move nada'); assert.ok(al.movidos <= 1);
   assert.ok(conferir(estado, AGORA).divergencias.every((x) => !x.alinhavel), 'depois de alinhar não sobra nada alinhável');
 });
+teste('re-sincronizar com o orçamento sem lista de serviços não apaga os serviços que o card já tinha', () => {
+  const est = novoEstado(); const f = funilDestino(est, 'orcamento', AGORA);
+  ingerir(est, f, [snap('a')], AGORA); assert.deepEqual(est.atribuicoes[0].ultimoSnapshot.itens, ['Ultrassom']);
+  ingerir(est, f, [snap('a', '2026-11-01T12:00:00Z', 500, { itens: [], subtitulo: '' })], AGORA);
+  assert.deepEqual(est.atribuicoes[0].ultimoSnapshot.itens, ['Ultrassom']);
+  ingerir(est, f, [snap('a', '2026-11-01T12:00:00Z', 500, { itens: ['Raio X'] })], AGORA);
+  assert.deepEqual(est.atribuicoes[0].ultimoSnapshot.itens, ['Raio X'], 'lista nova válida substitui');
+});
 console.log(`${ok} testes passaram.`);

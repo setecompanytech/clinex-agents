@@ -130,7 +130,11 @@ export function ingerir(est: EstadoFunis, f: Funil, snaps: CardSnap[], agora: Da
       // card existente nunca é movido nem reaberto. No topo (ainda não trabalhado) acompanha o dado vivo;
       // fora dele só a etiqueta de status muda (o resto fica congelado).
       if (a.caseStatus !== 'removido') {
-        if (a.stageId === t.id) { if (JSON.stringify(a.ultimoSnapshot) !== JSON.stringify(s)) { a.ultimoSnapshot = s; atualizados++; } }
+        if (a.stageId === t.id) {
+          // se o Clinilink passou a mandar o orçamento sem a lista de serviços, mantém os que já tínhamos (não apaga o que a equipe via)
+          const novo = !s.itens.length && a.ultimoSnapshot.itens.length ? { ...s, itens: a.ultimoSnapshot.itens, subtitulo: a.ultimoSnapshot.subtitulo ?? s.subtitulo } : s;
+          if (JSON.stringify(a.ultimoSnapshot) !== JSON.stringify(novo)) { a.ultimoSnapshot = novo; atualizados++; }
+        }
         else if (a.ultimoSnapshot.status !== s.status) { a.ultimoSnapshot = { ...a.ultimoSnapshot, status: s.status }; atualizados++; }
       }
       ignorados++;
