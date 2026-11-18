@@ -283,6 +283,8 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
       case 'ver_horarios': {
         const sv = await acharServico(String(args.servico_id), c);
         if (!sv) return { erro: 'servico_id desconhecido: use buscar_servico' };
+        // o COMBO inteiro não tem agenda própria: os horários são de cada etapa (caso real de teste 18/11: "sem agenda" no combo virou "não temos vaga" ao paciente)
+        if (sv.pacote) return { erro: 'este servico_id é o COMBO inteiro: os horários são por etapa. Chame etapa_do_combo (este servico_id, etapa 1 ou a próxima que falta) e use em ver_horarios o servico_id que ela devolver. NÃO diga ao paciente que não há vaga.' };
         const un = acharUnidade(sv, args.unidade);
         if (!un) return { erro: 'unidade sem agenda para este serviço', unidades_com_agenda: sv.unidades.map((u) => u.nome) };
         const de = args.data ? String(args.data) : args.a_partir_de && String(args.a_partir_de) > hoje ? String(args.a_partir_de) : hoje;
@@ -336,6 +338,8 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
         if (!sv || !un) return { erro: 'serviço ou unidade não encontrados: busque de novo' };
         if (jaPassou(g.slot, c.agora)) return { erro: 'esse horário já passou: ofereça outro' };
         if (c.mem.agendados.some((a) => a.servicoId === sv.id && a.ymd === g.slot.ymd)) return { erro: 'já agendado nesta conversa (não agende de novo)' };
+        // etapa de combo já agendada (em qualquer dia) não é agendada de novo (teste 18/11: a etapa 2 do Feminino 1 saiu reservada 2x em dias diferentes)
+        if (c.mem.etapas?.[g.servicoId]?.feita) return { erro: 'esta etapa do combo já foi agendada nesta conversa: NÃO agende de novo. Se o paciente quer trocar o horário, transfira para a equipe.' };
         if (!f.reservar) return { erro: 'agendamento indisponível: transfira para a equipe' };
         // HORÁRIO COMERCIAL: a forma de pagamento é perguntada DEPOIS de agendar (e a equipe assume); as regras de pagamento abaixo valem fora do horário
         const comercial = Boolean(c.modoComercial);

@@ -157,7 +157,14 @@ export async function atenderComIA(p: {
   const modoComercial = noHorarioComercial(agora);
   const system = promptAmanda({ modoComercial, agora, nomeContato: p.nomeContato, telefone: telWa.length === 11 ? `(${telWa.slice(0, 2)}) ${telWa.slice(2, 7)}-${telWa.slice(7)}` : telWa, primeiraResposta, mem, unidades: listaUnidades, hoje });
   const c: Contexto = { modoComercial, fonte: p.fonte, mem, telefone: p.telefone, agora, lerComprovante: p.lerComprovante, lerPedidos: p.lerPedidos, ultimaDoPaciente: semAcento(conversa.filter((m) => m.role === 'user').slice(-1)[0]?.content ?? ''), pedidoOrcamento: PEDIU_ORCAMENTO.test(conversa.filter((m) => m.role === 'user').slice(-4).map((m) => semAcento(m.content)).join(' \n ')), saida: { confirmacoes: [], usadas: [] } };
-  let resposta = await pensar(system, conversa, c);
+  // custo: o começo da conversa (serviço, unidade, preço, orçamento, informação) vai no modelo barato; a partir do momento em que
+  // horários foram mostrados (escolha, cadastro, pagamento, pix, agendamento) e na correção da trava, sempre o modelo principal.
+  // Testes 18/11: o gpt-4.1-mini se perdia no cadastro de paciente novo (sexo/nome/pagamento) e deixava de agendar.
+  // combo em jogo (várias etapas, uma de cada vez): também vai no principal
+  const comboEmJogo = Object.values(mem.servicos).some((x) => x.pacote) || Object.keys(mem.etapas ?? {}).length > 0;
+  const etapaDeAgendar = comboEmJogo || Object.keys(mem.slots).length > 0 || Boolean(mem.paciente) || mem.agendados.length > 0 || Boolean(mem.pix);
+  const leve = env.iaModeloOpenaiLeve && env.iaModeloOpenaiLeve !== 'off' && !etapaDeAgendar ? env.iaModeloOpenaiLeve : undefined;
+  let resposta = await pensar(system, conversa, c, leve);
   // conferência: médico ou valor que não veio do Clinilink -> refaz UMA vez, obrigando a consultar; se insistir, não envia o inventado
   const doPaciente = conversa.filter((m) => m.role === 'user').map((m) => m.content).join('\n');
   const fontesDe = () => [...(c.saida.dados ?? []), JSON.stringify(listaUnidades), env.clinicHorario, env.clinicName, 'Clinex', JSON.stringify({ servicos: mem.servicos, slots: mem.slots, orcamento: mem.orcamento, combos: mem.combosOferecidos, paciente: mem.paciente })];

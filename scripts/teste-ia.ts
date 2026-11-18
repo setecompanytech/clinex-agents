@@ -67,7 +67,7 @@ async function rodar(nome: string, falas: string[]) {
     const r = await atenderComIA({ history, titulos: ['Amanda S. (Clinex):'], telefone: '5591988887777', nomeContato: 'Teste', fonte, memoria: mem, lerPedidos: async () => Promise.all(falas.filter((x) => x.startsWith('[foto:')).map((x) => import('../src/lib/pedidoMedico.js').then((m) => m.analisarPedidoMedico(require('node:fs').readFileSync(x.slice(6, -1)), 'image/jpeg')))), lerComprovante: async () => ({ tipo: 'comprovante', valor: 90, destinatario: 'CLINICA CLINEX', chave: 'clinicaclinex@gmail.com', status: 'concluido' }) as any });
     if (!r) { console.log('   (sem resposta)'); continue; }
     mem = r.mem;
-    console.log(`🤖 [${((Date.now() - t0) / 1000).toFixed(1)}s | ${r.resposta.ferramentas.map((f) => `${f.nome}(${f.ms}ms)`).join(', ') || 'sem ferramenta'}]${r.handoff ? ` [TRANSFERE: ${r.handoff.motivo}]` : ''}${r.encerrar ? ' [ENCERRA]' : ''}`);
+    console.log(`🤖 [${r.resposta.modelo} ${((Date.now() - t0) / 1000).toFixed(1)}s | ${r.resposta.ferramentas.map((f) => `${f.nome}(${f.ms}ms)`).join(', ') || 'sem ferramenta'}]${r.handoff ? ` [TRANSFERE: ${r.handoff.motivo}]` : ''}${r.encerrar ? ' [ENCERRA]' : ''}`);
     console.log(r.texto.split('\n').map((l) => `   ${l}`).join('\n'));
     for (const n of (r as any).notas ?? []) console.log('   [NOTA INTERNA] ' + n.split('\n').join(' | ').slice(0, 260));
     for (const f of r.resposta.ferramentas) if (/erro/.test(f.res)) console.log(`   ⚠ ${f.nome} ${JSON.stringify(f.args)} -> ${f.res}`);

@@ -38,6 +38,8 @@ export const env = {
   iaNumeros: (process.env.AGENTE_IA_NUMEROS ?? '').split(',').map((n) => n.trim()).filter(Boolean),
   // modelo da Amanda IA: com ANTHROPIC_API_KEY usa o Claude (AGENT_MODEL); sem ela, a OpenAI com este modelo
   iaModeloOpenai: process.env.IA_MODEL_OPENAI ?? 'gpt-4.1',
+  /** Modelo barato para o começo da conversa (antes de mostrar horários). 'off' = sempre o IA_MODEL_OPENAI. */
+  iaModeloOpenaiLeve: process.env.IA_MODEL_OPENAI_LEVE ?? 'gpt-4.1-mini',
   // Consulta de agenda no Clinilink (somente leitura). Sem chave => catálogo simulado.
   clinilinkBase: process.env.CLINILINK_BASE_URL ?? 'https://lista-unilab-clinex.onrender.com',
   clinilinkKey: process.env.CLINILINK_API_KEY ?? '',
