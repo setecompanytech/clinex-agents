@@ -157,6 +157,9 @@ export async function atenderComIA(p: {
   const modoComercial = noHorarioComercial(agora);
   const system = promptAmanda({ modoComercial, agora, nomeContato: p.nomeContato, telefone: telWa.length === 11 ? `(${telWa.slice(0, 2)}) ${telWa.slice(2, 7)}-${telWa.slice(7)}` : telWa, primeiraResposta, mem, unidades: listaUnidades, hoje });
   const c: Contexto = { modoComercial, fonte: p.fonte, mem, telefone: p.telefone, agora, lerComprovante: p.lerComprovante, lerPedidos: p.lerPedidos, ultimaDoPaciente: semAcento(conversa.filter((m) => m.role === 'user').slice(-1)[0]?.content ?? ''), conversaTexto: semAcento(conversa.map((m) => m.content).join('\n')), textoPaciente: semAcento(conversa.filter((m) => m.role === 'user').map((m) => m.content).join('\n')), pedidoOrcamento: PEDIU_ORCAMENTO.test(conversa.filter((m) => m.role === 'user').slice(-4).map((m) => semAcento(m.content)).join(' \n ')), saida: { confirmacoes: [], usadas: [] } };
+  // "consulta nova ou retorno?" já perguntado nesta conversa (mesmo sem ferramenta) e o paciente escreveu depois: não pergunta de novo
+  const perguntaTipo = conversa.map((m) => m.role === 'assistant' && /\bnova ou (um )?retorno\b/.test(semAcento(m.content))).lastIndexOf(true);
+  c.respondeuTipo = perguntaTipo >= 0 && conversa.slice(perguntaTipo + 1).some((m) => m.role === 'user');
   // custo: o começo da conversa (serviço, unidade, preço, orçamento, informação) vai no modelo barato; a partir do momento em que
   // horários foram mostrados (escolha, cadastro, pagamento, pix, agendamento) e na correção da trava, sempre o modelo principal.
   // Testes 18/11: o gpt-4.1-mini se perdia no cadastro de paciente novo (sexo/nome/pagamento) e deixava de agendar.

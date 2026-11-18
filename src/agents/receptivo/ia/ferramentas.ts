@@ -47,6 +47,7 @@ export type Contexto = {
   ultimaDoPaciente?: string; // a última mensagem do paciente (sem acento, minúscula)
   conversaTexto?: string; // a conversa recente inteira, dos dois lados (sem acento, minúscula)
   textoPaciente?: string; // só o que o paciente escreveu na conversa recente (sem acento, minúscula)
+  respondeuTipo?: boolean; // a Amanda já perguntou "consulta nova ou retorno?" na conversa (com ou sem ferramenta) e o paciente escreveu depois
   pedidoOrcamento?: boolean; // o paciente pediu ORÇAMENTO: regra da clínica, vai para o atendimento principal (a IA não monta)
   lerPedidos?: () => Promise<(PedidoLido | null)[]>; // TODAS as imagens recentes do paciente, cada uma lida como pedido médico (álbum de fotos)
   /** preenchidos pelas ferramentas: o que o código faz depois da resposta */
@@ -156,6 +157,46 @@ async function descobertaParaModelo(d: Descoberta, c: Contexto): Promise<unknown
  * O serviço aberto faz parte de algum combo que sai mais em conta? Anexa ao resultado (uma vez por serviço, no máximo 6 s de espera)
  * para a Amanda citar o combo logo depois do valor. Caso real: o paciente pediu a consulta e só soube do combo porque perguntou.
  */
+// ------------------------------------------------------------------------------------------------ consulta nova ou retorno
+export const PERGUNTA_TIPO = 'É uma consulta nova ou um retorno?';
+/** Consulta avulsa (fora de combo/etapa e que não é o próprio serviço de retorno): passa pela pergunta "nova ou retorno?". */
+export const ehConsultaAvulsa = (sv: Servico, mem: MemoriaIA, id = sv.id) => sv.tipo === 'consulta' && !sv.combo && !sv.pacote && !sv.retorno && !mem.etapas?.[id];
+/**
+ * REGRA DA CLÍNICA (18/11/2026): toda consulta pergunta UMA vez "É uma consulta nova ou um retorno?". Devolve o que o paciente já respondeu.
+ * Depois da pergunta (feita por ferramenta ou direto no texto), qualquer resposta sem "retorno" vale como consulta nova: nunca fica em loop.
+ * Com `marcar`, registra que a pergunta está sendo feita agora.
+ */
+function tipoDaConsulta(sv: Servico, c: Contexto, marcar: boolean): 'nova' | 'retorno' | undefined {
+  const doPaciente = c.textoPaciente ?? '';
+  // o paciente falou em retorno (e não "não é retorno"): é retorno, diga o modelo o que disser
+  const disseRetorno = /\bretorno\b|\bretornar\b/.test(doPaciente.replace(/nao (e|eh|sou de|quero) (um |o )?retorno/g, ''));
+  // disse que é nova (expressões completas: "o primeiro"/"a primeira" sozinhos são a escolha de uma opção, não "primeira vez")
+  const disseNova = /\bnova\b|\b(sou|paciente) nov[oa]\b|primeira (vez|consulta)|primeiro atendimento|\b1a vez\b|\bnunca (fui|vim|passei|consultei|fiz)\b|consulta normal|nao (e|eh|sou de|quero) (um |o )?retorno/.test(doPaciente);
+  // teste 18/11: o modelo trocava a pergunta por "é consulta nova com a Dra. X?" e o "sim" não era entendido; e perguntava sem ferramenta e repetia 3x
+  const perguntouEm = c.mem.perguntouTipo?.[sv.id];
+  const respondeu = (perguntouEm !== undefined && doPaciente.length > perguntouEm) || c.respondeuTipo === true;
+  let tipo: 'nova' | 'retorno' | undefined = c.mem.tipoConsulta?.[sv.id];
+  if (disseRetorno) tipo = 'retorno';
+  else if (disseNova || respondeu) tipo = 'nova';
+  if (tipo) (c.mem.tipoConsulta ??= {})[sv.id] = tipo;
+  else if (marcar && perguntouEm === undefined) (c.mem.perguntouTipo ??= {})[sv.id] = doPaciente.length;
+  return tipo;
+}
+/**
+ * Serviço aberto para o modelo: em CONSULTA cujo tipo ainda não se sabe, o valor e os combos ficam de fora até o paciente responder
+ * (caso real 18/11: "preciso de clinico geral" virou R$ 90 + combo antes de saber se era retorno, que não tem custo).
+ * Consulta nova: valor e combos normais. Retorno: sem valor e sem combo, segue a regra do retorno.
+ */
+async function servicoParaModelo(r: any, c: Contexto): Promise<unknown> {
+  const sv = r?.resultado === 'servico' ? c.mem.servicos[r.servico_id] : undefined;
+  if (!sv || !ehConsultaAvulsa(sv, c.mem, r.servico_id)) return comCombos(r, c);
+  const tipo = tipoDaConsulta(sv, c, true);
+  if (tipo === 'nova') return comCombos(r, c);
+  const { preco: _preco, ...semValor } = r;
+  if (tipo === 'retorno') return { ...semValor, tipo_consulta: 'retorno', orientacao: 'O paciente disse que é RETORNO: NÃO cite valor nem combo. Peça nome completo e data de nascimento (ou CPF), chame buscar_paciente e depois verificar_retorno com este servico_id.' };
+  return { ...semValor, pergunta_obrigatoria: PERGUNTA_TIPO, orientacao: `CONSULTA: antes de falar valor, combo ou horários, pergunte exatamente "${PERGUNTA_TIPO}" (pode ir junto com a unidade, ex.: "${PERGUNTA_TIPO} E prefere a unidade Guamá ou Telégrafo?"). NÃO cite valor nem combo nesta resposta. Quando ele responder consulta nova, chame abrir_servico com este servico_id para ter o valor.` };
+}
+
 async function comCombos(r: any, c: Contexto): Promise<unknown> {
   if (r?.resultado !== 'servico' || r.combo || !c.fonte.combosComServico) return r;
   const sv = c.mem.servicos[r.servico_id];
@@ -286,7 +327,7 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
           const unica = opcaoPeloNome(t, d.opcoes, true);
           if (unica) { const aberto = await f.resolver(unica.id); if (aberto && 'servico' in aberto) d = aberto; }
         }
-        return comCombos(await descobertaParaModelo(d, c), c);
+        return servicoParaModelo(await descobertaParaModelo(d, c), c);
       }
       case 'abrir_servico': {
         let id = String(args.servico_id);
@@ -297,7 +338,7 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
           if (pelaNome) { id = pelaNome.id; d = await f.resolver(id).catch(() => undefined); }
         }
         if (!d) return { erro: 'servico_id inválido: use EXATAMENTE um servico_id devolvido pela busca', opcoes_validas: c.mem.ultimasOpcoes?.map((o) => ({ servico_id: o.id, nome: o.nome })) };
-        return comCombos(await descobertaParaModelo(d, c), c);
+        return servicoParaModelo(await descobertaParaModelo(d, c), c);
       }
       case 'servico_com_profissional': {
         const sv = await acharServico(String(args.servico_id), c);
@@ -308,33 +349,17 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
         if (!real) return { erro: 'esse profissional não atende este serviço', profissionais_do_servico: nomesMedicos(nomes) };
         const com = await f.comProfissional?.(sv, real);
         if (!com) return { erro: 'não consegui abrir a agenda desse profissional' };
-        return { resultado: 'servico', ...(await resumoServico(com, c)) };
+        return servicoParaModelo({ resultado: 'servico', ...(await resumoServico(com, c)) }, c);
       }
       case 'ver_horarios': {
         const sv = await acharServico(String(args.servico_id), c);
         if (!sv) return { erro: 'servico_id desconhecido: use buscar_servico' };
         // o COMBO inteiro não tem agenda própria: os horários são de cada etapa (caso real de teste 18/11: "sem agenda" no combo virou "não temos vaga" ao paciente)
         // REGRA DA CLÍNICA (18/11/2026): toda consulta pergunta se é consulta nova ou retorno; retorno é conferido no Clinilink antes dos horários
-        const consultaAvulsa = sv.tipo === 'consulta' && !sv.combo && !sv.pacote && !c.mem.etapas?.[String(args.servico_id)];
         if (sv.retorno && !c.mem.retornos?.[sv.id]) return { erro: 'é RETORNO: antes, identifique o paciente (buscar_paciente) e chame verificar_retorno com este servico_id; depois use o servico_id_retorno que ela devolver.' };
-        if (consultaAvulsa && !sv.retorno) {
-          const doPaciente = c.textoPaciente ?? '';
-          // o paciente falou em retorno (e não "não é retorno"): é retorno, diga o modelo o que disser
-          const disseRetorno = /\bretorno\b|\bretornar\b/.test(doPaciente.replace(/nao (e|eh|sou de|quero) (um |o )?retorno/g, ''));
-          // disse que é nova (expressões completas: "o primeiro"/"a primeira" sozinhos são a escolha de uma opção, não "primeira vez")
-          const disseNova = /\bnova\b|\b(sou|paciente) nov[oa]\b|primeira (vez|consulta)|primeiro atendimento|\b1a vez\b|\bnunca (fui|vim|passei|consultei|fiz)\b|consulta normal|nao (e|eh|sou de|quero) (um |o )?retorno/.test(doPaciente);
-          // a pergunta é feita UMA vez: se o paciente já escreveu depois dela e não falou em retorno, segue como consulta nova
-          // (teste 18/11: o modelo trocava a pergunta por "é consulta nova com a Dra. X?" e o "sim" não era entendido: ficava em loop)
-          const perguntouEm = c.mem.perguntouTipo?.[sv.id];
-          const respondeu = perguntouEm !== undefined && doPaciente.length > perguntouEm;
-          let tipo: 'nova' | 'retorno' | undefined = c.mem.tipoConsulta?.[sv.id];
-          if (disseRetorno) tipo = 'retorno';
-          else if (disseNova || respondeu) tipo = 'nova';
-          if (!tipo) {
-            (c.mem.perguntouTipo ??= {})[sv.id] = doPaciente.length;
-            return { erro: 'CONSULTA: antes de mostrar horários, pergunte exatamente "É uma consulta nova ou um retorno?" (pode ir junto com o que falta). Não mostre horários nesta resposta.' };
-          }
-          (c.mem.tipoConsulta ??= {})[sv.id] = tipo;
+        if (ehConsultaAvulsa(sv, c.mem, String(args.servico_id))) {
+          const tipo = tipoDaConsulta(sv, c, true);
+          if (!tipo) return { erro: `CONSULTA: antes de mostrar horários, pergunte exatamente "${PERGUNTA_TIPO}" (pode ir junto com o que falta). Não mostre horários nesta resposta.` };
           if (tipo === 'retorno') return { erro: 'é RETORNO: NÃO mostre horários de consulta nova. Peça os dados do paciente (nome completo e data de nascimento, ou CPF), chame buscar_paciente e depois verificar_retorno com este servico_id.' };
         }
         if (sv.pacote) return { erro: 'este servico_id é o COMBO inteiro: os horários são por etapa. Chame etapa_do_combo (este servico_id, etapa 1 ou a próxima que falta) e use em ver_horarios o servico_id que ela devolver. NÃO diga ao paciente que não há vaga.' };
