@@ -34,16 +34,16 @@ const MAX_RODADAS = 10;
  * Provedor principal: OpenAI (IA_PROVEDOR=claude troca). Se o principal falhar (sem crédito, fora do ar, limite) e houver chave do outro,
  * a resposta sai pelo outro: a Amanda não para (caso real 16/11: a OpenAI ficou sem crédito e tudo foi para a equipe).
  */
-export async function pensar(system: string, conversa: Msg[], c: Contexto): Promise<Resposta> {
+export async function pensar(system: string, conversa: Msg[], c: Contexto, modeloOpenai?: string): Promise<Resposta> {
   const temOpenai = Boolean(env.openaiKey), temClaude = Boolean(env.anthropicKey);
   const principalClaude = process.env.IA_PROVEDOR === 'claude' ? temClaude : !temOpenai && temClaude;
   const principal = principalClaude ? comClaude : comOpenai;
   const reserva = principalClaude ? (temOpenai ? comOpenai : undefined) : (temClaude ? comClaude : undefined);
-  try { return await principal(system, conversa, c); }
+  try { return await (principal === comOpenai ? comOpenai(system, conversa, c, modeloOpenai) : principal(system, conversa, c)); }
   catch (e) {
     if (!reserva) throw e;
     evt('erro', { mensagem: `IA: provedor principal falhou, usando a reserva: ${(e as Error).message.slice(0, 160)}` });
-    return reserva(system, conversa, c);
+    return reserva === comOpenai ? comOpenai(system, conversa, c, modeloOpenai) : reserva(system, conversa, c);
   }
 }
 
@@ -55,8 +55,8 @@ async function rodarFerramenta(nome: string, args: unknown, c: Contexto, log: Re
   return r;
 }
 
-async function comOpenai(system: string, conversa: Msg[], c: Contexto): Promise<Resposta> {
-  const modelo = env.iaModeloOpenai;
+async function comOpenai(system: string, conversa: Msg[], c: Contexto, modeloOpenai?: string): Promise<Resposta> {
+  const modelo = modeloOpenai || env.iaModeloOpenai;
   const tools = DEFINICOES.map((d) => ({ type: 'function', function: { name: d.name, description: d.description, parameters: d.parameters } }));
   const msgs: any[] = [{ role: 'system', content: system }, ...conversa];
   const log: Resposta['ferramentas'] = [];

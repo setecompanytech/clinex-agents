@@ -139,6 +139,18 @@ export async function demandaPorProcedimento(): Promise<Map<string, number>> {
 /** Um agendamento já feito, SÓ com o que o fluxo precisa (nome, telefone e o resto do paciente ficam de fora desta camada). */
 export type AgendamentoFeito = { pacienteId?: string; procedimentoIds: string[]; status: string; dataHora?: string; agendaHoraInicio?: string | null; profissional?: string; unidadeId: string };
 
+/** Atendimentos de um profissional numa unidade, num período (status de quem foi atendido). Para conferir RETORNO. Dado pessoal: nunca em cache e nunca logado. */
+export async function listAtendidosDoProfissional(unidadeId: string, profissionalId: string, dataInicial: string, dataFinal: string) {
+  const saida: { pacienteId?: string; procedimentoIds: string[]; ymd: string; profissional?: { id: string; nome: string } }[] = [];
+  for (let offset = 0; offset < 2000; offset += 500) {
+    const r = await get<{ total?: number; agendamentos: { dataHora?: string; paciente?: { id?: string }; profissional?: { id: string; nome: string } | null; procedimentos?: { id: string }[] }[] }>(
+      '/v1/agendamento/agendamentos', { unidadeId, profissionalId, dataInicial, dataFinal, status: 'atendido,quitado,checkin', limite: '500', offset: String(offset) });
+    for (const a of r.agendamentos ?? []) saida.push({ pacienteId: a.paciente?.id, procedimentoIds: (a.procedimentos ?? []).map((p) => p.id), ymd: String(a.dataHora ?? '').slice(0, 10), profissional: a.profissional ?? undefined });
+    if (offset + 500 >= (r.total ?? 0)) break;
+  }
+  return saida;
+}
+
 /** Agendamentos (não cancelados) de uma unidade em um dia. Dado pessoal: guardado só 1 min em memória e nunca logado. */
 export const listAgendamentosDoDia = (unidadeId: string, ymd: string) =>
   memo(`feitos:${unidadeId}:${ymd}`, 60_000, async () => {

@@ -39,6 +39,7 @@ export type Servico = {
   detalhe?: string; // texto a mais depois do resumo das unidades (combo: o que está incluso)
   combo?: { id: string; nome: string; itens: { id: string; nome: string; lab?: boolean }[]; ancoraId: string; semCombo?: boolean }; // semCombo: vários exames agendados juntos que NÃO são de um combo (o agendamento não leva comboId)
   // // uma ETAPA do combo com vários serviços (exames de laboratório): o horário é o da âncora, os outros entram no mesmo dia
+  retorno?: boolean; // procedimento de RETORNO de consulta (sem custo, mesmo profissional da consulta anterior)
   pacote?: ComboInfo; // o COMBO inteiro, escolhido pelo paciente: o roteiro o transforma em etapas (cada uma vira um serviço normal, agendado em sequência)
 };
 
@@ -55,7 +56,7 @@ export type Descoberta =
 
 /** Um período de atendimento (ordem de chegada) numa data. `inicio` = hora em que a agenda abre. */
 export type Slot = { ymd: string; turno: Periodo; inicio: string; profissional?: string; profissionalId?: string; profissionalBruto?: string; unidade?: string /* só nas listas que misturam unidades */ };
-export type PacienteInfo = { id?: string; nome: string };
+export type PacienteInfo = { id?: string; nome: string; nascimento?: string /* YYYY-MM-DD, quando o cadastro tem */ };
 export type AgendamentoExistente = { unidade: string; hora?: string; periodo?: Periodo; profissional?: string };
 
 export type PedidoReserva = {
@@ -94,6 +95,10 @@ export interface Fonte {
   paciente(cpf: string): Promise<PacienteInfo | null>;
   /** Paciente sem CPF: procura pelos telefones e confere nome parecido e nascimento; null se não achar com segurança. */
   pacientePorDados?(d: { nome: string; nascimento: string; telefones: string[] }): Promise<PacienteInfo | null>;
+  /** Última consulta (atendida) do paciente na especialidade do serviço, nos últimos `dias`; null se não houver. */
+  ultimaConsulta?(sv: Servico, pacienteId: string, dias: number): Promise<{ ymd: string; profissional?: { id: string; nome: string }; unidade?: string } | null>;
+  /** O serviço de RETORNO da especialidade (com agenda), com o profissional da consulta anterior; undefined se não houver agenda. */
+  retornoDe?(sv: Servico, profissional?: { id: string; nome: string }): Promise<Servico | undefined>;
   /** O mesmo serviço, só com o profissional citado (agenda dele, nas unidades dele). undefined se ele não atende esse serviço. */
   comProfissional?(sv: Servico, nome: string): Promise<Servico | undefined>;
   /** Só a fonte real: combos que incluem o serviço e saem mais em conta (para sugerir a quem pediu só o serviço). */

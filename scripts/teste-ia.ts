@@ -18,6 +18,8 @@ const fonte: Fonte = {
 };
 
 const CASOS: Record<string, string[]> = {
+  // caso real 18/11: pediu clínico geral e recebeu R$ 90 + combo antes da pergunta "consulta nova ou retorno?"
+  clinicoRetorno: ['Bom dia quero fazer uma consulta', 'preciso de clinico geral', 'guama', 'é nova'],
   gineco: ['oi', 'quero agendar ginecologista', 'guamá', 'o primeiro', 'Maria Clara Souza 12/03/1990', 'pode ser esse número mesmo', 'feminino', 'na recepção', 'beleza', 'obrigada, só isso'],
   ultra: ['boa tarde, vocês fazem ultrassom?', 'obstétrica', 'tem pra essa semana?'],
   matheus: ['Oi, quero marcar USG obstétrico', 'telegrafo com a Ana Clara', 'pode ser o primeiro'],
@@ -52,6 +54,11 @@ const CASOS: Record<string, string[]> = {
   horario1: ['oi, qual o horário de funcionamento de vocês?'],
   horario2: ['vocês abrem sábado? até que horas?'],
   horario3: ['boa tarde', 'até que horas vocês atendem hoje? posso ir à tarde fazer exame de sangue?', 'guamá'],
+  retorno1: ['oi, quero marcar um retorno com a ginecologista', 'guamá', 'Maria Clara Souza 12/03/1990, pode ser esse número', 'é a primeira vez então'],
+  nova1: ['quero marcar consulta com cardiologista', 'guamá', 'é consulta nova', 'o primeiro'],
+  ronaldo: ['quero marcar com o clínico geral', 'guamá', 'consulta nova, com o Dr Felipe', 'esse combo inclui só esses exames?', 'quero o combo', 'o primeiro', 'Ronaldo Teste Castro 10/10/1985, pode ser este número', 'é a primeira vez, masculino'],
+  japago: ['Amanda, eu havia pago um combo de gastro. Para consulta, endoscopia e ultrassom', 'pra mim mesmo', 'foi o segundo', 'pode ser o primeiro horário', 'Carlos Teste Machado 29/08/1993, esse contato mesmo'],
+  yago: ['quero marcar clinico geral', 'guamá', 'é consulta nova', 'o primeiro'],
   dados: ['quero marcar consulta com clinico geral amanhã', 'qualquer unidade', 'pode ser', 'Nome: Aline Ferreira Costa\nData de nascimento: 05/07/1988\nsexo feminino', 'vou pagar na recepção'],
 };
 
@@ -64,10 +71,10 @@ async function rodar(nome: string, falas: string[]) {
     history.push({ _id: `in${history.length}`, direction: 'in', type: fala === '[imagem]' || fala.startsWith('[foto:') ? 'image' : 'text', text: fala === '[imagem]' || fala.startsWith('[foto:') ? null : fala, createdAt: new Date(t += 20_000).toISOString() } as any);
     console.log(`\n👤 ${fala.replace(/\n/g, ' | ')}`);
     const t0 = Date.now();
-    const r = await atenderComIA({ history, titulos: ['Amanda S. (Clinex):'], telefone: '5591988887777', nomeContato: 'Teste', fonte, memoria: mem, lerPedidos: async () => Promise.all(falas.filter((x) => x.startsWith('[foto:')).map((x) => import('../src/lib/pedidoMedico.js').then((m) => m.analisarPedidoMedico(require('node:fs').readFileSync(x.slice(6, -1)), 'image/jpeg')))), lerComprovante: async () => ({ tipo: 'comprovante', valor: 90, destinatario: 'CLINICA CLINEX', chave: 'clinicaclinex@gmail.com', status: 'concluido' }) as any });
+    const r = await atenderComIA({ history, titulos: ['Amanda S. (Clinex):'], telefone: '5591988887777', nomeContato: process.env.CONTATO ?? 'Teste', fonte, memoria: mem, lerPedidos: async () => Promise.all(falas.filter((x) => x.startsWith('[foto:')).map((x) => import('../src/lib/pedidoMedico.js').then((m) => m.analisarPedidoMedico(require('node:fs').readFileSync(x.slice(6, -1)), 'image/jpeg')))), lerComprovante: async () => ({ tipo: 'comprovante', valor: 90, destinatario: 'CLINICA CLINEX', chave: 'clinicaclinex@gmail.com', status: 'concluido' }) as any });
     if (!r) { console.log('   (sem resposta)'); continue; }
     mem = r.mem;
-    console.log(`🤖 [${((Date.now() - t0) / 1000).toFixed(1)}s | ${r.resposta.ferramentas.map((f) => `${f.nome}(${f.ms}ms)`).join(', ') || 'sem ferramenta'}]${r.handoff ? ` [TRANSFERE: ${r.handoff.motivo}]` : ''}${r.encerrar ? ' [ENCERRA]' : ''}`);
+    console.log(`🤖 [${r.resposta.modelo} ${((Date.now() - t0) / 1000).toFixed(1)}s | ${r.resposta.ferramentas.map((f) => `${f.nome}(${f.ms}ms)`).join(', ') || 'sem ferramenta'}]${r.handoff ? ` [TRANSFERE: ${r.handoff.motivo}]` : ''}${r.encerrar ? ' [ENCERRA]' : ''}`);
     console.log(r.texto.split('\n').map((l) => `   ${l}`).join('\n'));
     for (const n of (r as any).notas ?? []) console.log('   [NOTA INTERNA] ' + n.split('\n').join(' | ').slice(0, 260));
     for (const f of r.resposta.ferramentas) if (/erro/.test(f.res)) console.log(`   ⚠ ${f.nome} ${JSON.stringify(f.args)} -> ${f.res}`);
