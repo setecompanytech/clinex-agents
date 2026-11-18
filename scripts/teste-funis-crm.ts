@@ -8,6 +8,7 @@ import { aplicarAutomacoes, atrasado, classeDaEtapa, diaBRT, estrelas, funisPadr
 import { FunilError, type CardSnap, type EstadoFunis } from '../src/crm/pipeline/tipos.js';
 import { mensagemDoLead } from '../src/crm/pipeline/api.js';
 import { criarLead } from '../src/crm/motor.js';
+import { alinharCardsAoFluxo, conferir, itemDaEtapa } from '../src/crm/conferencia.js';
 
 let ok = 0;
 const teste = (nome: string, fn: () => void) => { try { fn(); ok++; console.log(`  ok  ${nome}`); } catch (e) { console.error(`FALHOU  ${nome}\n        ${(e as Error).message}`); process.exitCode = 1; } };
@@ -209,5 +210,20 @@ teste('etiqueta "Mensagem enviada": só conta WhatsApp (IA, CRM ou registrado pe
   const m = mensagemDoLead(l)!; assert.equal(m.n, 1); assert.equal(m.msg, 1); assert.equal(m.porIA, true); assert.equal(m.peloCrm, true); assert.equal(m.ultima, '2026-11-02T14:00:00Z');
   ev('c', '2026-11-02T15:00:00Z', { canal: 'whatsapp', texto: 'Mandei pelo meu WhatsApp' });
   const m2 = mensagemDoLead(l)!; assert.equal(m2.n, 2); assert.equal(m2.porIA, false); assert.equal(m2.peloCrm, false, 'a última foi registrada pela equipe'); assert.equal(m2.ultima, '2026-11-02T15:00:00Z');
+});
+teste('conferência Pipelines x Fluxo: nomes de coluna viram etapa do Fluxo; alinhar move só cards de etapas de trabalho e é idempotente', () => {
+  assert.equal(itemDaEtapa('EM ABERTO'), 'aberto'); assert.equal(itemDaEtapa('PRIMEIRO CONTATO'), 'primeiro'); assert.equal(itemDaEtapa('RETORNO PERSONALIZADO'), 'retorno'); assert.equal(itemDaEtapa('EM NEGOCIAÇÃO'), 'negociacao');
+  assert.equal(itemDaEtapa('CONVERTIDO - ORGANICO'), 'organico'); assert.equal(itemDaEtapa('CONVERTIDO ATIVO'), 'ativo'); assert.equal(itemDaEtapa('Sem retorno'), 'semretorno'); assert.equal(itemDaEtapa('Descarte'), 'descarte'); assert.equal(itemDaEtapa('Outra'), null);
+  const est = novoEstado(); const f = funilDestino(est, 'orcamento', AGORA); ingerir(est, f, [snap('a'), snap('b'), snap('c')], AGORA);
+  const l = criarLead({ nome: 'Maria', telefone: '91981628017', valor: 300 }, AGORA); l.cardId = 'a';
+  const estado = { pipelines: est, leads: [l] } as never;
+  const r0 = conferir(estado, AGORA); assert.equal(r0.totais.pipeline, 3); assert.equal(r0.totais.fluxo, 1);
+  assert.equal(r0.linhas.find((x) => x.item === 'aberto')!.semLead, 2, 'dois cards sem lead');
+  const alvo = etapa(est, f.nome, 'DESCONTO'); moverCard(est.atribuicoes.find((a) => a.cardId === 'a')!, f, alvo, AGORA, { por: 'teste', manual: true });
+  const r1 = conferir(estado, AGORA); const d = r1.divergencias.find((x) => x.leadId === l.id);
+  if (d) { assert.equal(d.pipeline, 'Desconto'); assert.equal(d.alinhavel, d.fluxo !== 'Em aberto'); }
+  const al = alinharCardsAoFluxo(estado, AGORA, 'Conferência (Fluxo)'); const al2 = alinharCardsAoFluxo(estado, AGORA, 'Conferência (Fluxo)');
+  assert.equal(al2.movidos, 0, 'segunda vez não move nada'); assert.ok(al.movidos <= 1);
+  assert.ok(conferir(estado, AGORA).divergencias.every((x) => !x.alinhavel), 'depois de alinhar não sobra nada alinhável');
 });
 console.log(`${ok} testes passaram.`);

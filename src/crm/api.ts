@@ -26,6 +26,7 @@ import { responsaveis } from '../lib/usuarios.js';
 import { agenteComIA, alertasDoAgente, responderAgente } from './agente.js';
 import { ErroAgente, PERFIL_ROTULO, ROTULO_PERMISSAO, conversar, executarAcao, permissoesDe, type RespostaChat } from './agente-chat.js';
 import { falar, transcrever, vozDisponivel } from './agente-voz.js';
+import { alinharCardsAoFluxo, conferir } from './conferencia.js';
 
 /**
  * API do CRM (JSON), montada em /painel/crm/api. Toda regra do guia mora no motor; aqui só entra, valida e salva.
@@ -265,6 +266,16 @@ router.post('/agente/voz/transcrever', raw({ type: () => true, limit: '5mb' }), 
 });
 router.post('/agente/voz/falar', async (req, res, next) => {
   try { const audio = await falar(String((req.body ?? {}).texto ?? '')); res.setHeader('Cache-Control', 'no-store'); res.type('audio/mpeg').send(audio); } catch (e) { falhaAgente(res, e, next); }
+});
+
+/** Conferência Pipelines × Fluxo: onde os números diferem, por quê, e alinhar os cards ao Fluxo. */
+router.get('/conferencia', (_req, res) => { const agora = new Date(); automatizarTodos(agora); res.json(conferir(estado, agora)); });
+router.post('/conferencia/alinhar', (req, res) => {
+  if (!permissoesDe(req.sessao).has('alterar_leads')) return void res.status(403).json({ erro: 'permissao', mensagem: 'Sem permissão: o seu perfil não pode mover cards.' });
+  const agora = new Date(); automatizarTodos(agora);
+  const r = alinharCardsAoFluxo(estado, agora, 'Conferência (Fluxo)');
+  if (r.movidos) salvar();
+  res.json({ ...r, conferencia: conferir(estado, agora) });
 });
 
 router.get('/leads/:id', (req, res) => {

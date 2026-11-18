@@ -792,6 +792,20 @@ main#main.larga{max-width:none;margin-left:0;margin-right:0;padding-left:24px;pa
 .fv-quadro{scrollbar-width:thin;padding-right:10px}
 @media(min-width:1700px){main#main.larga{padding-left:32px;padding-right:32px}}
 .fv-tag.msg{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 50%,var(--line));background:color-mix(in srgb,var(--ok) 11%,transparent);font-weight:700}
+/* ===== conferência Pipelines x Fluxo (cf-) ===== */
+.cf-dif-b{border-color:color-mix(in srgb,var(--warn) 60%,var(--line))!important;color:var(--warn)!important}
+.cf-resumo{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:12px}.cf-resumo>div{display:flex;flex-direction:column;gap:2px;padding:12px 16px;border-radius:14px;background:var(--card);border:1px solid var(--line)}.cf-resumo b{font-size:26px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums}.cf-resumo span{font-size:12px;color:var(--mut)}
+.cf-resumo .cf-av b{color:var(--warn)}.cf-resumo .cf-bom b{color:var(--ok)}
+.cf-nota{font-size:13px;line-height:1.55;margin:0 0 14px;max-width:80ch}
+.cf-tab{flex:none;max-height:none;overflow-x:auto;overflow-y:hidden;border:1px solid var(--line);border-radius:14px}.cf-tab table{width:100%;border-collapse:collapse;font-size:13.5px}.cf-tab th,.cf-tab td{padding:10px 14px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}.cf-tab thead th{background:var(--card);font-size:11.5px;letter-spacing:.04em;color:var(--mut);white-space:nowrap}.cf-tab tbody th{font-weight:700;white-space:nowrap}.cf-tab .n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}.cf-tab tr:last-child>*{border-bottom:0}
+.cf-tab td.cf-bom{color:var(--ok);font-weight:800}.cf-tab td.cf-av{color:var(--warn);font-weight:800}.cf-tab tr.cf-ok{opacity:.8}
+.cf-chip{display:inline-block;margin:0 6px 4px 0;padding:3px 10px;border-radius:999px;font-size:12px;border:1px solid color-mix(in srgb,var(--warn) 45%,var(--line));background:color-mix(in srgb,var(--warn) 9%,transparent);color:var(--ink2)}
+.cf-tudo{display:flex;align-items:center;gap:10px;margin-top:16px;padding:14px 16px;border-radius:14px;border:1px solid color-mix(in srgb,var(--ok) 45%,var(--line));background:color-mix(in srgb,var(--ok) 9%,transparent);color:var(--ok);font-weight:700}
+.cf-acao{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:18px 0 6px;padding:14px 16px;border-radius:14px;background:var(--card);border:1px solid var(--line)}.cf-acao p{flex:1;min-width:260px;margin:0;font-size:12.5px;line-height:1.5}
+.cf-sub{font:800 11px ui-monospace,Consolas,monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--mut);margin:20px 0 10px}
+.cf-lista{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:8px}.cf-li{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;padding:10px 14px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--ink);text-align:left;cursor:pointer;transition:border-color .2s,transform .15s}.cf-li:hover{border-color:var(--cy);transform:translateX(3px)}
+.cf-n{min-width:0}.cf-n b{display:block;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cf-n small{color:var(--mut);font-size:11.5px}.cf-li em{font-style:normal;font:700 10.5px ui-monospace,Consolas,monospace;letter-spacing:.06em;padding:3px 9px;border-radius:999px;white-space:nowrap}.cf-ali{color:var(--ok);border:1px solid color-mix(in srgb,var(--ok) 50%,transparent)}.cf-nao{color:var(--mut);border:1px solid var(--line2)}
+@media(max-width:700px){.cf-resumo{grid-template-columns:1fr}}
 `;
 
 export const pagina = `<!doctype html>

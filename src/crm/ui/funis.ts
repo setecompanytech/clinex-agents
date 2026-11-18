@@ -84,6 +84,7 @@ function telaPipelines() {
   var cab = cabecalhoTela('Pipelines', 'Os funis do Clinilink com colunas, histórico e relatórios. O guia de atendimento entra por cima de cada card.', h('div', { class: 'tela-ac' }, FV.lista ? [
     h('select', { class: 'in', 'aria-label': 'Funil', onchange: function (e) { FV.id = e.target.value; gravarLS('crm-fv-id', FV.id); FV.dados = null; FV.mais = {}; FV.REL = null; FV.LOG = null; FV.EXE = null; fvRecarregarCards(); desenhar(true); } },
       FV.lista.map(function (f) { return h('option', { value: f.id, text: f.nome + ' (' + f.total + ')', selected: f.id === FV.id }); })),
+    cfBotao(),
     botao('Sincronizar Clinilink', '', function () { fvDialogoSync(); }, 'bolt'),
     botao('Configurar funil', '', function () { fvConfig(); }, 'edit'),
     FV.dados && FV.dados.funil.dimensao === 'lead' ? botao('Novo card', 'pri', function () { fvNovoCard(); }, 'plus') : null
