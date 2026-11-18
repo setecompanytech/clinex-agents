@@ -52,7 +52,7 @@ export type Contexto = {
   /** preenchidos pelas ferramentas: o que o código faz depois da resposta */
   /** horário comercial: agenda sem perguntar o pagamento antes; a confirmação vira nota interna; depois a equipe assume */
   modoComercial?: boolean;
-  saida: { notas?: string[]; agendouComercial?: { proxima?: string; primeiroNome?: string; retorno?: boolean }; confirmacoes: string[]; handoff?: { motivo: string; urgente?: boolean }; encerrar?: boolean; usadas: string[]; dados?: string[] /* resultados das ferramentas nesta resposta */ };
+  saida: { pedidoNaEquipe?: boolean; notas?: string[]; agendouComercial?: { proxima?: string; primeiroNome?: string; retorno?: boolean }; confirmacoes: string[]; handoff?: { motivo: string; urgente?: boolean }; encerrar?: boolean; usadas: string[]; dados?: string[] /* resultados das ferramentas nesta resposta */ };
 };
 
 // ------------------------------------------------------------------------------------------------ datas
@@ -547,6 +547,7 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
           const lidosExames = [...new Set(lidos.flatMap((p) => (p && p.tipo === 'pedido' && p.escrita !== 'manuscrita' ? p.exames : [])))];
           const manuscrito = lidos.some((p) => p?.escrita === 'manuscrita');
           c.saida.handoff = { motivo: `Paciente enviou ${lidos.length > 1 ? `${lidos.length} imagens` : 'imagem'} de pedido de exame${manuscrito ? ' (escrito à mão)' : ''}: a equipe confere o pedido e passa o orçamento/agendamento.${lidosExames.length ? ` Leitura automática (conferir): ${lidosExames.slice(0, 30).join(', ')}.` : ''}` };
+          c.saida.pedidoNaEquipe = true;
           return { pedido_com_a_equipe: true, orientacao: 'Pedido de exame em imagem é com a equipe: NÃO cite exames nem valores e NÃO chame orcar_exames. Avise numa frase curta que a equipe vai olhar o pedido e já responde por aqui.' };
         }
         // impresso/digitado (pedido, panfleto): ela lê e informa os valores do Clinilink; depois a equipe monta o orçamento

@@ -223,5 +223,10 @@ export async function atenderComIA(p: {
   }
   if (!texto && c.saida.handoff) texto = 'Vou passar pra alguém da equipe te ajudar com isso. Só um instante.';
   if (!texto) return null;
+  // foto de pedido de exame vai para a equipe: texto FIXO (pedido do usuário 18/11: sem "tá bom?" nem "posso ajudar em mais alguma coisa?"); só a saudação do 1º contato fica
+  if (c.saida.pedidoNaEquipe) {
+    const saudacao = texto.match(/^\s*(bom dia|boa tarde|boa noite|ol[aá]|oi)[!,.]?\s*(sou a amanda, da clinex[.!]?)?/i)?.[0]?.trim();
+    texto = `${saudacao ? `${saudacao} ` : ''}Recebi seu pedido de exame e já estou encaminhando para a equipe analisar. Eles vão responder aqui em breve com as informações.`;
+  }
   return { texto, notas: c.saida.notas ?? [], handoff: c.saida.handoff, encerrar: Boolean(c.saida.encerrar), agendou: c.saida.confirmacoes.length > 0 || Boolean(c.saida.agendouComercial), mem, resposta };
 }
