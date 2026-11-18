@@ -31,7 +31,6 @@ export type MemoriaIA = {
   fotoOrcamento?: boolean; // o paciente mandou foto IMPRESSA: depois de informar os valores, a conversa vai para a equipe montar o orçamento // comprovante de pix conferido (só com ele o agendamento pago por pix é gravado)
   combosVistos?: string[];
   ultimasOpcoes?: { id: string; nome: string }[]; // a última lista de opções mostrada (para abrir pelo nome, se o id vier errado)
-  perguntouCadastro?: boolean; // já foi perguntado se o paciente sem cadastro achado já foi atendido na Clinex (antes de cadastrar)
   perguntouTipo?: Record<string, number>; // consulta: já perguntou 'nova ou retorno?' (tamanho do texto do paciente naquele momento)
   tipoConsulta?: Record<string, 'nova' | 'retorno'>; // consulta: o paciente disse se é consulta nova ou retorno (por servico_id)
   retornos?: Record<string, { base: string; ultima: string; profissional?: string }>; // serviços de retorno conferidos (servico_id do retorno -> consulta anterior)
@@ -267,8 +266,8 @@ function telefonesDoPaciente(c: Contexto, informado?: unknown): string[] {
   if (/^\d{8,9}$/.test(t)) t = wa.slice(0, 2) + t;
   return [...new Set([wa, t].filter((x) => /^\d{10,11}$/.test(x)))];
 }
-/** Sem cadastro achado: antes de abrir um cadastro novo, perguntar se já foi atendido (caso real 18/11: paciente antigo cadastrado de novo). */
-const SEM_CADASTRO = 'Não achei cadastro com esse nome, nascimento e telefone. Antes de cadastrar, pergunte numa mensagem só se a pessoa já foi atendida na Clinex antes: se SIM, peça o CPF para localizar o cadastro (chame buscar_paciente com o cpf) e, se ela não tiver o CPF à mão, pergunte o telefone que ela usava no cadastro (buscar_paciente com nome, nascimento e esse telefone); se for a PRIMEIRA vez, siga com o cadastro (confirme o nome e pergunte o sexo). Se ele tinha pedido RETORNO e é a primeira vez, não existe consulta anterior: explique com delicadeza e ofereça consulta nova (com o valor).';
+/** Sem cadastro achado: paciente novo (o usuário NÃO quer a pergunta "você já foi atendido antes?", 18/11: só pedir os dados e consultar). */
+const SEM_CADASTRO = 'Paciente novo (não achei cadastro com esse nome, nascimento e telefone): o cadastro é feito no agendamento (confirme o nome e pergunte o sexo). Se ele tinha pedido RETORNO, não existe consulta anterior no cadastro: explique com delicadeza e ofereça consulta nova (com o valor).';
 
 // ------------------------------------------------------------------------------------------------ execução
 export async function executar(nome: string, args: any, c: Contexto): Promise<unknown> {
@@ -398,7 +397,6 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
           if (!nascIso) return { erro: 'data de nascimento inválida: peça para conferir (dia/mês/ano)' };
           const p = await f.pacientePorDados({ nome: String(args.nome_completo), nascimento: nascIso, telefones: telefonesDoPaciente(c, args.telefone) });
           if (p) { c.mem.paciente = { id: p.id, nome: p.nome, nascimento: nascIso }; return { encontrado: true, nome: p.nome, orientacao: 'Confirme só o nome com o paciente. Se for ele, use ESTE cadastro no agendar (não cadastre de novo).' }; }
-          c.mem.perguntouCadastro = true;
           return { encontrado: false, orientacao: SEM_CADASTRO };
         }
         return { erro: 'mande o CPF, ou nome completo e nascimento' };
@@ -457,9 +455,7 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
           const achado = f.pacientePorDados ? await f.pacientePorDados({ nome: nomeCompleto, nascimento: nasc, telefones: telefonesDoPaciente(c, args.telefone) }).catch(() => null) : null;
           if (achado) c.mem.paciente = { id: achado.id, nome: achado.nome, nascimento: nasc };
           else {
-            // REGRA (18/11/2026): sem cadastro achado, perguntar se já foi atendido ANTES de cadastrar (caso real: paciente antigo cadastrado de novo)
-            if (!c.mem.perguntouCadastro) { c.mem.perguntouCadastro = true; return { erro: `paciente sem cadastro achado. NÃO cadastre ainda. ${SEM_CADASTRO}` }; }
-            if (args.nome_confirmado !== true) return { erro: `paciente NOVO: antes de cadastrar, confirme o nome ("Vou cadastrar como ${nomeCompleto}, está certo?"). Só chame agendar de novo com nome_confirmado=true depois que ele disser que é a primeira vez e confirmar o nome.` };
+            if (args.nome_confirmado !== true) return { erro: `paciente NOVO: antes de cadastrar, confirme o nome com o paciente ("Vou cadastrar como ${nomeCompleto}, está certo?"). Só chame agendar de novo com nome_confirmado=true depois que ele confirmar.` };
             if (!args.sexo) return { erro: 'preciso do sexo do paciente (feminino ou masculino) para o cadastro: pergunte com respeito' };
           }
         }
@@ -543,10 +539,15 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
       case 'ler_pedido_medico': {
         // o paciente pode mandar várias fotos (álbum: cada página do pedido numa foto): lê todas e junta os exames, sem repetir
         const lidos = (await c.lerPedidos?.()) ?? [];
-        // REGRA DA CLÍNICA: escrito À MÃO -> não tenta ler, passa direto para o atendimento principal
-        if (lidos.some((p) => p?.escrita === 'manuscrita')) {
-          c.saida.handoff = { motivo: 'Paciente enviou pedido/imagem com texto ESCRITO À MÃO: a equipe lê o pedido e faz o orçamento.' };
-          return { manuscrito: true, orientacao: 'Texto escrito à mão: NÃO leia nem cite exames. Avise numa frase curta que a equipe vai olhar o pedido e já passa o orçamento por aqui.' };
+        if (!lidos.length) return { erro: 'não há foto de pedido na conversa' };
+        // REGRA DA CLÍNICA (18/11/2026): TODA imagem de pedido de exame (impressa, à mão, ilegível ou outra imagem) vai para a equipe,
+        // sem a Amanda citar exames nem valores. Só o panfleto/anúncio da própria Clinex continua com ela (abre o combo).
+        const soPanfleto = lidos.every((p) => p?.tipo === 'panfleto');
+        if (!soPanfleto) {
+          const lidosExames = [...new Set(lidos.flatMap((p) => (p && p.tipo === 'pedido' && p.escrita !== 'manuscrita' ? p.exames : [])))];
+          const manuscrito = lidos.some((p) => p?.escrita === 'manuscrita');
+          c.saida.handoff = { motivo: `Paciente enviou ${lidos.length > 1 ? `${lidos.length} imagens` : 'imagem'} de pedido de exame${manuscrito ? ' (escrito à mão)' : ''}: a equipe confere o pedido e passa o orçamento/agendamento.${lidosExames.length ? ` Leitura automática (conferir): ${lidosExames.slice(0, 30).join(', ')}.` : ''}` };
+          return { pedido_com_a_equipe: true, orientacao: 'Pedido de exame em imagem é com a equipe: NÃO cite exames nem valores e NÃO chame orcar_exames. Avise numa frase curta que a equipe vai olhar o pedido e já responde por aqui.' };
         }
         // impresso/digitado (pedido, panfleto): ela lê e informa os valores do Clinilink; depois a equipe monta o orçamento
         if (lidos.some((p) => p?.tipo === 'pedido' || p?.tipo === 'panfleto')) c.mem.fotoOrcamento = true;
