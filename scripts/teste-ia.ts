@@ -52,6 +52,10 @@ const CASOS: Record<string, string[]> = {
   horario1: ['oi, qual o horário de funcionamento de vocês?'],
   horario2: ['vocês abrem sábado? até que horas?'],
   horario3: ['boa tarde', 'até que horas vocês atendem hoje? posso ir à tarde fazer exame de sangue?', 'guamá'],
+  retorno1: ['oi, quero marcar um retorno com a ginecologista', 'guamá', 'Maria Clara Souza 12/03/1990, pode ser esse número', 'é a primeira vez então'],
+  nova1: ['quero marcar consulta com cardiologista', 'guamá', 'é consulta nova', 'o primeiro'],
+  ronaldo: ['quero marcar com o clínico geral', 'guamá', 'consulta nova, com o Dr Felipe', 'esse combo inclui só esses exames?', 'quero o combo', 'o primeiro', 'Ronaldo Teste Castro 10/10/1985, pode ser este número', 'é a primeira vez, masculino'],
+  japago: ['Amanda, eu havia pago um combo de gastro. Para consulta, endoscopia e ultrassom', 'pra mim mesmo', 'foi o segundo', 'pode ser o primeiro horário', 'Carlos Teste Machado 29/08/1993, esse contato mesmo'],
   dados: ['quero marcar consulta com clinico geral amanhã', 'qualquer unidade', 'pode ser', 'Nome: Aline Ferreira Costa\nData de nascimento: 05/07/1988\nsexo feminino', 'vou pagar na recepção'],
 };
 

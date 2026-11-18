@@ -1,5 +1,5 @@
 import { soTelefone } from './engine.js';
-import { criarAgendamento, criarOrdemServico, criarPaciente, demandaPorProcedimento, getPacientePorCpf, getPacientesPorTelefone, listAgendamentosDoDia, listAgenda, listAgendaFresca, listClinicas, listCombos, listProcedimentos, listProfissionais, type Clinica, type Combo, type Horario, type Paciente, type Procedimento } from '../../../integrations/clinilink.js';
+import { criarAgendamento, criarOrdemServico, criarPaciente, demandaPorProcedimento, getPacientePorCpf, getPacientesPorTelefone, listAgendamentosDoDia, listAtendidosDoProfissional, listAgenda, listAgendaFresca, listClinicas, listCombos, listProcedimentos, listProfissionais, type Clinica, type Combo, type Horario, type Paciente, type Procedimento } from '../../../integrations/clinilink.js';
 import { env } from '../../../lib/env.js';
 import { exibir, prepararGeneros } from '../../../lib/genero.js';
 import { evt } from '../../../lib/log.js';
@@ -20,6 +20,10 @@ const hojeYmd = (d = new Date()) => new Intl.DateTimeFormat('en-CA', { timeZone:
 const somaDias = (ymd: string, n: number) => { const [y, m, d] = ymd.split('-').map(Number); const dt = new Date(Date.UTC(y, m - 1, d)); dt.setUTCDate(dt.getUTCDate() + n); return dt.toISOString().slice(0, 10); };
 const periodoDe = (inicio?: string): Periodo => (inicio && inicio < '12:00' ? 'manhã' : 'tarde');
 /** REGRA DA CLÍNICA: exames, laboratório e demais procedimentos (tudo que não é consulta) só nas agendas da manhã. */
+/** Especialidade pelo nome do procedimento: "CONSULTA GINECOLOGISTA" e "CONSULTA GINECOLOGISTA - RETORNO" dão "ginecologista". */
+const FORA_DA_CHAVE = new Set(['consulta', 'retorno', 'de', 'da', 'do', 'com', 'e', 'em']);
+export const chaveEspecialidade = (nome: string) => norm(nome).split(/[^a-z0-9]+/).filter((w) => w.length >= 2 && !FORA_DA_CHAVE.has(w)).sort().join(' ');
+const ehRetornoProc = (nome: string) => /\bretorno\b/i.test(nome);
 const ehConsultaProc = (p: { nome: string; categoria?: string | null }) => /consulta/i.test(p.nome) || /consulta/i.test(p.categoria ?? '');
 /** Exame só de manhã: o horário de verdade (não só o começo da agenda) tem de ser antes do meio-dia. Uma agenda das 7h às 17h não deixa passar 16h40.
  *  DESLIGADO desde 13/11/2026 (a clínica liberou as agendas da tarde para exames). Para voltar: EXAMES_SO_MANHA=true. */
@@ -37,9 +41,10 @@ function pontuar(p: Procedimento, texto = '') {
   return (n.includes('consulta') ? 2 : 0) + (p.categoria && /consulta/i.test(p.categoria) ? 1 : 0) - (/^retorno|\bretorno\b/.test(n) ? 5 : 0) + (citou ? 6 : 0);
 }
 
-/** Hoje o começo da agenda (ex.: 14h) já passou: vale o primeiro horário livre que sobrou. Nos outros dias, o começo da agenda (ordem de chegada). */
-const inicioMostrado = (h: Horario) => { const bloco = h.agendaHoraInicio ?? h.hora; return h.data === hojeYmd() && h.hora > bloco ? h.hora : bloco; };
-/** Período do horário como o paciente vai ver: pelo horário mostrado (hoje às 16h40 é tarde, mesmo numa agenda que começou de manhã). */
+/** REGRA DA CLÍNICA (18/11/2026): o horário falado ao paciente é SEMPRE o início da agenda (ordem de chegada, ex.: "a partir das 8h"), nunca o slot livre
+ * (antes, hoje, mostrava o primeiro slot que sobrou: "a partir das 9h24"). O agendamento continua gravado no slot livre. */
+const inicioMostrado = (h: Horario) => h.agendaHoraInicio ?? h.hora;
+/** Período do horário como o paciente vai ver: pelo início da agenda. */
 function turnoDe(h: Horario): Periodo { return periodoDe(inicioMostrado(h)); }
 const slotDe = (h: Horario): Slot => {
   const inicio = inicioMostrado(h);
@@ -96,6 +101,7 @@ async function montar(c: Cand, prof?: { id: string; nome: string }): Promise<Des
     profissional: prof ? { id: prof.id, nome: titulo(prof.nome) } : undefined,
     unidades: comAgenda.map(({ u, medicos, proc }): Unidade => ({ id: u.id, nome: nomeUnidade(u), profissionais: medicos, precoPix: precoDe(proc), nomeBruto: u.nome, endereco: u.endereco, telefone: u.telefone })), precoTexto,
     nomeBruto: c.proc.nome,
+    ...(ehRetornoProc(c.proc.nome) ? { retorno: true } : {}),
     preparo: preparoUtil(c.proc.preparo),
     categoria: c.proc.categoria,
   };
@@ -423,6 +429,21 @@ const palavrasEmComum = (informado: string, cadastro: string) => { const c = pal
  * O paciente certo entre os cadastros do telefone. Nascimento diferente nunca é a mesma pessoa (mãe e filha dividem o telefone e o sobrenome).
  * Nascimento igual: basta uma palavra do nome. Cadastro sem nascimento: precisa de duas. Empate = não dá para saber quem é.
  */
+/**
+ * O nome informado na hora de agendar é o do cadastro já encontrado nesta conversa? Aceita nome parcial e erro de digitação
+ * ("Maria Clara Souza" = "Maria Clara Souza Lima"); nascimento diferente nunca é a mesma pessoa; sem nascimento para comparar,
+ * precisa de duas palavras em comum ou do mesmo primeiro nome ("Rosa Maria Lima" NÃO é "Marcos Silva Lima").
+ * Caso real 18/11: o cadastro foi achado, o nome digitado não era idêntico e a Amanda criou um paciente novo.
+ */
+export function mesmoCadastro(cad: { nome: string; nascimento?: string }, nome: string, nascimento?: string): boolean {
+  if (norm(cad.nome) === norm(nome)) return true;
+  if (cad.nascimento && nascimento && cad.nascimento !== nascimento) return false;
+  const comum = palavrasEmComum(nome, cad.nome);
+  if (cad.nascimento && nascimento) return comum >= 1;
+  const p1 = palavrasDoPaciente(nome)[0], p2 = palavrasDoPaciente(cad.nome)[0];
+  return comum >= 2 || (comum >= 1 && Boolean(p1 && p2 && palavraParecida(p1, p2)));
+}
+
 export function melhorPaciente<T extends Pick<Paciente, 'id' | 'nome' | 'dataNascimento'>>(lista: T[], nome: string, nascimento: string): T | null {
   const pontuados = lista.flatMap((p) => {
     const nasc = p.dataNascimento?.slice(0, 10);
@@ -1141,7 +1162,7 @@ export const fonteClinilink: Fonte = {
   async paciente(cpf) {
     const lista = await getPacientePorCpf(cpf);
     const p = lista[0];
-    return p ? { id: p.id, nome: titulo(p.nome) } : null;
+    return p ? { id: p.id, nome: titulo(p.nome), nascimento: p.dataNascimento?.slice(0, 10) || undefined } : null;
   },
 
   async comProfissional(sv, nome) {
@@ -1154,12 +1175,45 @@ export const fonteClinilink: Fonte = {
     return undefined;
   },
 
+  async ultimaConsulta(sv, pacienteId, dias) {
+    const k = chaveEspecialidade(sv.nomeBruto ?? sv.nome);
+    if (!k) return null;
+    const itens = await catalogo();
+    // consultas da especialidade (não os retornos): "CLINICO GERAL CONSULTA" e "CONSULTA CLÍNICO GERAL" contam as duas
+    const consultas = itens.filter((i) => ehConsultaProc(i.cand.proc) && !ehRetornoProc(i.cand.proc.nome) && chaveEspecialidade(i.cand.proc.nome) === k);
+    const ids = new Set(consultas.map((i) => i.cand.proc.id));
+    if (!ids.size) return null;
+    const fim = hojeYmd(), ini = somaDias(fim, -dias);
+    // quem atende a especialidade em cada unidade: a busca é por profissional (a lista da unidade inteira é grande demais)
+    const pares = new Map<string, { u: Clinica; p: { id: string; nome: string } }>();
+    await Promise.all(consultas.flatMap((i) => i.cand.clinicas.map(async (u) => { for (const p of await listProfissionais(u.id, i.cand.proc.id).catch(() => [])) pares.set(`${u.id}|${p.id}`, { u, p }); })));
+    const achados: { ymd: string; profissional?: { id: string; nome: string }; unidade?: string }[] = [];
+    await Promise.all([...pares.values()].map(async ({ u, p }) => {
+      for (const a of await listAtendidosDoProfissional(u.id, p.id, ini, fim)) {
+        if (a.pacienteId === pacienteId && a.procedimentoIds.some((id) => ids.has(id))) { const pr = a.profissional ?? p; achados.push({ ymd: a.ymd, profissional: { id: pr.id, nome: titulo(pr.nome) }, unidade: nomeUnidade(u) }); }
+      }
+    }));
+    achados.sort((a, b) => b.ymd.localeCompare(a.ymd));
+    return achados[0] ?? null;
+  },
+
+  async retornoDe(sv, profissional) {
+    const k = chaveEspecialidade(sv.nomeBruto ?? sv.nome);
+    if (!k) return undefined;
+    const cands = (await catalogo()).filter((i) => ehRetornoProc(i.cand.proc.nome) && chaveEspecialidade(i.cand.proc.nome) === k);
+    for (const i of cands) {
+      const d = await montar(i.cand, profissional);
+      if (d && 'servico' in d) { conhecidos.set(i.cand.proc.id, i.cand); return { ...d.servico, retorno: true }; }
+    }
+    return undefined;
+  },
+
   async pacientePorDados({ nome, nascimento, telefones }) {
     const formas = [...new Set(telefones.flatMap(formasDoTelefone))];
     const achados = new Map<string, Paciente>();
     for (const l of await emLotes(formas, 2, getPacientesPorTelefone)) for (const p of l) achados.set(p.id, p);
     const p = melhorPaciente([...achados.values()], nome, nascimento);
-    return p ? { id: p.id, nome: titulo(p.nome) } : null;
+    return p ? { id: p.id, nome: titulo(p.nome), nascimento: p.dataNascimento?.slice(0, 10) || nascimento } : null;
   },
 };
 

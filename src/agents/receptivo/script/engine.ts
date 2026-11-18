@@ -670,7 +670,7 @@ function formasDePagamento(pagoPix: number | undefined, valor: number | undefine
     : 'PAGO NO PIX (comprovante recebido)';
 }
 /** O modelo de confirmação da clínica para UM agendamento (as linhas que a recepção escreve). */
-function modeloDaClinica(p: { paciente: string; profissional: string; procedimento: string; unidade: Unidade; ymd: string; hora?: string; valor?: number; formas: string; rotuloValor?: string }): string {
+function modeloDaClinica(p: { paciente: string; profissional: string; procedimento: string; unidade: Unidade; ymd: string; hora?: string; valor?: number; formas: string; rotuloValor?: string; retorno?: boolean }): string {
   const hora = (p.hora ?? '').slice(0, 5);
   const u = p.unidade;
   return [
@@ -681,8 +681,7 @@ function modeloDaClinica(p: { paciente: string; profissional: string; procedimen
     `🏥 Clínica: ${u.nomeBruto ?? `CLINEX ${u.nome.toLocaleUpperCase('pt-BR')}`}`,
     ...(u.endereco ? [`📍 Endereço: ${u.endereco}`] : []),
     ...(u.telefone ? [`☎ Telefone: ${u.telefone}`, `📲 WhatsApp: ${u.telefone}`] : []),
-    `${p.rotuloValor ?? 'Valor particular'}: ${p.valor ? reais(p.valor) : 'a confirmar na recepção'}`,
-    `Formas de pagamento: ${p.formas}`,
+    ...(p.retorno ? ['Valor: RETORNO, sem custo'] : [`${p.rotuloValor ?? 'Valor particular'}: ${p.valor ? reais(p.valor) : 'a confirmar na recepção'}`, `Formas de pagamento: ${p.formas}`]),
   ].join('\n');
 }
 
@@ -719,7 +718,7 @@ export function mensagemConfirmacao(p: { paciente: string; novoCadastro: boolean
   const prof = profissionalNoModelo(p.profissionalBruto);
   // etapa com vários exames: cada serviço agendado, com o profissional (ou a sala) do cadastro, como a atendente escreve
   const proc = p.linhas?.length ? p.linhas.join(', ') : `${p.servico.nomeBruto ?? p.servico.nome.toLocaleUpperCase('pt-BR')}${prof ? ` - ${prof}` : ''}`;
-  const modelo = modeloDaClinica({ paciente: p.paciente, profissional: prof, procedimento: `${proc}${p.sufixoProcedimento ? ` ${p.sufixoProcedimento}` : ''}`, unidade: p.unidade, ymd: p.ymd, hora: p.hora, valor: p.valor, formas: formasDePagamento(p.pagoPix, p.valor), rotuloValor: p.rotuloValor });
+  const modelo = modeloDaClinica({ paciente: p.paciente, profissional: prof, procedimento: `${proc}${p.sufixoProcedimento ? ` ${p.sufixoProcedimento}` : ''}`, unidade: p.unidade, ymd: p.ymd, hora: p.hora, valor: p.valor, formas: formasDePagamento(p.pagoPix, p.valor), rotuloValor: p.rotuloValor, retorno: p.servico.retorno });
   return [
     `${MARCA_AGENDADO}! Deu tudo certo${p.primeiroNome ? `, ${p.primeiroNome}` : ''}.${p.novoCadastro ? ` Cadastro de ${p.paciente} feito.` : ''}`,
     modelo,

@@ -156,7 +156,7 @@ export async function atenderComIA(p: {
   const telWa = p.telefone.replace(/\D/g, '').replace(/^55(?=\d{10,11}$)/, '');
   const modoComercial = noHorarioComercial(agora);
   const system = promptAmanda({ modoComercial, agora, nomeContato: p.nomeContato, telefone: telWa.length === 11 ? `(${telWa.slice(0, 2)}) ${telWa.slice(2, 7)}-${telWa.slice(7)}` : telWa, primeiraResposta, mem, unidades: listaUnidades, hoje });
-  const c: Contexto = { modoComercial, fonte: p.fonte, mem, telefone: p.telefone, agora, lerComprovante: p.lerComprovante, lerPedidos: p.lerPedidos, ultimaDoPaciente: semAcento(conversa.filter((m) => m.role === 'user').slice(-1)[0]?.content ?? ''), pedidoOrcamento: PEDIU_ORCAMENTO.test(conversa.filter((m) => m.role === 'user').slice(-4).map((m) => semAcento(m.content)).join(' \n ')), saida: { confirmacoes: [], usadas: [] } };
+  const c: Contexto = { modoComercial, fonte: p.fonte, mem, telefone: p.telefone, agora, lerComprovante: p.lerComprovante, lerPedidos: p.lerPedidos, ultimaDoPaciente: semAcento(conversa.filter((m) => m.role === 'user').slice(-1)[0]?.content ?? ''), conversaTexto: semAcento(conversa.map((m) => m.content).join('\n')), textoPaciente: semAcento(conversa.filter((m) => m.role === 'user').map((m) => m.content).join('\n')), pedidoOrcamento: PEDIU_ORCAMENTO.test(conversa.filter((m) => m.role === 'user').slice(-4).map((m) => semAcento(m.content)).join(' \n ')), saida: { confirmacoes: [], usadas: [] } };
   // custo: o começo da conversa (serviço, unidade, preço, orçamento, informação) vai no modelo barato; a partir do momento em que
   // horários foram mostrados (escolha, cadastro, pagamento, pix, agendamento) e na correção da trava, sempre o modelo principal.
   // Testes 18/11: o gpt-4.1-mini se perdia no cadastro de paciente novo (sexo/nome/pagamento) e deixava de agendar.
@@ -173,7 +173,7 @@ export async function atenderComIA(p: {
   const cadastroInventado = (t: string) => /(?<!n[aã]o )\b(encontrei|achei|localizei)\b.{0,20}\bcadastro\b/i.test(t) && !mem.paciente?.id && !(c.saida.dados ?? []).some((d) => d.includes('"encontrado":true'));
   // recalculado a cada conferência: a 2ª tentativa pode ter acabado de consultar o combo
   const temCombo = () => Object.values(mem.servicos).some((x) => x.pacote || x.combo) || Boolean(mem.combosOferecidos?.length) || Boolean(Object.keys(mem.etapas ?? {}).length) || Boolean(mem.ultimasOpcoes?.some((o) => o.id.startsWith('combo'))) || (c.saida.dados ?? []).some((d) => /combo/i.test(d)) || /\bcombos?\b/i.test(doPaciente);
-  const regras = (t: string) => [...(/\bcombo\b/i.test(t) && !temCombo() ? ['"combo" sem combo nesta conversa (não cite combo que não existe no atendimento)'] : []), ...(/\b(ja |já )?te retorno\b|\bvou te retornar\b|\bte dou um retorno\b/i.test(t) ? ['"te retorno" (você não retorna depois: se a equipe vai continuar, diga que a equipe vai mandar e transfira)'] : []),...(agendouSemAgendar(t) ? ['"agendado" sem ter agendado (o agendamento só existe depois da ferramenta agendar dar certo; diga que vai reservar e peça o que falta)'] : []), ...(cadastroInventado(t) ? ['"encontrei o cadastro" sem ter consultado (chame buscar_paciente antes de dizer que achou)'] : [])];
+  const regras = (t: string) => [...(/\b(vamos|vou|podemos|pode(mos)?|a gente vai) manter o (valor|preço|preco)\b|\bmanter (o )?(valor|preço|preco) (combinado|antigo|anterior|que (voce|você) pagou)\b/i.test(t) ? ['promessa de manter valor/condição (só a equipe pode confirmar valor combinado antes; transfira para a equipe)'] : []), ...(/\bcombo\b/i.test(t) && !temCombo() ? ['"combo" sem combo nesta conversa (não cite combo que não existe no atendimento)'] : []), ...(/\b(ja |já )?te retorno\b|\bvou te retornar\b|\bte dou um retorno\b/i.test(t) ? ['"te retorno" (você não retorna depois: se a equipe vai continuar, diga que a equipe vai mandar e transfira)'] : []),...(agendouSemAgendar(t) ? ['"agendado" sem ter agendado (o agendamento só existe depois da ferramenta agendar dar certo; diga que vai reservar e peça o que falta)'] : []), ...(cadastroInventado(t) ? ['"encontrei o cadastro" sem ter consultado (chame buscar_paciente antes de dizer que achou)'] : [])];
   let ruins = c.saida.confirmacoes.length ? [] : [...inventados(resposta.texto, fontesDe(), doPaciente), ...regras(resposta.texto)];
   if (ruins.length) {
     evt('erro', { mensagem: 'IA: resposta com dado que não veio do Clinilink (refazendo)', itens: ruins, rascunho: resposta.texto.slice(0, 400) });
@@ -195,7 +195,11 @@ export async function atenderComIA(p: {
     const ac = c.saida.agendouComercial;
     // não diz que está reservado: quem passa as informações do agendamento é a equipe (regra de 16/11/2026)
     if (ac.proxima) texto = `Perfeito! ${ac.proxima}`;
-    else {
+    else if (ac.retorno) {
+      // retorno não tem pagamento: a equipe só envia a confirmação
+      texto = `Perfeito${ac.primeiroNome ? `, ${ac.primeiroNome}` : ''}! A equipe já te envia a confirmação do seu retorno por aqui.`;
+      c.saida.handoff = { motivo: 'RETORNO agendado pela Amanda (sem custo; consulta anterior conferida no Clinilink). Falta: enviar a confirmação ao paciente (a confirmação pronta está na nota interna).' };
+    } else {
       texto = `Perfeito${ac.primeiroNome ? `, ${ac.primeiroNome}` : ''}! Qual a sua forma de pagamento?`;
       c.saida.handoff = { motivo: 'Agendamento feito pela Amanda (horário comercial). Falta: combinar a forma de pagamento e enviar a confirmação ao paciente (a confirmação pronta está na nota interna).' };
     }
