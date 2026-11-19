@@ -166,7 +166,9 @@ export async function atenderComIA(p: {
   // Testes 18/11: o gpt-4.1-mini se perdia no cadastro de paciente novo (sexo/nome/pagamento) e deixava de agendar.
   // combo em jogo (várias etapas, uma de cada vez): também vai no principal
   const comboEmJogo = Object.values(mem.servicos).some((x) => x.pacote) || Object.keys(mem.etapas ?? {}).length > 0;
-  const etapaDeAgendar = comboEmJogo || Object.keys(mem.slots).length > 0 || Boolean(mem.paciente) || mem.agendados.length > 0 || Boolean(mem.pix);
+  // RETORNO (achar o cadastro, conferir a consulta anterior): também no principal (19/11: o mini não buscava o cadastro e só repetia a pergunta da unidade)
+  const retornoEmJogo = Object.values(mem.tipoConsulta ?? {}).includes('retorno') || /\bretorno\b|\bretornar\b/.test((c.textoPaciente ?? '').replace(/nao (e|eh|sou de|quero) (um |o )?retorno/g, ''));
+  const etapaDeAgendar = comboEmJogo || retornoEmJogo || Object.keys(mem.slots).length > 0 || Boolean(mem.paciente) || mem.agendados.length > 0 || Boolean(mem.pix);
   const leve = env.iaModeloOpenaiLeve && env.iaModeloOpenaiLeve !== 'off' && !etapaDeAgendar ? env.iaModeloOpenaiLeve : undefined;
   let resposta = await pensar(system, conversa, c, leve);
   // conferência: médico ou valor que não veio do Clinilink -> refaz UMA vez, obrigando a consultar; se insistir, não envia o inventado

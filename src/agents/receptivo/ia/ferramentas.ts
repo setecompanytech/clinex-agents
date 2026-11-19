@@ -311,6 +311,11 @@ function telefonesDoPaciente(c: Contexto, informado?: unknown): string[] {
 /** Sem cadastro achado: paciente novo (o usuário NÃO quer a pergunta "você já foi atendido antes?", 18/11: só pedir os dados e consultar). */
 const SEM_CADASTRO = 'Paciente novo (não achei cadastro com esse nome, nascimento e telefone): o cadastro é feito no agendamento (confirme o nome e pergunte o sexo). Se ele tinha pedido RETORNO, não existe consulta anterior no cadastro: explique com delicadeza e ofereça consulta nova (com o valor).';
 
+/** RETORNO e o cadastro não apareceu pelo nome, nascimento e telefone: localizar pelo CPF (o paciente já é da clínica). */
+const SEM_CADASTRO_RETORNO = 'Se nome, nascimento e telefone não acharem o cadastro: quem pede RETORNO já é paciente e o cadastro pode estar com outro telefone. Peça o CPF para localizar o cadastro ("Pra eu localizar seu cadastro, pode me passar seu CPF?") e chame buscar_paciente com o cpf; sem o CPF à mão, peça o telefone que ela usa no cadastro (buscar_paciente com nome, nascimento e esse telefone). NÃO cadastre de novo. Só se nem assim aparecer, explique com delicadeza que não localizou e passe para a equipe conferir (transferir_para_humano com o nome, o nascimento e o que ela pediu).';
+/** A conversa é de RETORNO (o paciente pediu retorno ou a consulta já foi marcada como retorno). */
+const pedindoRetorno = (c: Contexto) => Object.values(c.mem.tipoConsulta ?? {}).includes('retorno') || /\bretorno\b|\bretornar\b/.test((c.textoPaciente ?? '').replace(/nao (e|eh|sou de|quero) (um |o )?retorno/g, ''));
+
 // ------------------------------------------------------------------------------------------------ execução
 export async function executar(nome: string, args: any, c: Contexto): Promise<unknown> {
   c.saida.usadas.push(nome);
@@ -400,7 +405,7 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
         if (sv.tipo !== 'consulta') return { erro: 'retorno é só de consulta' };
         if (!f.ultimaConsulta || !f.retornoDe) return { erro: 'não consigo conferir o retorno agora: transfira para a equipe' };
         const pid = c.mem.paciente?.id;
-        if (!pid) return { erro: 'para conferir o retorno preciso do cadastro do paciente: peça nome completo e data de nascimento (ou CPF) e chame buscar_paciente. Sem cadastro, não há consulta anterior: explique com delicadeza e ofereça consulta nova.' };
+        if (!pid) return { erro: `para conferir o retorno preciso achar o cadastro do paciente: peça nome completo e data de nascimento e chame buscar_paciente. ${SEM_CADASTRO_RETORNO}` };
         (c.mem.tipoConsulta ??= {})[sv.id] = 'retorno';
         const ult = await f.ultimaConsulta(sv, pid, DIAS_RETORNO).catch(() => undefined);
         if (ult === undefined) return { erro: 'não consegui consultar o histórico agora: transfira para a equipe conferir o retorno (transferir_para_humano com o resumo)' };
@@ -425,6 +430,9 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
           if (!nascIso) return { erro: 'data de nascimento inválida: peça para conferir (dia/mês/ano)' };
           const p = await f.pacientePorDados({ nome: String(args.nome_completo), nascimento: nascIso, telefones: telefonesDoPaciente(c, args.telefone) });
           if (p) { c.mem.paciente = { id: p.id, nome: p.nome, nascimento: nascIso }; return { encontrado: true, nome: p.nome, orientacao: 'Confirme só o nome com o paciente. Se for ele, use ESTE cadastro no agendar (não cadastre de novo).' }; }
+          // RETORNO: quem pede retorno JÁ é paciente; o cadastro pode estar com outro telefone (caso real 19/11, Josiane: nome e nascimento certos,
+          // WhatsApp diferente do telefone do cadastro). Pede o CPF para localizar; nunca abre cadastro novo nesse caso.
+          if (pedindoRetorno(c)) return { encontrado: false, orientacao: SEM_CADASTRO_RETORNO };
           return { encontrado: false, orientacao: SEM_CADASTRO };
         }
         return { erro: 'mande o CPF, ou nome completo e nascimento' };
@@ -538,7 +546,7 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
         // HORÁRIO COMERCIAL: a confirmação NÃO vai ao paciente; vira nota interna para o operador. Depois: próxima etapa do combo, ou
         // a pergunta da forma de pagamento e a passagem para a equipe (montadas em atender.ts)
         if (comercial) {
-          (c.saida.notas ??= []).push(`📋 Confirmação do agendamento feito pela Amanda (enviar ao paciente depois de combinar a forma de pagamento):\n\n${confirmacao.replace(/\n\nSe puder, chega cedinho[\s\S]*$/, '')}`);
+          (c.saida.notas ??= []).push(`📋 ${sv.retorno ? 'Confirmação do RETORNO agendado pela Amanda (sem custo; consulta anterior conferida no Clinilink). Enviar ao paciente' : 'Confirmação do agendamento feito pela Amanda (enviar ao paciente depois de combinar a forma de pagamento)'}:\n\n${confirmacao.replace(/\n\nSe puder, chega cedinho[\s\S]*$/, '')}`);
           const pendente = proxima && !/todas as etapas/.test(proxima) ? proxima : undefined;
           c.saida.agendouComercial = { proxima: pendente, primeiroNome: quem.split(' ')[0], retorno: sv.retorno };
           return { ok: true, orientacao: pendente ? 'Agendado. NÃO mande confirmação nem dados e NÃO diga que está reservado. O sistema já oferece a próxima etapa do combo: não escreva nada.' : 'Agendado. NÃO mande confirmação nem dados e NÃO pergunte nada: o sistema pergunta a forma de pagamento e passa para a equipe. Não escreva nada.' };
