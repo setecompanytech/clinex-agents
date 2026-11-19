@@ -53,10 +53,14 @@ function cfCorpo(d, m) {
     h('p', { class: 'mut', text: t.alinhaveis ? 'Move esses cards para a coluna que o Fluxo mostra. Fica registrado no histórico do card ("Conferência (Fluxo)"). Cards em colunas de status (agendado, convertido, descarte) seguem a sincronização automática.' : 'Nenhum destes cards pode ser movido automaticamente; o motivo está em cada linha.' })
   ]);
   var lista = h('ul', { class: 'cf-lista' }, d.divergencias.slice(0, 120).map(function (x) {
-    return h('li', null, h('button', { type: 'button', class: 'cf-li', onclick: function () { abrirLead(x.leadId); } }, [
-      h('span', { class: 'cf-n' }, [h('b', { text: x.nome }), h('small', { text: 'Fluxo: ' + x.fluxo + '  ·  Pipelines: ' + x.pipeline })]),
-      x.alinhavel ? h('em', { class: 'cf-ali', text: 'alinhável' }) : h('em', { class: 'cf-nao', title: x.motivo || '', text: 'não automático' })
-    ]));
+    var bAli = x.alinhavel ? botao('Levar o card para ' + x.fluxo, '', function (e) { cfAlinharUm(m, x, e.currentTarget); }, 'arrow') : null;
+    var bLead = x.statusSugerido ? botao('Mudar o lead para onde o card está', '', function () { cfMudarLead(m, x); }, 'edit') : null;
+    return h('li', { class: 'cf-it' }, [
+      h('button', { type: 'button', class: 'cf-li', title: x.motivo || '', onclick: function () { abrirLead(x.leadId); } }, [
+        h('span', { class: 'cf-n' }, [h('b', { text: x.nome }), h('small', { text: 'Fluxo: ' + x.fluxo + '  ·  Pipelines: ' + x.pipeline + (x.motivo ? '  ·  ' + x.motivo : '') })])
+      ]),
+      h('div', { class: 'cf-ac' }, [bAli, bLead])
+    ]);
   }));
   return topo.concat([acao, h('h4', { class: 'cf-sub', text: 'Quem está diferente' + (d.divergencias.length >= 120 ? ' (primeiros 120)' : '') }), lista], semPar);
 }
@@ -75,6 +79,25 @@ function cfSemPar(d) {
     }))]);
   }
   return [bloco('Leads do Fluxo sem card nos Pipelines', lead), bloco('Cards dos Pipelines sem lead no Fluxo', card)];
+}
+/* ação de uma linha: levar só este card para a coluna do Fluxo */
+function cfAlinharUm(m, x, btn) {
+  btn.setAttribute('disabled', 'true');
+  api('POST', '/conferencia/alinhar', { leadId: x.leadId }).then(function (r) {
+    CF.d = r.conferencia; CF.t = Date.now(); cfAtualizarBotoes();
+    if (typeof FV !== 'undefined') { FV.dados = null; }
+    aviso(r.movidos ? 'Card de ' + x.nome + ' levado para ' + x.fluxo + '.' : 'Este card não pôde ser movido.', r.movidos ? 'ok' : 'aviso');
+    limpar(m.corpo); kids(m.corpo, cfCorpo(CF.d, m));
+    carregar(true).catch(function () { /* a tela se atualiza na próxima */ });
+  }).catch(function (e) { aviso(e.message, 'erro'); btn.removeAttribute('disabled'); });
+}
+/* ação de uma linha: mudar o lead para o status que combina com a coluna do card (abre o Mudar status já preenchido) */
+function cfMudarLead(m, x) {
+  api('GET', '/leads/' + x.leadId).then(function (l) {
+    dialogoMudarStatus(l, x.statusSugerido, function () {
+      cfPedir(true).then(function (d) { limpar(m.corpo); kids(m.corpo, cfCorpo(d, m)); });
+    });
+  }).catch(function (e) { aviso(e.message, 'erro'); });
 }
 function cfAlinhar(m, btn, n) {
   if (!window.confirm('Mover ' + n + (n === 1 ? ' card' : ' cards') + ' para a coluna que o Fluxo mostra? Isso muda a posição deles nos Pipelines e fica no histórico dos cards.')) return;

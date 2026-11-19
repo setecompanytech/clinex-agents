@@ -33,7 +33,9 @@ export function itemDaEtapa(label: string): string | null {
 const etapaDoItem = (f: Funil, item: string): Etapa | undefined => f.stages.find((e) => itemDaEtapa(e.label) === item);
 const itemDoLeadNaConferencia = (l: Lead, agora: Date) => { const i = vistaDoLead(l, agora).item; return i === 'reativacao' ? 'descarte' : i; };
 
-export type Divergencia = { leadId: string; cardId: string; nome: string; fluxo: string; pipeline: string; alinhavel: boolean; motivo?: string };
+export type Divergencia = { leadId: string; cardId: string; nome: string; fluxo: string; pipeline: string; alinhavel: boolean; motivo?: string; statusSugerido: string | null };
+/** Em que status o lead precisa estar para ficar na mesma etapa que a coluna onde o card está (usado em "Mudar o lead para onde o card está"). */
+const STATUS_DO_ITEM: Record<string, string> = { aberto: 'aberto', primeiro: 'aberto', tentativa: 'sem_retorno', desconto: 'sem_retorno', semretorno: 'sem_retorno', retorno: 'retorno', negociacao: 'negociacao', agendado: 'agendado', ativo: 'convertido_ativo', organico: 'convertido_organico', descarte: 'descarte' };
 /** Quem não tem par do outro lado: lead sem card visível (sem card, card removido do funil, card em outro funil) ou card sem lead. */
 export type SemPar = { tipo: 'lead_sem_card' | 'card_sem_lead'; leadId: string | null; cardId: string | null; nome: string; etapa: string; motivo: string };
 export type LinhaConferencia = { item: string; rotulo: string; fluxo: number; pipeline: number; semCard: number; semLead: number; cardEmOutra: number; leadEmOutro: number };
@@ -72,9 +74,9 @@ export function conferir(estado: Estado, agora: Date) {
     else if (!TRABALHO.has(cardItem) && cardItem !== 'negociacao') motivo = 'O card está numa coluna de status (agendado, convertido, descarte...): vale o último movimento, e a sincronização automática resolve.';
     else if (!TRABALHO.has(item) && item !== 'negociacao') motivo = 'O lead já está em uma etapa de status: a sincronização automática move o card ou o lead (vale o último movimento).';
     else if (!alvo) motivo = 'O funil não tem coluna para esta etapa do Fluxo.';
-    else if (alvo.id === f.stages[0].id) motivo = 'Um card não volta para a primeira coluna (Em aberto) depois de sair dela.';
+    else if (alvo.id === f.stages[0].id) motivo = 'Um card não volta para a primeira coluna (Em aberto) depois de sair dela. Para igualar, registre o contato feito no lead (Registrar contato).';
     else alinhavel = true;
-    divergencias.push({ leadId: l.id, cardId: a.cardId, nome: l.nome, fluxo: rotulo(item), pipeline: rotulo(cardItem ?? '?'), alinhavel, motivo });
+    divergencias.push({ leadId: l.id, cardId: a.cardId, nome: l.nome, fluxo: rotulo(item), pipeline: rotulo(cardItem ?? '?'), alinhavel, motivo, statusSugerido: cardItem && STATUS_DO_ITEM[cardItem] && STATUS_DO_ITEM[cardItem] !== STATUS_DO_ITEM[item] ? STATUS_DO_ITEM[cardItem] : null });
   }
   for (const a of cards) {
     const e = etapaAtual(a), item = e ? itemDaEtapa(e.label) : null, li = item ? linhas.get(item) : undefined; if (!li) continue;
@@ -92,12 +94,13 @@ export function conferir(estado: Estado, agora: Date) {
 }
 
 /** Move os cards que o Fluxo e o Pipelines contam de forma diferente para a coluna do Fluxo. Só mexe em cards de etapas de trabalho; o resto fica com a sincronização por status. */
-export function alinharCardsAoFluxo(estado: Estado, agora: Date, por: string): { movidos: number; ignorados: { nome: string; motivo: string }[] } {
+export function alinharCardsAoFluxo(estado: Estado, agora: Date, por: string, soLeadId?: string): { movidos: number; ignorados: { nome: string; motivo: string }[] } {
   const f = estado.pipelines.funis.find((x) => x.dimensao === 'orcamento');
   if (!f) return { movidos: 0, ignorados: [] };
   const cards = new Map(visiveis(f, estado.pipelines.atribuicoes).filter((a) => a.funilId === f.id).map((a) => [a.cardId, a]));
   let movidos = 0; const ignorados: { nome: string; motivo: string }[] = [];
   for (const l of estado.leads) {
+    if (soLeadId && l.id !== soLeadId) continue;
     const a = l.cardId ? cards.get(l.cardId) : undefined; if (!a) continue;
     const item = itemDoLeadNaConferencia(l, agora), e = etapaDe(f, a.stageId), cardItem = e ? itemDaEtapa(e.label) : null;
     if (!cardItem || cardItem === item || (!TRABALHO.has(cardItem) && cardItem !== 'negociacao') || (!TRABALHO.has(item) && item !== 'negociacao')) continue;

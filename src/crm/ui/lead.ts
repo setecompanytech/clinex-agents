@@ -441,8 +441,8 @@ function dialogoAgendou(l) {
 var STATUS_DEST = [['aberto', 'Em aberto', 'Recomeça o fluxo inicial hoje (Primeiro contato, Nova tentativa, Desconto).'], ['sem_retorno', 'Sem retorno', 'Segue para o Encerramento (Msg 4).'], ['negociacao', 'Em negociação', 'Entra na cadência da negociação a partir de hoje.'], ['retorno', 'Retorno personalizado', 'Escolha a data combinada: nela o lead entra na fila com a mensagem 9.'], ['agendado', 'Agendado', 'Informe a data (e a hora) do agendamento.'], ['convertido_ativo', 'Convertido ativo', 'Compareceu e pagou.'], ['convertido_organico', 'Convertido orgânico', 'O paciente foi direto à recepção. Não entrar em contato.'], ['descarte', 'Descarte', 'Escolha o motivo.']];
 function statusAtualDe(l) { return l.status === 'negociacao' && l.retornoData ? 'retorno' : l.status; }
 function rotuloStatusDest(k) { return STATUS_DEST.filter(function (x) { return x[0] === k; })[0][1]; }
-function dialogoMudarStatus(l) {
-  var atual = statusAtualDe(l), alvo = '', motivoD = '';
+function dialogoMudarStatus(l, pre, depois) {
+  var atual = statusAtualDe(l), alvo = pre && pre !== atual ? pre : '', motivoD = '';
   var erro = h('p', { class: 'callout aviso', style: 'display:none' });
   var extra = h('div', { class: 'ms-extra' });
   var data = h('input', { class: 'in', type: 'date', min: S.D.hoje, 'aria-label': 'Data' });
@@ -455,7 +455,7 @@ function dialogoMudarStatus(l) {
     if (falha) { erro.textContent = falha; erro.style.display = ''; return; }
     salvarBtn.setAttribute('disabled', 'true');
     agir(l.id, { tipo: 'status', para: alvo, data: data.value || undefined, hora: hora.value || undefined, motivo: motivoD || undefined, observacao: obs.value.trim() || undefined })
-      .then(function () { m.fechar(); aviso('Lead movido para ' + rotuloStatusDest(alvo) + '.', 'ok'); })
+      .then(function () { m.fechar(); aviso('Lead movido para ' + rotuloStatusDest(alvo) + '.', 'ok'); if (depois) depois(); })
       .catch(function (e) { erro.textContent = e.message; erro.style.display = ''; salvarBtn.removeAttribute('disabled'); });
   });
   function pintarExtra() {

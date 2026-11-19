@@ -273,7 +273,8 @@ router.get('/conferencia', (_req, res) => { const agora = new Date(); automatiza
 router.post('/conferencia/alinhar', (req, res) => {
   if (!permissoesDe(req.sessao).has('alterar_leads')) return void res.status(403).json({ erro: 'permissao', mensagem: 'Sem permissão: o seu perfil não pode mover cards.' });
   const agora = new Date(); automatizarTodos(agora);
-  const r = alinharCardsAoFluxo(estado, agora, 'Conferência (Fluxo)');
+  const so = typeof req.body?.leadId === 'string' ? req.body.leadId : undefined; // sem leadId = todos os alinháveis
+  const r = alinharCardsAoFluxo(estado, agora, 'Conferência (Fluxo)', so);
   if (r.movidos) salvar();
   res.json({ ...r, conferencia: conferir(estado, agora) });
 });
