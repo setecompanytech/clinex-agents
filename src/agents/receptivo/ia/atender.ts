@@ -227,6 +227,13 @@ export async function atenderComIA(p: {
     texto = 'Pra não te fazer perder tempo, vou passar pra alguém da equipe te ajudar com isso. Só um instante.';
     c.saida.handoff = { motivo: 'A Amanda não conseguiu entender o pedido depois de 2 tentativas (foto/áudio/mensagem). Ver a conversa e atender.' };
   }
+  // REGRA DA CLÍNICA (19/11/2026): RETORNO é agendado pela EQUIPE. Paciente pediu retorno (ou respondeu "retorno" à pergunta): transfere, com texto fixo.
+  const pediuRetorno = Object.values(mem.tipoConsulta ?? {}).includes('retorno') || /\bretorno\b|\bretornar\b/.test((c.textoPaciente ?? '').replace(/nao (e|eh|sou de|quero) (um |o )?retorno/g, ''));
+  if (pediuRetorno && !c.saida.confirmacoes.length && !c.saida.agendouComercial && !c.saida.encerrar) {
+    const saud = texto.match(/^\s*(bom dia|boa tarde|boa noite|ol[aá]|oi)[!,.]?\s*(sou a amanda, da clinex[.!]?)?/i)?.[0]?.trim();
+    texto = `${saud ? `${saud} ` : ''}Certo! O agendamento do retorno é feito pela nossa equipe. Já estou passando seu pedido e eles vão falar com você por aqui.`;
+    if (!c.saida.handoff) c.saida.handoff = { motivo: `Paciente pediu RETORNO de consulta: a equipe confere a consulta anterior e agenda o retorno. Última mensagem: "${(conversa.filter((m) => m.role === 'user').slice(-1)[0]?.content ?? '').slice(0, 300)}"` };
+  }
   if (!texto && c.saida.handoff) texto = 'Vou passar pra alguém da equipe te ajudar com isso. Só um instante.';
   if (!texto) return null;
   // foto de pedido de exame vai para a equipe: texto FIXO (pedido do usuário 18/11: sem "tá bom?" nem "posso ajudar em mais alguma coisa?"); só a saudação do 1º contato fica
