@@ -37,7 +37,7 @@ function desenharGaveta(l) {
       h('a', { class: 'btn', href: wa, target: '_blank', rel: 'noopener' }, [ico('message', 16), 'WhatsApp']),
       h('a', { class: 'btn', href: 'tel:+55' + l.telefone.replace(/\D/g, '').replace(/^55/, '') }, [ico('phone', 16), 'Ligar'])
     ]),
-    faixaRegras(l), blocoProximo(l), blocoClinilink(l), blocoRespostas(l), blocoNota(l), blocoHistorico(l), blocoDados(l)
+    faixaRegras(l), blocoProximo(l), blocoClinilink(l), blocoHistoricoCard(l), blocoRespostas(l), blocoNota(l), blocoHistorico(l), blocoDados(l)
   ]);
   gaveta.corpo.scrollTop = rolagem;
 }
@@ -234,6 +234,12 @@ function blocoClinilink(l) {
     fvObservacao(s.observacao),
     h('div', { class: 'linha-b', style: 'margin-top:10px' }, [botao('Abrir card no Pipelines', '', function () { if (gaveta) gaveta.fechar(); fvAbrirCard(c.cardId); }, 'kanban')])
   ]));
+}
+
+/* o mesmo histórico de colunas da aba Histórico do card no Pipelines (por onde o card passou, quando e quem moveu) */
+function blocoHistoricoCard(l) {
+  var c = l.card; if (!c || !c.historico || !c.historico.length) return null;
+  return secao('Histórico no Pipeline', fvAbaHistorico(null, { historico: c.historico, stages: c.stages || [], removidas: c.removidas || [] }));
 }
 
 function blocoDados(l) {

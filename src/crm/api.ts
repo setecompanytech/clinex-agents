@@ -294,6 +294,8 @@ function cardDoLead(l: Lead) {
   return {
     cardId: a.cardId, funil: f?.nome ?? '', etapa: f ? (etapaHist(f, a.stageId)?.label ?? '') : '', caso: a.caseStatus,
     snap: a.ultimoSnapshot, valorOrigem: a.originSnapshot.valor, valorNegociado: x?.valorNegociado ?? null, responsavel: x?.responsavel ?? null,
+    // o mesmo histórico de colunas da aba Histórico do card (para mostrar no painel do lead)
+    stages: f?.stages ?? [], removidas: f?.removidas ?? [], historico: a.historico.map((m) => ({ ...m, stageId: m.stageId ?? m.para })),
   };
 }
 
