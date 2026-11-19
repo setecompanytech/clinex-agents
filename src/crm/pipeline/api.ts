@@ -94,6 +94,16 @@ pipelines.put('/:id', (req, res) => {
 
 /** Já foi mandada mensagem de WhatsApp para o lead deste card? (pela IA, pelo CRM ou registrada pela equipe). Aparece como a etiqueta "Mensagem enviada" no card. */
 export type MensagemDoCard = { n: number; ultima: string; msg?: number; porIA: boolean; peloCrm: boolean };
+/** Os contatos registrados no LEAD desse card (WhatsApp enviado por modelo, pela IA ou registrado, ligação) também são contatos do card: aparecem no histórico dele. */
+export function contatosDoLead(cardId: string): { id: string; cardId: string; data: string; tipo: string; observacao?: string }[] {
+  const l = estado.leads.find((x) => x.cardId === cardId);
+  if (!l) return [];
+  return l.eventos.filter((e) => e.tipo === 'contato').map((e) => ({
+    id: 'lead-' + e.id, cardId, data: e.quando, tipo: e.canal === 'ligacao' ? 'Ligou' : 'Mandou WhatsApp',
+    observacao: [e.msg ? 'Msg ' + e.msg : '', e.auto ? 'pela IA' : '', e.texto].filter(Boolean).join(' · ').slice(0, 300) || undefined,
+  }));
+}
+
 export function mensagemDoLead(l: Lead | undefined): MensagemDoCard | null {
   if (!l) return null;
   const c = l.eventos.filter((e) => e.tipo === 'contato' && e.canal === 'whatsapp');
@@ -164,7 +174,7 @@ pipelines.get('/card/:cardId', (req, res) => {
     atribuicoes: atribs.map((a) => { const f = P().funis.find((x) => x.id === a.funilId)!; return { funilId: f.id, funil: f.nome, stages: f.stages, removidas: f.removidas ?? [], ...dto(a, f, agora), historico: a.historico.map((m) => ({ ...m, stageId: m.stageId ?? m.para })), originSnapshot: a.originSnapshot }; }),
     leadId: estado.leads.find((l) => l.cardId === id)?.id ?? null,
     extras: P().extras[id] ?? {}, followups: P().followups.filter((x) => x.cardId === id).sort((a, b) => (b.data + (b.hora ?? '')).localeCompare(a.data + (a.hora ?? ''))),
-    contatos: P().contatos.filter((x) => x.cardId === id).sort((a, b) => b.data.localeCompare(a.data)),
+    contatos: [...P().contatos.filter((x) => x.cardId === id), ...contatosDoLead(id)].sort((a, b) => b.data.localeCompare(a.data)),
   });
 });
 

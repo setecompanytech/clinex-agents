@@ -314,7 +314,7 @@ function dialogoContato(l, px, texto) {
 }
 
 /* Envio pelo WhatsApp com modelo aprovado: o que vai para o paciente aparece e é conferido antes de enviar. */
-function dialogoModeloWA(l, px) {
+function dialogoModeloWA(l, px, depois) {
   var m = modal({ titulo: 'Enviar WhatsApp por modelo', sub: l.nome + ' · final ' + String(l.telefone).slice(-4), largura: 1040, classe: 'wa-modal', corpo: h('div', null, h('p', { class: 'mut', text: 'Carregando os modelos…' })) });
   api('GET', '/whatsapp/modelos?lead=' + encodeURIComponent(l.id)).then(function (r) {
     limpar(m.corpo);
@@ -377,7 +377,7 @@ function dialogoModeloWA(l, px) {
       limpar(erro); enviar.setAttribute('disabled', 'true');
       api('POST', '/leads/' + l.id + '/whatsapp', { modelo: atual.id, parametros: campos.map(function (c) { return c.value; }), passo: px ? px.passo.id : undefined, msg: px ? px.passo.msg : undefined })
         .then(function () { return carregar(); })
-        .then(function () { m.fechar(); aviso('Mensagem enviada pelo WhatsApp (modelo ' + atual.titulo + ') e contato registrado.', 'ok'); })
+        .then(function () { m.fechar(); aviso('Mensagem enviada pelo WhatsApp (modelo ' + atual.titulo + ') e contato registrado.', 'ok'); if (depois) depois(); })
         .catch(function (e) { kids(erro, h('p', { class: 'callout aviso', text: e.message })); enviar.removeAttribute('disabled'); });
     }
     desenhar();
