@@ -124,6 +124,13 @@ function fvAbaFollowups(D, a, etapa, recarregar) {
   return [h('div', { class: 'fv-dr-grid' }, [h('section', null, [h('h4', { class: 'au-h', text: 'Novo follow-up' }), form]), h('section', null, [h('h4', { class: 'au-h', text: 'Agendados e feitos' }), lista])])];
 }
 
+/* Envio pelo WhatsApp com modelo aprovado (o mesmo do Fluxo), a partir do card: usa o lead ligado a ele. */
+function fvEnviarTemplate(D, s) {
+  if (!D.leadId) { aviso('Este card ainda não tem um lead ligado. Sincronize com o Clinilink e tente de novo.', 'erro'); return; }
+  if (!s.contato) { aviso('O card não tem telefone para enviar.', 'erro'); return; }
+  dialogoModeloWA({ id: D.leadId, nome: s.paciente, telefone: s.contato }, null);
+}
+
 /* contatos + o guia de atendimento por cima do card */
 function fvAbaContatos(D, a, etapa, recarregar) {
   var s = a.snap, lead = { nome: s.paciente, valor: a.valor, exame: (s.itens && s.itens[0]) || '' };
@@ -148,7 +155,7 @@ function fvAbaContatos(D, a, etapa, recarregar) {
     passos.length ? h('div', { class: 'pp-passos', style: 'margin-top:8px' }, passos.map(function (p) { return h('span', { class: 'pp-passo', title: p.desc }, [h('b', { text: 'D' + p.dia }), p.rotulo]); })) : null,
     msg ? h('div', { class: 'fv-msg' }, [h('b', { text: 'Mensagem ' + msg.n + ': ' + msg.titulo }), h('pre', { text: texto }),
       faltantes(texto).length ? h('p', { class: 'mut peq', text: 'Complete antes de enviar: ' + faltantes(texto).join(', ') }) : null,
-      h('div', { class: 'au-linha' }, [botao('Copiar', '', function () { copiar(texto); }, 'copy'), s.contato ? h('a', { class: 'btn', href: linkWA(s.contato, texto), target: '_blank', rel: 'noopener noreferrer' }, [ico('message', 16), 'Abrir no WhatsApp']) : null])
+      h('div', { class: 'au-linha' }, [botao('Enviar por template', 'pri', function () { fvEnviarTemplate(D, s); }, 'bolt'), botao('Copiar', '', function () { copiar(texto); }, 'copy'), s.contato ? h('a', { class: 'btn', href: linkWA(s.contato, texto), target: '_blank', rel: 'noopener noreferrer' }, [ico('message', 16), 'Abrir no WhatsApp']) : null])
     ]) : h('p', { class: 'mut', text: 'Esta coluna não tem uma mensagem-modelo do guia.' })
   ]);
   var regis = h('section', null, [

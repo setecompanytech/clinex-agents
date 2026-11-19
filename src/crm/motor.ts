@@ -219,7 +219,13 @@ export type Acao =
   | { tipo: 'descartar'; motivo: string; atendente?: string }
   | { tipo: 'recepcao'; atendente?: string }
   | { tipo: 'nota'; texto: string; atendente?: string }
+  | { tipo: 'status'; para: StatusManual; data?: string; hora?: string; motivo?: string; observacao?: string; atendente?: string }
   | { tipo: 'editar'; campos: Partial<Pick<Lead, 'nome' | 'telefone' | 'exame' | 'valor' | 'origem' | 'unidade' | 'atendente' | 'obs'>>; atendente?: string };
+
+/** Para onde a equipe pode passar um lead à mão (qualquer status do Fluxo). "retorno" = Em negociação com data combinada (Retorno personalizado). */
+export const STATUS_MANUAIS = ['aberto', 'sem_retorno', 'negociacao', 'retorno', 'agendado', 'convertido_ativo', 'convertido_organico', 'descarte'] as const;
+export type StatusManual = (typeof STATUS_MANUAIS)[number];
+const ROTULO_STATUS: Record<StatusManual, string> = { aberto: 'Em aberto', sem_retorno: 'Sem retorno', negociacao: 'Em negociação', retorno: 'Retorno personalizado', agendado: 'Agendado', convertido_ativo: 'Convertido ativo', convertido_organico: 'Convertido orgânico', descarte: 'Descarte' };
 
 export function aplicar(lead: Lead, a: Acao, agora: Date): void {
   const hoje = hojeDe(agora);
@@ -332,6 +338,28 @@ export function aplicar(lead: Lead, a: Acao, agora: Date): void {
       lead.descarte = undefined;
       entrar(lead, 'convertido_organico', hoje);
       ev({ tipo: 'recepcao', texto: 'O paciente já foi à recepção: Convertido orgânico. Não entrar em contato.' });
+      return;
+    }
+    case 'status': {
+      // Mudança manual para QUALQUER status (a equipe sabe mais que a cadência): vale de qualquer origem, inclusive convertido e descarte.
+      const para = a.para;
+      if (!(STATUS_MANUAIS as readonly string[]).includes(para)) throw erro('dados', 'Escolha o status de destino.');
+      const de = lead.status, deRot = lead.retornoData && de === 'negociacao' ? 'Retorno personalizado' : ROTULO_STATUS[(de === 'negociacao' ? 'negociacao' : de) as StatusManual] ?? de;
+      const alvoRetorno = para === 'retorno', alvo: Status = alvoRetorno ? 'negociacao' : (para as Status);
+      if (para === de && !alvoRetorno) throw erro('estado', 'O lead já está em ' + ROTULO_STATUS[para] + '.');
+      const dia = a.data ?? '';
+      if ((alvoRetorno || para === 'agendado') && (!DIA_OK.test(dia) || dia < hoje)) throw erro('dados', alvoRetorno ? 'Informe a data combinada (hoje ou depois).' : 'Informe a data do agendamento (hoje ou depois).');
+      if (para === 'descarte' && !(MOTIVOS_DESCARTE as readonly string[]).includes(a.motivo ?? '')) throw erro('motivo', 'Descarte sempre com motivo: escolha Preço, Outro lugar, Desistiu, Plano, Sem retorno ou Outro.');
+      const obs = a.observacao?.trim().slice(0, 300);
+      lead.descarte = undefined; lead.reativacaoTentada = undefined;
+      if (para === 'aberto') { entrar(lead, 'aberto', hoje); lead.d0 = hoje; }
+      else if (para === 'sem_retorno') entrar(lead, 'sem_retorno', hoje, { pulados: ['tentativa', 'desconto'] });
+      else if (para === 'negociacao') entrar(lead, 'negociacao', hoje, { pulados: ['orcamento'] });
+      else if (alvoRetorno) { entrar(lead, 'negociacao', hoje, { pulados: ['orcamento'] }); lead.negD0 = dia; lead.retornoData = dia; }
+      else if (para === 'agendado') { entrar(lead, 'agendado', hoje); lead.agendamento = { data: dia, hora: a.hora?.trim() || undefined, exame: lead.exame || undefined }; }
+      else if (para === 'descarte') { entrar(lead, 'descarte', hoje); lead.descarte = { motivo: a.motivo as string, quando: hoje, de }; }
+      else entrar(lead, alvo, hoje);
+      ev({ tipo: 'etapa', texto: `Mudança manual de status: ${deRot} → ${ROTULO_STATUS[para]}${alvoRetorno || para === 'agendado' ? ` (${dia.slice(8, 10)}/${dia.slice(5, 7)})` : ''}${para === 'descarte' ? `. Motivo: ${a.motivo}` : ''}.${obs ? ` Obs.: ${obs}` : ''}` });
       return;
     }
     case 'nota': {

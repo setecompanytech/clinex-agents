@@ -192,6 +192,7 @@ function blocoRespostas(l) {
   }
   if (ativo) b.push(botao('Descartar', 'perigo', function () { dialogoDescartar(l, '', ''); }, 'x'));
   if (s !== 'convertido_ativo' && s !== 'convertido_organico') b.push(botao('Já foi à recepção', '', function () { confirmar({ titulo: 'O paciente já foi à recepção?', texto: 'O lead vira Convertido orgânico e você não deve entrar em contato.', sim: 'Sim, já foi', aoSim: function () { agir(l.id, { tipo: 'recepcao' }).then(function () { aviso('Convertido orgânico.', 'ok'); }); } }); }, 'shield'));
+  b.push(botao('Mudar status', '', function () { dialogoMudarStatus(l); }, 'arrow'));
   var rapidos = botoesDaUltima(l);
   var corpo = [h('div', { class: 'linha-b quebra' }, b)];
   if (rapidos.length && s !== 'convertido_ativo' && s !== 'convertido_organico') {
@@ -428,6 +429,59 @@ function dialogoAgendou(l) {
       agir(l.id, { tipo: 'agendou', data: data.value, hora: hora.value || undefined, exame: exame.value || undefined }).then(function () { m.fechar(); aviso('Agendado! Confirmação automática registrada.', 'ok'); });
     })]
   });
+}
+
+/* Passar o lead para QUALQUER status à mão (a equipe sabe mais que a cadência). Fica registrado no histórico. */
+var STATUS_DEST = [['aberto', 'Em aberto', 'Recomeça o fluxo inicial hoje (Primeiro contato, Nova tentativa, Desconto).'], ['sem_retorno', 'Sem retorno', 'Segue para o Encerramento (Msg 4).'], ['negociacao', 'Em negociação', 'Entra na cadência da negociação a partir de hoje.'], ['retorno', 'Retorno personalizado', 'Escolha a data combinada: nela o lead entra na fila com a mensagem 9.'], ['agendado', 'Agendado', 'Informe a data (e a hora) do agendamento.'], ['convertido_ativo', 'Convertido ativo', 'Compareceu e pagou.'], ['convertido_organico', 'Convertido orgânico', 'O paciente foi direto à recepção. Não entrar em contato.'], ['descarte', 'Descarte', 'Escolha o motivo.']];
+function statusAtualDe(l) { return l.status === 'negociacao' && l.retornoData ? 'retorno' : l.status; }
+function rotuloStatusDest(k) { return STATUS_DEST.filter(function (x) { return x[0] === k; })[0][1]; }
+function dialogoMudarStatus(l) {
+  var atual = statusAtualDe(l), alvo = '', motivoD = '';
+  var erro = h('p', { class: 'callout aviso', style: 'display:none' });
+  var extra = h('div', { class: 'ms-extra' });
+  var data = h('input', { class: 'in', type: 'date', min: S.D.hoje, 'aria-label': 'Data' });
+  var hora = h('input', { class: 'in', type: 'time', 'aria-label': 'Hora do agendamento' });
+  var obs = h('input', { class: 'in', maxlength: '300', placeholder: 'Observação (opcional, fica no histórico)', 'aria-label': 'Observação' });
+  var grade = h('div', { class: 'ms-grade', role: 'group', 'aria-label': 'Novo status' });
+  var salvarBtn = botao('Mudar status', 'pri', function () {
+    erro.style.display = 'none';
+    var falha = !alvo ? 'Escolha o novo status.' : (alvo === 'retorno' || alvo === 'agendado') && !data.value ? 'Informe a data.' : alvo === 'descarte' && !motivoD ? 'Descarte sempre com motivo: escolha um.' : '';
+    if (falha) { erro.textContent = falha; erro.style.display = ''; return; }
+    salvarBtn.setAttribute('disabled', 'true');
+    agir(l.id, { tipo: 'status', para: alvo, data: data.value || undefined, hora: hora.value || undefined, motivo: motivoD || undefined, observacao: obs.value.trim() || undefined })
+      .then(function () { m.fechar(); aviso('Lead movido para ' + rotuloStatusDest(alvo) + '.', 'ok'); })
+      .catch(function (e) { erro.textContent = e.message; erro.style.display = ''; salvarBtn.removeAttribute('disabled'); });
+  });
+  function pintarExtra() {
+    limpar(extra);
+    var d = STATUS_DEST.filter(function (x) { return x[0] === alvo; })[0];
+    if (!d) { kids(extra, h('p', { class: 'mut peq', text: 'Escolha para onde o lead vai. O passo fica registrado no histórico dele.' })); return; }
+    var itens = [h('p', { class: 'mut peq', text: d[2] })];
+    if (alvo === 'retorno' || alvo === 'agendado') itens.push(campo(alvo === 'retorno' ? 'Data combinada para retomar' : 'Data do agendamento', data));
+    if (alvo === 'agendado') itens.push(campo('Hora (opcional)', hora));
+    if (alvo === 'descarte') {
+      var chips = h('div', { class: 'motivos' }, M.MOTIVOS_DESCARTE.map(function (mo) {
+        var b = h('button', { type: 'button', class: 'motivo-o', 'aria-pressed': String(motivoD === mo), onclick: function () { motivoD = mo; chips.querySelectorAll('.motivo-o').forEach(function (x) { x.setAttribute('aria-pressed', x === b ? 'true' : 'false'); }); } }, mo);
+        return b;
+      }));
+      itens.push(chips);
+    }
+    itens.push(obs);
+    kids(extra, itens);
+  }
+  function pintarGrade() {
+    limpar(grade);
+    STATUS_DEST.forEach(function (d) {
+      var eh = d[0] === atual;
+      grade.appendChild(h('button', { type: 'button', class: 'ms-op', 'aria-pressed': String(alvo === d[0]), disabled: eh && d[0] !== 'retorno' ? 'true' : null, title: eh ? 'O lead já está aqui' : d[2], onclick: function () { alvo = d[0]; pintarGrade(); pintarExtra(); } }, [h('b', { text: d[1] }), eh ? h('small', { text: 'status atual' }) : null]));
+    });
+  }
+  var m = modal({
+    titulo: 'Mudar status', sub: l.nome + ' · hoje: ' + rotuloStatusDest(atual), largura: 640, classe: 'peq',
+    corpo: [grade, extra, erro],
+    rodape: [botao('Cancelar', '', function () { m.fechar(); }), salvarBtn]
+  });
+  pintarGrade(); pintarExtra();
 }
 
 function dialogoRetorno(l) {

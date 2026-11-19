@@ -300,4 +300,19 @@ teste('a exceção só aceita data de hoje em diante e só para quem ainda está
   const ag = novo(); aplicar(ag, { tipo: 'agendou', data: dia(6) } as Acao, quando(dia(1))); falha(() => retorno(ag, dia(2), dia(9)), 'estado');
 });
 
+console.log('Mudar status à mão: qualquer status, de qualquer origem');
+const mudar = (l: Lead, para: string, extra: Record<string, unknown> = {}, d = dia(1)) => aplicar(l, { tipo: 'status', para, ...extra } as Acao, quando(d));
+teste('qualquer status vira qualquer outro, com regras só onde falta dado (data, motivo)', () => {
+  const l = novo(); mudar(l, 'sem_retorno'); assert.equal(l.status, 'sem_retorno');
+  mudar(l, 'negociacao'); assert.equal(l.status, 'negociacao'); assert.equal(l.retornoData, undefined);
+  falha(() => mudar(l, 'retorno'), 'dados'); falha(() => mudar(l, 'retorno', { data: dia(0) }), 'dados');
+  mudar(l, 'retorno', { data: dia(9) }); assert.equal(vistaDoLead(l, quando(dia(1))).item, 'retorno'); assert.equal(l.retornoData, dia(9));
+  falha(() => mudar(l, 'agendado'), 'dados'); mudar(l, 'agendado', { data: dia(5), hora: '09:00' }); assert.equal(l.status, 'agendado'); assert.equal(l.agendamento?.hora, '09:00');
+  falha(() => mudar(l, 'descarte'), 'motivo'); mudar(l, 'descarte', { motivo: 'Preço' }); assert.equal(l.status, 'descarte'); assert.equal(l.descarte?.motivo, 'Preço');
+  mudar(l, 'convertido_organico'); assert.equal(l.status, 'convertido_organico'); assert.equal(l.descarte, undefined, 'sai do descarte limpo');
+  mudar(l, 'aberto'); assert.equal(l.status, 'aberto'); assert.equal(l.d0, dia(1), 'em aberto recomeça o fluxo hoje');
+  falha(() => mudar(l, 'aberto'), 'estado'); falha(() => mudar(l, 'xyz'), 'dados');
+  assert.ok(l.eventos.filter((e) => /Mudança manual de status/.test(e.texto)).length === 7, 'cada mudança fica no histórico');
+});
+
 console.log(`\n${ok} testes passaram${process.exitCode ? ', COM FALHAS' : ''}.`);

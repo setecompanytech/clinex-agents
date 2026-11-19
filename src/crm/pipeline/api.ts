@@ -162,6 +162,7 @@ pipelines.get('/card/:cardId', (req, res) => {
   const agora = new Date();
   res.json({
     atribuicoes: atribs.map((a) => { const f = P().funis.find((x) => x.id === a.funilId)!; return { funilId: f.id, funil: f.nome, stages: f.stages, removidas: f.removidas ?? [], ...dto(a, f, agora), historico: a.historico.map((m) => ({ ...m, stageId: m.stageId ?? m.para })), originSnapshot: a.originSnapshot }; }),
+    leadId: estado.leads.find((l) => l.cardId === id)?.id ?? null,
     extras: P().extras[id] ?? {}, followups: P().followups.filter((x) => x.cardId === id).sort((a, b) => (b.data + (b.hora ?? '')).localeCompare(a.data + (a.hora ?? ''))),
     contatos: P().contatos.filter((x) => x.cardId === id).sort((a, b) => b.data.localeCompare(a.data)),
   });

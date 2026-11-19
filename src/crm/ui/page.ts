@@ -806,6 +806,9 @@ main#main.larga{max-width:none;margin-left:0;margin-right:0;padding-left:24px;pa
 .cf-lista{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:8px}.cf-li{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;padding:10px 14px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--ink);text-align:left;cursor:pointer;transition:border-color .2s,transform .15s}.cf-li:hover{border-color:var(--cy);transform:translateX(3px)}
 .cf-n{min-width:0}.cf-n b{display:block;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cf-n small{color:var(--mut);font-size:11.5px}.cf-li em{font-style:normal;font:700 10.5px ui-monospace,Consolas,monospace;letter-spacing:.06em;padding:3px 9px;border-radius:999px;white-space:nowrap}.cf-ali{color:var(--ok);border:1px solid color-mix(in srgb,var(--ok) 50%,transparent)}.cf-nao{color:var(--mut);border:1px solid var(--line2)}
 @media(max-width:700px){.cf-resumo{grid-template-columns:1fr}}
+/* ===== mudar status (ms-) ===== */
+.ms-grade{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;margin-bottom:14px}.ms-op{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:10px 14px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--ink);text-align:left;cursor:pointer;transition:border-color .2s,background .2s}.ms-op:hover:not(:disabled){border-color:var(--cy)}.ms-op[aria-pressed="true"]{border-color:var(--cy);background:color-mix(in srgb,var(--cy) 12%,transparent)}.ms-op:disabled{opacity:.5;cursor:not-allowed}.ms-op small{color:var(--mut);font-size:11px}
+.ms-extra{display:flex;flex-direction:column;gap:10px;margin-bottom:10px}
 `;
 
 export const pagina = `<!doctype html>
