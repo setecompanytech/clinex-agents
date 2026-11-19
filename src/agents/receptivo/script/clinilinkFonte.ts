@@ -1,5 +1,5 @@
 import { soTelefone } from './engine.js';
-import { criarAgendamento, criarOrdemServico, criarPaciente, demandaPorProcedimento, getPacientePorCpf, getPacientesPorTelefone, listAgendamentosDoDia, listAtendidosDoProfissional, listAgenda, listAgendaFresca, listClinicas, listCombos, listProcedimentos, listProfissionais, type Clinica, type Combo, type Horario, type Paciente, type Procedimento } from '../../../integrations/clinilink.js';
+import { criarAgendamento, criarOrdemServico, criarPaciente, demandaPorProcedimento, getPacientePorCpf, getPacientesPorNomeNascimento, getPacientesPorTelefone, listAgendamentosDoDia, listAtendidosDoProfissional, listAgenda, listAgendaFresca, listClinicas, listCombos, listProcedimentos, listProfissionais, type Clinica, type Combo, type Horario, type Paciente, type Procedimento } from '../../../integrations/clinilink.js';
 import { env } from '../../../lib/env.js';
 import { exibir, prepararGeneros } from '../../../lib/genero.js';
 import { evt } from '../../../lib/log.js';
@@ -1212,7 +1212,17 @@ export const fonteClinilink: Fonte = {
     const formas = [...new Set(telefones.flatMap(formasDoTelefone))];
     const achados = new Map<string, Paciente>();
     for (const l of await emLotes(formas, 2, getPacientesPorTelefone)) for (const p of l) achados.set(p.id, p);
-    const p = melhorPaciente([...achados.values()], nome, nascimento);
+    let p = melhorPaciente([...achados.values()], nome, nascimento);
+    // não achou pelo telefone: o cadastro pode estar com OUTRO telefone (casos reais: Josiane 19/11, Yago 18/11).
+    // Busca por nome + nascimento; aqui não há o telefone para confirmar, então exige 2 palavras do nome em comum.
+    // Mais de um cadastro igual (paciente duplicado antes): fica com o mais antigo, que é o da recepção (a API ordena por criação).
+    if (!p) {
+      const cands = await getPacientesPorNomeNascimento(nome, nascimento).catch(() => [] as Paciente[]);
+      const bons = cands.filter((x) => x.dataNascimento?.slice(0, 10) === nascimento && palavrasEmComum(nome, x.nome) >= 2);
+      const melhor = Math.max(0, ...bons.map((x) => palavrasEmComum(nome, x.nome)));
+      p = bons.find((x) => palavrasEmComum(nome, x.nome) === melhor) ?? null;
+      if (p) evt('paciente_por_nome', { achou: true, candidatos: cands.length });
+    }
     return p ? { id: p.id, nome: titulo(p.nome), nascimento: p.dataNascimento?.slice(0, 10) || nascimento } : null;
   },
 };

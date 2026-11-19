@@ -59,6 +59,12 @@ const CASOS: Record<string, string[]> = {
   ronaldo: ['quero marcar com o clínico geral', 'guamá', 'consulta nova, com o Dr Felipe', 'esse combo inclui só esses exames?', 'quero o combo', 'o primeiro', 'Ronaldo Teste Castro 10/10/1985, pode ser este número', 'é a primeira vez, masculino'],
   japago: ['Amanda, eu havia pago um combo de gastro. Para consulta, endoscopia e ultrassom', 'pra mim mesmo', 'foi o segundo', 'pode ser o primeiro horário', 'Carlos Teste Machado 29/08/1993, esse contato mesmo'],
   yago: ['quero marcar clinico geral', 'guamá', 'é consulta nova', 'o primeiro'],
+  feriado1: ['bom dia, vocês funcionam amanhã?'],
+  feriado2: ['vocês abrem no dia 25 de dezembro? e no dia 24?'],
+  feriado3: ['quero marcar clinico geral pra amanhã', 'guamá', 'é consulta nova'],
+  // caso real 19/11: nome e nascimento certos, WhatsApp diferente do telefone do cadastro
+  josiane: ['Gostaria de marcar meu retorno com a cardiologista', 'Josiane da Silva Morais  02/12 /79', 'Estive aí semana passada realizando meus exames', '719.166.522-04', 'sim, sou eu', 'o primeiro'],
+  respRetorno: ['quero consulta com cardiologista', 'é retorno'],
   dados: ['quero marcar consulta com clinico geral amanhã', 'qualquer unidade', 'pode ser', 'Nome: Aline Ferreira Costa\nData de nascimento: 05/07/1988\nsexo feminino', 'vou pagar na recepção'],
 };
 

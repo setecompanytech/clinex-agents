@@ -5,6 +5,7 @@
 import type { Comprovante } from '../../../lib/comprovante.js';
 import type { PedidoLido } from '../../../lib/pedidoMedico.js';
 import { env } from '../../../lib/env.js';
+import { proximosFeriados } from '../../../lib/feriados.js';
 import { describe, ehReacao, textoRoteiro, type InovstarMessage } from '../../../integrations/inovstar.js';
 import type { Fonte } from '../script/catalog.js';
 import { unidadesDaClinica } from '../script/clinilinkFonte.js';
@@ -165,12 +166,14 @@ export async function atenderComIA(p: {
   // Testes 18/11: o gpt-4.1-mini se perdia no cadastro de paciente novo (sexo/nome/pagamento) e deixava de agendar.
   // combo em jogo (várias etapas, uma de cada vez): também vai no principal
   const comboEmJogo = Object.values(mem.servicos).some((x) => x.pacote) || Object.keys(mem.etapas ?? {}).length > 0;
-  const etapaDeAgendar = comboEmJogo || Object.keys(mem.slots).length > 0 || Boolean(mem.paciente) || mem.agendados.length > 0 || Boolean(mem.pix);
+  // RETORNO (achar o cadastro, conferir a consulta anterior): também no principal (19/11: o mini não buscava o cadastro e só repetia a pergunta da unidade)
+  const retornoEmJogo = Object.values(mem.tipoConsulta ?? {}).includes('retorno') || /\bretorno\b|\bretornar\b/.test((c.textoPaciente ?? '').replace(/nao (e|eh|sou de|quero) (um |o )?retorno/g, ''));
+  const etapaDeAgendar = comboEmJogo || retornoEmJogo || Object.keys(mem.slots).length > 0 || Boolean(mem.paciente) || mem.agendados.length > 0 || Boolean(mem.pix);
   const leve = env.iaModeloOpenaiLeve && env.iaModeloOpenaiLeve !== 'off' && !etapaDeAgendar ? env.iaModeloOpenaiLeve : undefined;
   let resposta = await pensar(system, conversa, c, leve);
   // conferência: médico ou valor que não veio do Clinilink -> refaz UMA vez, obrigando a consultar; se insistir, não envia o inventado
   const doPaciente = conversa.filter((m) => m.role === 'user').map((m) => m.content).join('\n');
-  const fontesDe = () => [...(c.saida.dados ?? []), JSON.stringify(listaUnidades), env.clinicHorario, env.clinicName, 'Clinex', JSON.stringify({ servicos: mem.servicos, slots: mem.slots, orcamento: mem.orcamento, combos: mem.combosOferecidos, paciente: mem.paciente })];
+  const fontesDe = () => [...(c.saida.dados ?? []), JSON.stringify(listaUnidades), JSON.stringify(proximosFeriados(hoje, 120)), env.clinicHorario, env.clinicName, 'Clinex', JSON.stringify({ servicos: mem.servicos, slots: mem.slots, orcamento: mem.orcamento, combos: mem.combosOferecidos, paciente: mem.paciente })];
   const agendouSemAgendar = (t: string) => !c.saida.confirmacoes.length && !mem.agendados.length && /\b(ficou|esta|está|foi|ja esta|já está) (agendad|marcad|confirmad|reservad)\w*|\bagendamento (feito|confirmado|realizado)\b/i.test(t);
   // "encontrei o cadastro" sem ter procurado (caso real: disse que achou a Joana sem chamar buscar_paciente)
   const cadastroInventado = (t: string) => /(?<!n[aã]o )\b(encontrei|achei|localizei)\b.{0,20}\bcadastro\b/i.test(t) && !mem.paciente?.id && !(c.saida.dados ?? []).some((d) => d.includes('"encontrado":true'));
@@ -223,6 +226,13 @@ export async function atenderComIA(p: {
   if (!c.saida.handoff && NAO_ENTENDI.test(texto) && conversa.filter((m) => m.role === 'assistant').slice(-2).filter((m) => NAO_ENTENDI.test(m.content)).length >= 2) {
     texto = 'Pra não te fazer perder tempo, vou passar pra alguém da equipe te ajudar com isso. Só um instante.';
     c.saida.handoff = { motivo: 'A Amanda não conseguiu entender o pedido depois de 2 tentativas (foto/áudio/mensagem). Ver a conversa e atender.' };
+  }
+  // REGRA DA CLÍNICA (19/11/2026): RETORNO é agendado pela EQUIPE. Paciente pediu retorno (ou respondeu "retorno" à pergunta): transfere, com texto fixo.
+  const pediuRetorno = Object.values(mem.tipoConsulta ?? {}).includes('retorno') || /\bretorno\b|\bretornar\b/.test((c.textoPaciente ?? '').replace(/nao (e|eh|sou de|quero) (um |o )?retorno/g, ''));
+  if (pediuRetorno && !c.saida.confirmacoes.length && !c.saida.agendouComercial && !c.saida.encerrar) {
+    const saud = texto.match(/^\s*(bom dia|boa tarde|boa noite|ol[aá]|oi)[!,.]?\s*(sou a amanda, da clinex[.!]?)?/i)?.[0]?.trim();
+    texto = `${saud ? `${saud} ` : ''}Certo! O agendamento do retorno é feito pela nossa equipe. Já estou passando seu pedido e eles vão falar com você por aqui.`;
+    if (!c.saida.handoff) c.saida.handoff = { motivo: `Paciente pediu RETORNO de consulta: a equipe confere a consulta anterior e agenda o retorno. Última mensagem: "${(conversa.filter((m) => m.role === 'user').slice(-1)[0]?.content ?? '').slice(0, 300)}"` };
   }
   if (!texto && c.saida.handoff) texto = 'Vou passar pra alguém da equipe te ajudar com isso. Só um instante.';
   if (!texto) return null;
