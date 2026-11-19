@@ -36,7 +36,8 @@ export function janelaDoPedido(agora: Date, corpo: unknown): Janela {
 // ------------------------------------------------------------------------------------------------ mapeamento para o card
 
 export function snapDeOrcamento(o: OrcamentoCrm): CardSnap {
-  const itens = (o.itens ?? []).map((i) => String(i.nome ?? '')).filter(Boolean);
+  // o Clinilink manda cada item como texto simples (formato atual) ou como objeto com o nome do serviço
+  const itens = (o.itens ?? []).map((i) => (typeof i === 'string' ? i : String(i?.nome ?? i?.servico ?? i?.descricao ?? '')).trim()).filter(Boolean);
   return {
     id: o.orcamentoId, codigo: o.codigo, paciente: o.paciente?.nome ?? 'Sem nome', contato: o.paciente?.telefone,
     subtitulo: itens.slice(0, 2).join(' · ') + (itens.length > 2 ? ` +${itens.length - 2}` : ''),
@@ -135,7 +136,11 @@ export function ingerir(est: EstadoFunis, f: Funil, snaps: CardSnap[], agora: Da
           const novo = !s.itens.length && a.ultimoSnapshot.itens.length ? { ...s, itens: a.ultimoSnapshot.itens, subtitulo: a.ultimoSnapshot.subtitulo ?? s.subtitulo } : s;
           if (JSON.stringify(a.ultimoSnapshot) !== JSON.stringify(novo)) { a.ultimoSnapshot = novo; atualizados++; }
         }
-        else if (a.ultimoSnapshot.status !== s.status) { a.ultimoSnapshot = { ...a.ultimoSnapshot, status: s.status }; atualizados++; }
+        else if (a.ultimoSnapshot.status !== s.status || (!a.ultimoSnapshot.itens.length && s.itens.length)) {
+          // fora do topo o card é congelado: só a etiqueta de status muda e, se ele ficou sem os serviços do orçamento, eles são repostos
+          const semItens = !a.ultimoSnapshot.itens.length && s.itens.length;
+          a.ultimoSnapshot = { ...a.ultimoSnapshot, status: s.status, ...(semItens ? { itens: s.itens, subtitulo: s.subtitulo } : {}) }; atualizados++;
+        }
       }
       ignorados++;
       continue;

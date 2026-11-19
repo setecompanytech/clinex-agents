@@ -9,7 +9,7 @@ export type Unidade = { id: string; nome: string };
 export type PacienteCrm = { id?: string; nome: string; telefone?: string; cpf?: string };
 export type OrcamentoCrm = {
   orcamentoId: string; codigo?: string; status: string; criadoEm: string; unidade?: Unidade; paciente: PacienteCrm;
-  solicitante?: string; valorBruto?: number; desconto?: number; valorLiquido?: number; itens?: { nome?: string; [k: string]: unknown }[];
+  solicitante?: string; valorBruto?: number; desconto?: number; valorLiquido?: number; itens?: (string | { nome?: string; descricao?: string; servico?: string; [k: string]: unknown })[];
   convenio?: string; origem?: string; prioridade?: string; observacao?: string;
 };
 export type AgendamentoCrm = {

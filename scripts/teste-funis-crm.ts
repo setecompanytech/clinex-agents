@@ -240,4 +240,16 @@ teste('re-sincronizar com o orçamento sem lista de serviços não apaga os serv
   ingerir(est, f, [snap('a', '2026-11-01T12:00:00Z', 500, { itens: ['Raio X'] })], AGORA);
   assert.deepEqual(est.atribuicoes[0].ultimoSnapshot.itens, ['Raio X'], 'lista nova válida substitui');
 });
+teste('serviços do orçamento: aceita item em texto simples ou em objeto, e repõe os que um card congelado perdeu', () => {
+  const base = { orcamentoId: 'o1', status: 'aberto', criadoEm: '2026-11-01T12:00:00Z', paciente: { nome: 'Ana' } };
+  assert.deepEqual(snapDeOrcamento({ ...base, itens: ['Ultrassom', ' Raio X '] } as never).itens, ['Ultrassom', 'Raio X'], 'texto simples (formato atual do Clinilink)');
+  assert.deepEqual(snapDeOrcamento({ ...base, itens: [{ nome: 'Ultrassom' }, { servico: 'Raio X' }, {}] } as never).itens, ['Ultrassom', 'Raio X'], 'objeto');
+  const est = novoEstado(); const f = funilDestino(est, 'orcamento', AGORA);
+  ingerir(est, f, [snap('a', '2026-11-01T12:00:00Z', 500, { itens: [] })], AGORA);
+  const a = est.atribuicoes[0]; a.stageId = etapa(est, f.nome, 'PRIMEIRO CONTATO'); assert.deepEqual(a.ultimoSnapshot.itens, []);
+  ingerir(est, f, [snap('a', '2026-11-01T12:00:00Z', 500, { itens: ['Ultrassom'], subtitulo: 'Ultrassom' })], AGORA);
+  assert.deepEqual(a.ultimoSnapshot.itens, ['Ultrassom'], 'card fora do topo sem serviços volta a ter');
+  ingerir(est, f, [snap('a', '2026-11-01T12:00:00Z', 500, { itens: ['Outro'] })], AGORA);
+  assert.deepEqual(a.ultimoSnapshot.itens, ['Ultrassom'], 'quem já tem serviços continua congelado');
+});
 console.log(`${ok} testes passaram.`);
