@@ -46,7 +46,8 @@ function cfCorpo(d, m) {
   ]));
   var nota = h('p', { class: 'mut cf-nota', text: 'O Fluxo conta cada lead pela etapa do guia; o Pipelines conta cada card pela coluna onde ele está. Os números só batem quando o card está na coluna que o guia manda. Leads sem card e cards sem lead também entram na diferença.' });
   var topo = [resumo, nota, tabela];
-  if (!d.divergencias.length) return topo.concat([h('div', { class: 'cf-tudo' }, [ico('check', 18), 'Todos os leads que têm card estão na mesma etapa nos dois lados.'])]);
+  var semPar = cfSemPar(d);
+  if (!d.divergencias.length) return topo.concat([h('div', { class: 'cf-tudo' }, [ico('check', 18), 'Todos os leads que têm card estão na mesma etapa nos dois lados.'])], semPar);
   var acao = h('div', { class: 'cf-acao' }, [
     t.alinhaveis ? botao('Alinhar ' + t.alinhaveis + (t.alinhaveis === 1 ? ' card ao Fluxo' : ' cards ao Fluxo'), 'pri', function (e) { cfAlinhar(m, e.currentTarget, t.alinhaveis); }, 'check') : null,
     h('p', { class: 'mut', text: t.alinhaveis ? 'Move esses cards para a coluna que o Fluxo mostra. Fica registrado no histórico do card ("Conferência (Fluxo)"). Cards em colunas de status (agendado, convertido, descarte) seguem a sincronização automática.' : 'Nenhum destes cards pode ser movido automaticamente; o motivo está em cada linha.' })
@@ -57,7 +58,23 @@ function cfCorpo(d, m) {
       x.alinhavel ? h('em', { class: 'cf-ali', text: 'alinhável' }) : h('em', { class: 'cf-nao', title: x.motivo || '', text: 'não automático' })
     ]));
   }));
-  return topo.concat([acao, h('h4', { class: 'cf-sub', text: 'Quem está diferente' + (d.divergencias.length >= 120 ? ' (primeiros 120)' : '') }), lista]);
+  return topo.concat([acao, h('h4', { class: 'cf-sub', text: 'Quem está diferente' + (d.divergencias.length >= 120 ? ' (primeiros 120)' : '') }), lista], semPar);
+}
+/* quem não tem par do outro lado: lead sem card visível e card sem lead (explica a diferença de contagem entre as telas) */
+function cfSemPar(d) {
+  var l = d.semPar || [];
+  if (!l.length) return [];
+  var lead = l.filter(function (x) { return x.tipo === 'lead_sem_card'; }), card = l.filter(function (x) { return x.tipo === 'card_sem_lead'; });
+  function bloco(titulo, lista) {
+    if (!lista.length) return null;
+    return h('div', null, [h('h4', { class: 'cf-sub', text: titulo + ' (' + lista.length + (lista.length >= 300 ? '+' : '') + ')' }), h('ul', { class: 'cf-lista' }, lista.slice(0, 120).map(function (x) {
+      return h('li', null, h('button', { type: 'button', class: 'cf-li', title: x.motivo, onclick: function () { if (x.leadId) abrirLead(x.leadId); else if (x.cardId) fvAbrirCard(x.cardId); } }, [
+        h('span', { class: 'cf-n' }, [h('b', { text: x.nome }), h('small', { text: (x.tipo === 'lead_sem_card' ? 'Fluxo: ' : 'Pipelines: ') + x.etapa + '  ·  ' + x.motivo })]),
+        h('em', { class: 'cf-nao', text: 'sem par' })
+      ]));
+    }))]);
+  }
+  return [bloco('Leads do Fluxo sem card nos Pipelines', lead), bloco('Cards dos Pipelines sem lead no Fluxo', card)];
 }
 function cfAlinhar(m, btn, n) {
   if (!window.confirm('Mover ' + n + (n === 1 ? ' card' : ' cards') + ' para a coluna que o Fluxo mostra? Isso muda a posição deles nos Pipelines e fica no histórico dos cards.')) return;

@@ -34,17 +34,21 @@ const etapaDoItem = (f: Funil, item: string): Etapa | undefined => f.stages.find
 const itemDoLeadNaConferencia = (l: Lead, agora: Date) => { const i = vistaDoLead(l, agora).item; return i === 'reativacao' ? 'descarte' : i; };
 
 export type Divergencia = { leadId: string; cardId: string; nome: string; fluxo: string; pipeline: string; alinhavel: boolean; motivo?: string };
+/** Quem não tem par do outro lado: lead sem card visível (sem card, card removido do funil, card em outro funil) ou card sem lead. */
+export type SemPar = { tipo: 'lead_sem_card' | 'card_sem_lead'; leadId: string | null; cardId: string | null; nome: string; etapa: string; motivo: string };
 export type LinhaConferencia = { item: string; rotulo: string; fluxo: number; pipeline: number; semCard: number; semLead: number; cardEmOutra: number; leadEmOutro: number };
 
 export function conferir(estado: Estado, agora: Date) {
   const f = estado.pipelines.funis.find((x) => x.dimensao === 'orcamento');
-  if (!f) return { funil: null as string | null, linhas: [] as LinhaConferencia[], divergencias: [] as Divergencia[], totais: { fluxo: 0, pipeline: 0, divergentes: 0, alinhaveis: 0 } };
+  if (!f) return { funil: null as string | null, linhas: [] as LinhaConferencia[], divergencias: [] as Divergencia[], semPar: [] as SemPar[], totais: { fluxo: 0, pipeline: 0, divergentes: 0, alinhaveis: 0 } };
   const cards = visiveis(f, estado.pipelines.atribuicoes).filter((a) => a.funilId === f.id);
   const porCard = new Map(cards.map((a) => [a.cardId, a]));
   const leads = estado.leads.filter((l) => !l.demo);
   const leadDoCard = new Map<string, Lead>(); for (const l of leads) if (l.cardId && porCard.has(l.cardId)) leadDoCard.set(l.cardId, l);
   const linhas = new Map(ETAPAS_COMPARADAS.map(([item, rotulo]) => [item, { item, rotulo, fluxo: 0, pipeline: 0, semCard: 0, semLead: 0, cardEmOutra: 0, leadEmOutro: 0 } as LinhaConferencia]));
   const divergencias: Divergencia[] = [];
+  const semPar: SemPar[] = [];
+  const atribDe = new Map(estado.pipelines.atribuicoes.map((x) => [x.cardId, x]));
   const rotulo = (i: string) => ETAPAS_COMPARADAS.find(([k]) => k === i)?.[1] ?? i;
   const etapaAtual = (a: Atribuicao) => etapaDe(f, a.stageId);
 
@@ -52,7 +56,13 @@ export function conferir(estado: Estado, agora: Date) {
     const item = itemDoLeadNaConferencia(l, agora), li = linhas.get(item); if (!li) continue;
     li.fluxo++;
     const a = l.cardId ? porCard.get(l.cardId) : undefined;
-    if (!a) { li.semCard++; continue; }
+    if (!a) {
+      li.semCard++;
+      const orig = l.cardId ? atribDe.get(l.cardId) : undefined;
+      const motivo = !l.cardId ? 'Lead cadastrado à mão (não veio de um card do Clinilink).' : !orig ? 'O card deste lead não existe mais nos Pipelines.' : orig.caseStatus === 'removido' ? 'O card foi removido do funil (o lead continua no Fluxo).' : orig.funilId !== f.id ? 'O card está em outro funil.' : 'O card não aparece nos Pipelines (filtro do funil).';
+      semPar.push({ tipo: 'lead_sem_card', leadId: l.id, cardId: l.cardId ?? null, nome: l.nome, etapa: rotulo(item), motivo });
+      continue;
+    }
     const e = etapaAtual(a), cardItem = e ? itemDaEtapa(e.label) : null;
     if (cardItem === item) continue;
     li.cardEmOutra++;
@@ -70,11 +80,12 @@ export function conferir(estado: Estado, agora: Date) {
     const e = etapaAtual(a), item = e ? itemDaEtapa(e.label) : null, li = item ? linhas.get(item) : undefined; if (!li) continue;
     li.pipeline++;
     const l = leadDoCard.get(a.cardId);
-    if (!l) li.semLead++; else if (itemDoLeadNaConferencia(l, agora) !== item) li.leadEmOutro++;
+    if (!l) { li.semLead++; semPar.push({ tipo: 'card_sem_lead', leadId: null, cardId: a.cardId, nome: a.ultimoSnapshot.paciente, etapa: rotulo(item ?? '?'), motivo: 'Este card ainda não tem lead no Fluxo.' }); } else if (itemDoLeadNaConferencia(l, agora) !== item) li.leadEmOutro++;
   }
   const lista = [...linhas.values()];
   return {
     funil: f.nome as string | null, linhas: lista,
+    semPar: semPar.sort((x, y) => x.tipo.localeCompare(y.tipo) || x.nome.localeCompare(y.nome)).slice(0, 300),
     divergencias: divergencias.sort((x, y) => Number(y.alinhavel) - Number(x.alinhavel) || x.nome.localeCompare(y.nome)).slice(0, 300),
     totais: { fluxo: lista.reduce((s, x) => s + x.fluxo, 0), pipeline: lista.reduce((s, x) => s + x.pipeline, 0), divergentes: divergencias.length, alinhaveis: divergencias.filter((d) => d.alinhavel).length },
   };

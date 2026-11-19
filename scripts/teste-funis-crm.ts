@@ -219,6 +219,12 @@ teste('conferência Pipelines x Fluxo: nomes de coluna viram etapa do Fluxo; ali
   const estado = { pipelines: est, leads: [l] } as never;
   const r0 = conferir(estado, AGORA); assert.equal(r0.totais.pipeline, 3); assert.equal(r0.totais.fluxo, 1);
   assert.equal(r0.linhas.find((x) => x.item === 'aberto')!.semLead, 2, 'dois cards sem lead');
+  assert.equal(r0.semPar.filter((x) => x.tipo === 'card_sem_lead').length, 2, 'os dois cards sem lead aparecem na lista, com nome');
+  const solto = criarLead({ nome: 'Solto', telefone: '91981628018', valor: 100 }, AGORA); const removido = criarLead({ nome: 'Removido', telefone: '91981628019', valor: 100 }, AGORA); removido.cardId = 'c';
+  est.atribuicoes.find((x) => x.cardId === 'c')!.caseStatus = 'removido'; (estado as unknown as { leads: unknown[] }).leads.push(solto, removido);
+  const r00 = conferir(estado, AGORA); const sp = (n: string) => r00.semPar.find((x) => x.nome === n)!;
+  assert.equal(sp('Solto').tipo, 'lead_sem_card'); assert.match(sp('Solto').motivo, /à mão/); assert.match(sp('Removido').motivo, /removido do funil/);
+  (estado as unknown as { leads: unknown[] }).leads.splice(1, 2);
   const alvo = etapa(est, f.nome, 'DESCONTO'); moverCard(est.atribuicoes.find((a) => a.cardId === 'a')!, f, alvo, AGORA, { por: 'teste', manual: true });
   const r1 = conferir(estado, AGORA); const d = r1.divergencias.find((x) => x.leadId === l.id);
   if (d) { assert.equal(d.pipeline, 'Desconto'); assert.equal(d.alinhavel, d.fluxo !== 'Em aberto'); }
