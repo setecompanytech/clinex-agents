@@ -179,6 +179,12 @@ export async function getPacientesPorTelefone(telefone: string): Promise<Pacient
   return (await get<{ pacientes: Paciente[] }>('/v1/agendamento/pacientes', { telefone })).pacientes;
 }
 
+/** Paciente por NOME + NASCIMENTO (YYYY-MM-DD), para quando o cadastro tem outro telefone (API desde 19/11/2026, migration
+ * 20261119120000 do Clinilink). Devolve candidatos: nascimento igual e o primeiro nome no cadastro; quem chama confere o resto. */
+export async function getPacientesPorNomeNascimento(nome: string, nascimento: string): Promise<Paciente[]> {
+  return (await get<{ pacientes: Paciente[] }>('/v1/agendamento/pacientes', { nome, nascimento })).pacientes ?? [];
+}
+
 // ---------------------------- ESCRITA (exige credencial rw) ----------------------------
 
 export type NovoPaciente = { nome: string; cpf?: string; dataNascimento?: string; sexo?: 'feminino' | 'masculino'; telefone?: string };
