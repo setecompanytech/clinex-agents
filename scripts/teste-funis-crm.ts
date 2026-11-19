@@ -6,7 +6,8 @@ import { cardsSemServicos, funilDestino, ingerir, reporServicos, janelaDoPedido,
 import { painelExecutivo, relatorio } from '../src/crm/pipeline/metricas.js';
 import { aplicarAutomacoes, atrasado, classeDaEtapa, diaBRT, estrelas, funisPadrao, moverCard, recortar, validarAutomacoes, validarConfig, valorExibido } from '../src/crm/pipeline/regras.js';
 import { FunilError, type CardSnap, type EstadoFunis } from '../src/crm/pipeline/tipos.js';
-import { mensagemDoLead } from '../src/crm/pipeline/api.js';
+import { contatosDoLead, mensagemDoLead } from '../src/crm/pipeline/api.js';
+import { estado as estadoCrm } from '../src/crm/banco.js';
 import { criarLead } from '../src/crm/motor.js';
 import { alinharCardsAoFluxo, conferir, itemDaEtapa } from '../src/crm/conferencia.js';
 
@@ -261,5 +262,17 @@ teste('reparo de serviços: acha os cards sem itens, limita a 60 dias e repõe s
   const n = reporServicos(est, f, [snap('velho', '2026-09-01T12:00:00Z', 500, { itens: ['Raio X'], subtitulo: 'Raio X' }), snap('outro', '2026-10-30T12:00:00Z', 500, { itens: ['X'] })]);
   assert.equal(n, 1); assert.equal(est.atribuicoes.length, antes, 'não cria card');
   assert.deepEqual(est.atribuicoes.find((a) => a.cardId === 'velho')!.ultimoSnapshot.itens, ['Raio X']); assert.deepEqual([...cardsSemServicos(est, f, AGORA)!.ids], ['novo']);
+});
+teste('histórico de contatos do card: envio por modelo vira dados organizados (sem id técnico do WhatsApp)', () => {
+  const l = criarLead({ nome: 'Maria', telefone: '91981628017', valor: 300 }, AGORA); l.cardId = 'card-ct'; estadoCrm.leads.push(l);
+  try {
+    l.eventos.push({ id: 'e1', quando: '2026-11-19T15:50:00Z', tipo: 'contato', canal: 'whatsapp', msg: 1, auto: true, texto: 'WhatsApp · modelo primeiro_contato (pt_BR) para +55*******7332 · id wamid.HBgMNTU5MTgzMDU3MzMyFQIAERgS\nNome do paciente: Maria\nAtendente: Karla\nExame ou consulta: exame de ultrassom' } as never);
+    l.eventos.push({ id: 'e2', quando: '2026-11-19T16:00:00Z', tipo: 'contato', canal: 'ligacao', texto: 'Ligou e caiu na caixa postal' } as never);
+    const [a, b] = contatosDoLead('card-ct');
+    assert.equal(a.modelo, 'primeiro_contato'); assert.equal(a.para, '+55*******7332'); assert.equal(a.msg, 1); assert.equal(a.porIA, true); assert.equal(a.tipo, 'Mandou WhatsApp');
+    assert.deepEqual(a.campos, [{ rotulo: 'Nome do paciente', valor: 'Maria' }, { rotulo: 'Atendente', valor: 'Karla' }, { rotulo: 'Exame ou consulta', valor: 'exame de ultrassom' }]);
+    assert.ok(!JSON.stringify(a).includes('wamid'), 'o id técnico não aparece');
+    assert.equal(b.tipo, 'Ligou'); assert.equal(b.observacao, 'Ligou e caiu na caixa postal'); assert.equal(b.modelo, undefined);
+  } finally { estadoCrm.leads.splice(estadoCrm.leads.indexOf(l), 1); }
 });
 console.log(`${ok} testes passaram.`);

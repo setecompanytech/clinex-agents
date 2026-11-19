@@ -95,13 +95,22 @@ pipelines.put('/:id', (req, res) => {
 /** Já foi mandada mensagem de WhatsApp para o lead deste card? (pela IA, pelo CRM ou registrada pela equipe). Aparece como a etiqueta "Mensagem enviada" no card. */
 export type MensagemDoCard = { n: number; ultima: string; msg?: number; porIA: boolean; peloCrm: boolean };
 /** Os contatos registrados no LEAD desse card (WhatsApp enviado por modelo, pela IA ou registrado, ligação) também são contatos do card: aparecem no histórico dele. */
-export function contatosDoLead(cardId: string): { id: string; cardId: string; data: string; tipo: string; observacao?: string }[] {
+export type ContatoCard = { id: string; cardId: string; data: string; tipo: string; observacao?: string; msg?: number; porIA?: boolean; modelo?: string; para?: string; campos?: { rotulo: string; valor: string }[] };
+export function contatosDoLead(cardId: string): ContatoCard[] {
   const l = estado.leads.find((x) => x.cardId === cardId);
   if (!l) return [];
-  return l.eventos.filter((e) => e.tipo === 'contato').map((e) => ({
-    id: 'lead-' + e.id, cardId, data: e.quando, tipo: e.canal === 'ligacao' ? 'Ligou' : 'Mandou WhatsApp',
-    observacao: [e.msg ? 'Msg ' + e.msg : '', e.auto ? 'pela IA' : '', e.texto].filter(Boolean).join(' · ').slice(0, 300) || undefined,
-  }));
+  return l.eventos.filter((e) => e.tipo === 'contato').map((e): ContatoCard => {
+    const base: ContatoCard = { id: 'lead-' + e.id, cardId, data: e.quando, tipo: e.canal === 'ligacao' ? 'Ligou' : 'Mandou WhatsApp', ...(e.msg ? { msg: e.msg } : {}), ...(e.auto ? { porIA: true } : {}) };
+    const t = String(e.texto ?? '');
+    // envio por modelo: "WhatsApp · modelo <id> (<idioma>) para <telefone mascarado> · id <wamid>" + uma linha "Rótulo: valor" por campo
+    const m = /^WhatsApp · modelo (\S+)(?: \([^)]*\))?(?: para (\S+))?[^\n]*\n?([\s\S]*)$/.exec(t);
+    if (m) {
+      const campos = m[3].split('\n').map((x) => { const i = x.indexOf(': '); return i > 0 ? { rotulo: x.slice(0, i).trim(), valor: x.slice(i + 2).trim() } : null; }).filter((x): x is { rotulo: string; valor: string } => !!x && !!x.valor).slice(0, 12);
+      return { ...base, modelo: m[1], ...(m[2] ? { para: m[2] } : {}), ...(campos.length ? { campos } : {}) };
+    }
+    const limpo = t.replace(/\bwamid\.\S+/g, '').replace(/\s*·\s*id\s*$/, '').trim().slice(0, 300);
+    return { ...base, ...(limpo ? { observacao: limpo } : {}) };
+  });
 }
 
 export function mensagemDoLead(l: Lead | undefined): MensagemDoCard | null {

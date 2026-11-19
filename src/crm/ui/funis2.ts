@@ -131,6 +131,26 @@ function fvEnviarTemplate(D, s, recarregar) {
   dialogoModeloWA({ id: D.leadId, nome: s.paciente, telefone: s.contato }, null, function () { if (recarregar) recarregar(); });
 }
 
+/* um contato no histórico do card: ícone do canal, título, etiquetas (Msg, IA, modelo, telefone) e os campos enviados em grade */
+function fvContatoItem(c) {
+  var lig = c.tipo === 'Ligou', wa = c.tipo === 'Mandou WhatsApp';
+  var titulo = c.modelo ? 'WhatsApp enviado por modelo' : wa ? 'WhatsApp' : c.tipo;
+  var tags = [];
+  if (c.msg) tags.push(h('span', { class: 'ct-tag', text: 'Msg ' + c.msg }));
+  if (c.porIA) tags.push(h('span', { class: 'ct-tag ct-ia', text: 'pela IA' }));
+  if (c.modelo) tags.push(h('span', { class: 'ct-tag', title: 'Modelo aprovado', text: c.modelo }));
+  if (c.para) tags.push(h('span', { class: 'ct-tag', text: 'para ' + c.para }));
+  return h('li', { class: 'ct' }, [
+    h('span', { class: 'ct-i', 'aria-hidden': 'true' }, ico(lig ? 'phone' : wa ? 'message' : 'check', 15)),
+    h('div', { class: 'ct-c' }, [
+      h('div', { class: 'ct-t' }, [h('b', { text: titulo }), h('small', { text: fvQuando(c.data) })]),
+      tags.length ? h('div', { class: 'ct-tags' }, tags) : null,
+      c.campos && c.campos.length ? h('dl', { class: 'ct-campos' }, [].concat.apply([], c.campos.map(function (x) { return [h('dt', { text: x.rotulo }), h('dd', { text: x.valor })]; }))) : null,
+      c.observacao ? h('p', { class: 'ct-obs', text: c.observacao }) : null
+    ])
+  ]);
+}
+
 /* contatos + o guia de atendimento por cima do card */
 function fvAbaContatos(D, a, etapa, recarregar) {
   var s = a.snap, lead = { nome: s.paciente, valor: a.valor, exame: (s.itens && s.itens[0]) || '' };
@@ -167,7 +187,7 @@ function fvAbaContatos(D, a, etapa, recarregar) {
     }, 'check'),
     h('p', { class: 'mut peq', text: 'Regras de ouro: confirmar a recepção, contatos só das 8h às 19h e no máximo 2 tentativas por dia. Mandar a mensagem de fato é feito no WhatsApp; aqui fica o registro.' })
   ]);
-  var lista = D.contatos.length ? h('ul', { class: 'fv-lista' }, D.contatos.map(function (c) { return h('li', null, [h('div', null, [h('b', { text: c.tipo }), h('small', { text: ' · ' + fvQuando(c.data) }), c.observacao ? h('p', { text: c.observacao }) : null])]); })) : vazio('Nenhum contato registrado');
+  var lista = D.contatos.length ? h('ul', { class: 'fv-lista' }, D.contatos.map(fvContatoItem)) : vazio('Nenhum contato registrado');
   return [h('div', { class: 'fv-dr-grid' }, [h('div', { class: 'fv-col-dr' }, [guia, regis]), h('section', null, [h('h4', { class: 'au-h', text: 'Histórico de contatos' }), lista])])];
 }
 

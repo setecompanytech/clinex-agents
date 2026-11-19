@@ -810,6 +810,12 @@ main#main.larga{max-width:none;margin-left:0;margin-right:0;padding-left:24px;pa
 /* ===== mudar status (ms-) ===== */
 .ms-grade{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;margin-bottom:14px}.ms-op{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:10px 14px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--ink);text-align:left;cursor:pointer;transition:border-color .2s,background .2s}.ms-op:hover:not(:disabled){border-color:var(--cy)}.ms-op[aria-pressed="true"]{border-color:var(--cy);background:color-mix(in srgb,var(--cy) 12%,transparent)}.ms-op:disabled{opacity:.5;cursor:not-allowed}.ms-op small{color:var(--mut);font-size:11px}
 .ms-extra{display:flex;flex-direction:column;gap:10px;margin-bottom:10px}
+/* ===== histórico de contatos do card (ct-) ===== */
+.fv-lista li.ct{display:flex;gap:12px;align-items:flex-start;justify-content:flex-start;min-width:0}.ct-i{flex:none;width:30px;height:30px;border-radius:10px;display:grid;place-items:center;background:color-mix(in srgb,var(--cy) 14%,transparent);color:var(--cy)}.ct-c{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+.ct-t{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap}.ct-t b{font-size:14px}.ct-t small{color:var(--mut);font-size:12px;white-space:nowrap}
+.ct-tags{display:flex;flex-wrap:wrap;gap:6px}.ct-tag{padding:2px 9px;border-radius:999px;font-size:11.5px;border:1px solid var(--line2);color:var(--ink2);overflow-wrap:anywhere}.ct-ia{color:var(--cy);border-color:color-mix(in srgb,var(--cy) 45%,var(--line))}
+.ct-campos{display:grid;grid-template-columns:auto minmax(0,1fr);gap:3px 12px;margin:2px 0 0;padding:8px 10px;border-radius:10px;background:color-mix(in srgb,var(--ink) 4%,transparent);font-size:12.5px}.ct-campos dt{color:var(--mut)}.ct-campos dd{margin:0;overflow-wrap:anywhere;font-weight:600}
+.ct-obs{margin:0!important;font-size:13px;line-height:1.45;color:var(--ink2);overflow-wrap:anywhere}
 `;
 
 export const pagina = `<!doctype html>
