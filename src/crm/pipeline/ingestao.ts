@@ -156,6 +156,26 @@ export function ingerir(est: EstadoFunis, f: Funil, snaps: CardSnap[], agora: Da
   return { buscados: snaps.length, criados, ignorados, atualizados };
 }
 
+/** Cards do funil que ficaram sem os serviços do orçamento (e quando o mais antigo deles foi criado, no máximo 60 dias atrás). */
+export function cardsSemServicos(est: EstadoFunis, f: Funil, agora: Date): { ids: Set<string>; de: string } | null {
+  const sem = est.atribuicoes.filter((a) => a.funilId === f.id && a.caseStatus !== 'removido' && !a.ultimoSnapshot.itens.length);
+  if (!sem.length) return null;
+  const limite = somaDia(diaBRT(agora), -60);
+  const de = sem.map((a) => (a.ultimoSnapshot.criadoEm ? diaBRT(new Date(a.ultimoSnapshot.criadoEm)) : limite)).reduce((m, d) => (d < m ? d : m));
+  return { ids: new Set(sem.map((a) => a.cardId)), de: de < limite ? limite : de };
+}
+/** Só repõe os serviços dos cards que estavam sem eles; não cria nem move nada. Devolve quantos foram reparados. */
+export function reporServicos(est: EstadoFunis, f: Funil, snaps: CardSnap[]): number {
+  const porId = new Map(snaps.filter((s) => s.itens.length).map((s) => [s.id, s]));
+  let n = 0;
+  for (const a of est.atribuicoes) {
+    if (a.funilId !== f.id || a.caseStatus === 'removido' || a.ultimoSnapshot.itens.length) continue;
+    const s = porId.get(a.cardId); if (!s) continue;
+    a.ultimoSnapshot = { ...a.ultimoSnapshot, itens: s.itens, subtitulo: s.subtitulo ?? a.ultimoSnapshot.subtitulo }; n++;
+  }
+  return n;
+}
+
 // ------------------------------------------------------------------------------------------------ rotina (busca + grava)
 
 export type Sincronizacao = { janela: Janela; orcamentos?: ResultadoIngestao; agendamentos?: ResultadoIngestao; erros: string[] };
@@ -168,7 +188,16 @@ export async function sincronizar(est: EstadoFunis, agora: Date, pedido?: unknow
     orcamentos({ status: 'aberto', dataInicial: janela.de, dataFinal: janela.ate }),
     Promise.all(UNIDADES_CLINEX.map((u) => agendamentos({ unidadeId: u.id, dataInicial: janela.de, dataFinal: janela.ate, status: 'faltou' }))),
   ]);
-  if (orc.status === 'fulfilled') out.orcamentos = ingerir(est, funilDestino(est, 'orcamento', agora), orc.value.map(snapDeOrcamento), agora);
+  if (orc.status === 'fulfilled') {
+    const fo = funilDestino(est, 'orcamento', agora);
+    out.orcamentos = ingerir(est, fo, orc.value.map(snapDeOrcamento), agora);
+    // cards antigos que ficaram sem os serviços (fora da janela de 2 dias): busca o período deles e repõe só os serviços
+    const falta = cardsSemServicos(est, fo, agora);
+    if (falta) {
+      try { out.orcamentos.atualizados += reporServicos(est, fo, (await orcamentos({ status: 'aberto', dataInicial: falta.de, dataFinal: diaBRT(agora) })).map(snapDeOrcamento)); }
+      catch (e) { out.erros.push(`Serviços dos cards antigos: ${(e as Error).message}`); }
+    }
+  }
   else out.erros.push(`Orçamentos: ${(orc.reason as Error).message}`);
   if (ag.status === 'fulfilled') {
     const fn = funilDestino(est, 'agendamento', agora);

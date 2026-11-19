@@ -2,7 +2,7 @@
  * Testa as regras dos funis do documento "pipelines-crm-tecnico" (src/crm/pipeline). Rodar: npx tsx scripts/teste-funis-crm.ts
  */
 import assert from 'node:assert/strict';
-import { funilDestino, ingerir, janelaDoPedido, janelaPadrao, snapDeAgendamento, snapDeOrcamento, snapsDeAgendamentos } from '../src/crm/pipeline/ingestao.js';
+import { cardsSemServicos, funilDestino, ingerir, reporServicos, janelaDoPedido, janelaPadrao, snapDeAgendamento, snapDeOrcamento, snapsDeAgendamentos } from '../src/crm/pipeline/ingestao.js';
 import { painelExecutivo, relatorio } from '../src/crm/pipeline/metricas.js';
 import { aplicarAutomacoes, atrasado, classeDaEtapa, diaBRT, estrelas, funisPadrao, moverCard, recortar, validarAutomacoes, validarConfig, valorExibido } from '../src/crm/pipeline/regras.js';
 import { FunilError, type CardSnap, type EstadoFunis } from '../src/crm/pipeline/tipos.js';
@@ -251,5 +251,15 @@ teste('serviços do orçamento: aceita item em texto simples ou em objeto, e rep
   assert.deepEqual(a.ultimoSnapshot.itens, ['Ultrassom'], 'card fora do topo sem serviços volta a ter');
   ingerir(est, f, [snap('a', '2026-11-01T12:00:00Z', 500, { itens: ['Outro'] })], AGORA);
   assert.deepEqual(a.ultimoSnapshot.itens, ['Ultrassom'], 'quem já tem serviços continua congelado');
+});
+teste('reparo de serviços: acha os cards sem itens, limita a 60 dias e repõe só os serviços (sem criar nem mover)', () => {
+  const est = novoEstado(); const f = funilDestino(est, 'orcamento', AGORA);
+  ingerir(est, f, [snap('velho', '2026-09-01T12:00:00Z', 500, { itens: [] }), snap('novo', '2026-10-30T12:00:00Z', 500, { itens: [] }), snap('ok')], AGORA);
+  const falta = cardsSemServicos(est, f, AGORA)!;
+  assert.deepEqual([...falta.ids].sort(), ['novo', 'velho']); assert.equal(falta.de, '2026-09-03', 'no máximo 60 dias atrás');
+  const antes = est.atribuicoes.length;
+  const n = reporServicos(est, f, [snap('velho', '2026-09-01T12:00:00Z', 500, { itens: ['Raio X'], subtitulo: 'Raio X' }), snap('outro', '2026-10-30T12:00:00Z', 500, { itens: ['X'] })]);
+  assert.equal(n, 1); assert.equal(est.atribuicoes.length, antes, 'não cria card');
+  assert.deepEqual(est.atribuicoes.find((a) => a.cardId === 'velho')!.ultimoSnapshot.itens, ['Raio X']); assert.deepEqual([...cardsSemServicos(est, f, AGORA)!.ids], ['novo']);
 });
 console.log(`${ok} testes passaram.`);
