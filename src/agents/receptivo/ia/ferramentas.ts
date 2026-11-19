@@ -8,6 +8,7 @@ import type { PedidoLido } from '../../../lib/pedidoMedico.js';
 import { exibir, exibirLista, prepararGeneros } from '../../../lib/genero.js';
 import { escolherExames } from '../../../lib/interpretarExames.js';
 import { env } from '../../../lib/env.js';
+import { feriadoEm } from '../../../lib/feriados.js';
 import { evt } from '../../../lib/log.js';
 import type { Descoberta, Fonte, ItemExame, Servico, Slot, Unidade } from '../script/catalog.js';
 import { cpfValido, mensagemConfirmacao, soTelefone } from '../script/engine.js';
@@ -365,10 +366,12 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
         if (sv.pacote) return { erro: 'este servico_id é o COMBO inteiro: os horários são por etapa. Chame etapa_do_combo (este servico_id, etapa 1 ou a próxima que falta) e use em ver_horarios o servico_id que ela devolver. NÃO diga ao paciente que não há vaga.' };
         const un = acharUnidade(sv, args.unidade);
         if (!un) return { erro: 'unidade sem agenda para este serviço', unidades_com_agenda: sv.unidades.map((u) => u.nome) };
+        // REGRA DA CLÍNICA (19/11/2026): feriado nacional a clínica não funciona (mesmo que a agenda do Clinilink tenha vaga aberta)
+        if (args.data && feriadoEm(String(args.data))) return { horarios: [], feriado: feriadoEm(String(args.data)), orientacao: `${dataFalada(String(args.data), hoje)} é feriado nacional (${feriadoEm(String(args.data))}): a clínica não funciona nesse dia. Diga isso ao paciente e ofereça os próximos dias de atendimento (chame ver_horarios com a_partir_de no dia seguinte).` };
         const de = args.data ? String(args.data) : args.a_partir_de && String(args.a_partir_de) > hoje ? String(args.a_partir_de) : hoje;
         const ate = args.data ? String(args.data) : somaDias(de, 21);
         let lista = f.horariosPorProfissional ? await f.horariosPorProfissional(sv, un, de, ate) : await f.proximas(sv, un, de, 12);
-        lista = lista.filter((s) => !jaPassou(s, c.agora) && !ehTeste(s.profissionalBruto) && !ehTeste(s.profissional));
+        lista = lista.filter((s) => !jaPassou(s, c.agora) && !feriadoEm(s.ymd) && !ehTeste(s.profissionalBruto) && !ehTeste(s.profissional));
         if (args.turno) lista = lista.filter((s) => s.turno === args.turno);
         const soCom = c.mem.etapas?.[String(args.servico_id)]?.medicos;
         if (soCom?.length) { const ok = new Set(soCom.map((x) => norm(x))); const filtrada = lista.filter((s) => s.profissional && ok.has(norm(s.profissional))); if (filtrada.length) lista = filtrada; }
@@ -433,6 +436,7 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
         const un = sv && acharUnidade(sv, g.unidade);
         if (!sv || !un) return { erro: 'serviço ou unidade não encontrados: busque de novo' };
         if (jaPassou(g.slot, c.agora)) return { erro: 'esse horário já passou: ofereça outro' };
+        if (feriadoEm(g.slot.ymd)) return { erro: `${dataFalada(g.slot.ymd, hoje)} é feriado nacional (${feriadoEm(g.slot.ymd)}): a clínica não funciona. NÃO agende; ofereça outro dia (ver_horarios).` };
         // JÁ PAGOU (combo, exame...): conferir o pagamento e o que já está agendado é com a equipe (caso real 18/11: "eu havia pago um combo de gastro",
         // a Amanda prometeu manter o valor e criou agendamentos novos). Pix conferido nesta conversa segue normal.
         if (JA_PAGOU.test(c.textoPaciente ?? '') && !c.mem.pix) return { erro: 'o paciente disse que JÁ PAGOU: NÃO agende e NÃO prometa valor nem condição. Avise numa frase que a equipe vai conferir o pagamento e cuidar do agendamento, e chame transferir_para_humano com o resumo (o que ele pagou, quando, e o que quer agendar).' };
