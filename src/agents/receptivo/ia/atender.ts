@@ -43,7 +43,7 @@ async function unidades(): Promise<Unidades> {
 /** A conversa como o modelo lê: paciente = user; Amanda e equipe = assistant (a equipe marcada). Últimas 12 h, até 40 mensagens. */
 export function conversaParaModelo(history: InovstarMessage[], titulos: string[], desde = Date.now() - 12 * 3600_000): Msg[] {
   const out: Msg[] = [];
-  const recentes = history.filter((m) => +new Date(m.createdAt) > desde && m.type !== 'system' && m.status !== 'whisper' && !m.isWhisper && !ehReacao(m)).slice(-40);
+  const recentes = history.filter((m) => +new Date(m.createdAt) > desde && !/Vou chamar alguém da nossa equipe pra continuar o seu atendimento/.test(m.text ?? '') && m.type !== 'system' && m.status !== 'whisper' && !m.isWhisper && !ehReacao(m)).slice(-40);
   for (const m of recentes) {
     let txt: string | null;
     if (m.direction === 'in') {
