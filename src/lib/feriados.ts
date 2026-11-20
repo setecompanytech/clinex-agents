@@ -54,3 +54,10 @@ export function proximosFeriados(hoje: string, dias = 120): Feriado[] {
   const anos = [...new Set([Number(hoje.slice(0, 4)), Number(fim.slice(0, 4))])];
   return anos.flatMap(feriadosDoAno).filter((f) => f.ymd >= hoje && f.ymd <= fim);
 }
+
+/** Próximo dia em que a clínica atende depois de `ymd` (pula domingo e feriado; sábado atende). */
+export function proximoDiaDeAtendimento(ymd: string): string {
+  let d = somaDias(ymd, 1);
+  for (let i = 0; i < 10 && (new Date(`${d}T12:00:00Z`).getUTCDay() === 0 || feriadoEm(d)); i++) d = somaDias(d, 1);
+  return d;
+}
