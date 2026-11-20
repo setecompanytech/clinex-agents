@@ -37,6 +37,8 @@ export type MessageReceivedEvent = {
   isGroup: boolean;
   attendanceInfo: string;
   contactName?: string;
+  /** reprocessamento manual (só com a chave do webhook): a Amanda responde mesmo depois da própria mensagem de falha (ex.: falta de crédito da OpenAI) */
+  recuperar?: boolean;
 };
 
 /** Valida X-InovStar-Signature (sha256=<hex>) sobre o corpo cru. Sem segredo configurado, aceita. */
@@ -70,6 +72,7 @@ export function parseMessageReceived(body: any): MessageReceivedEvent | null {
     attendanceInfo: JSON.stringify({ status: d.attendance.status, isAssigned: d.attendance.isAssigned, user: d.attendance.user?.name, sector: d.attendance.sector?.name }),
     isGroup: Boolean(d.author),
     contactName: d.contact?.name,
+    recuperar: body?.recuperar === true,
   };
 }
 
