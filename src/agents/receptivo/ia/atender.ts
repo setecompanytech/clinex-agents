@@ -5,7 +5,7 @@
 import type { Comprovante } from '../../../lib/comprovante.js';
 import type { PedidoLido } from '../../../lib/pedidoMedico.js';
 import { env } from '../../../lib/env.js';
-import { proximosFeriados } from '../../../lib/feriados.js';
+import { feriadoEm, proximosFeriados } from '../../../lib/feriados.js';
 import { describe, ehReacao, textoRoteiro, type InovstarMessage } from '../../../integrations/inovstar.js';
 import type { Fonte } from '../script/catalog.js';
 import { unidadesDaClinica } from '../script/clinilinkFonte.js';
@@ -19,6 +19,10 @@ export function noHorarioComercial(agora = new Date()): boolean {
   const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: env.timezone, weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(agora).map((x) => [x.type, x.value]));
   const dia = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(String(p.weekday));
   const hm = `${String(Number(p.hour) % 24).padStart(2, '0')}:${p.minute}`;
+  // REGRA DA CLÍNICA (20/11/2026): feriado nacional a equipe não trabalha: a Amanda segue o caminho de FORA do horário comercial
+  // (pergunta o pagamento, agenda e manda a confirmação ao paciente, sem passar para a equipe)
+  const ymd = new Intl.DateTimeFormat('en-CA', { timeZone: env.timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(agora);
+  if (feriadoEm(ymd)) return false;
   return env.comercialDias.includes(dia) && hm >= env.comercialInicio && hm < env.comercialFim;
 }
 
@@ -43,7 +47,7 @@ async function unidades(): Promise<Unidades> {
 /** A conversa como o modelo lê: paciente = user; Amanda e equipe = assistant (a equipe marcada). Últimas 12 h, até 40 mensagens. */
 export function conversaParaModelo(history: InovstarMessage[], titulos: string[], desde = Date.now() - 12 * 3600_000): Msg[] {
   const out: Msg[] = [];
-  const recentes = history.filter((m) => +new Date(m.createdAt) > desde && m.type !== 'system' && m.status !== 'whisper' && !m.isWhisper && !ehReacao(m)).slice(-40);
+  const recentes = history.filter((m) => +new Date(m.createdAt) > desde && !/Vou chamar alguém da nossa equipe pra continuar o seu atendimento/.test(m.text ?? '') && m.type !== 'system' && m.status !== 'whisper' && !m.isWhisper && !ehReacao(m)).slice(-40);
   for (const m of recentes) {
     let txt: string | null;
     if (m.direction === 'in') {

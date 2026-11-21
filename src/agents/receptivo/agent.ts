@@ -278,7 +278,9 @@ async function processar(ev: MessageReceivedEvent) {
   if (last && last.direction === 'out' && last.status !== 'whisper') {
     const salvoAgora = estadoAtivo() ? await lerEstado(ev.attendanceId) : null;
     const jaRespondida = !estadoAtivo() || salvoAgora?.ate === ev.messageId || !history.some((m) => m.direction === 'out' && eDaAmanda(m) && history.indexOf(m) > history.findIndex((x) => x._id === ev.messageId));
-    if (!eDaAmanda(last) || jaRespondida) return skip(`última mensagem já é de saída (${last.type}); não duplica`);
+    // recuperação manual depois de uma falha (20/11: créditos da OpenAI acabaram): a última saída é só a mensagem de falha, a pergunta segue sem resposta
+    const soAFalha = Boolean(ev.recuperar) && eDaAmanda(last); // recuperação manual: refaz mesmo depois da última fala da Amanda
+    if (!soAFalha && (!eDaAmanda(last) || jaRespondida)) return skip(`última mensagem já é de saída (${last.type}); não duplica`);
     respostaDaAnterior = true;
   }
 

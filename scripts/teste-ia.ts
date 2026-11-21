@@ -65,6 +65,9 @@ const CASOS: Record<string, string[]> = {
   // caso real 19/11: nome e nascimento certos, WhatsApp diferente do telefone do cadastro
   josiane: ['Gostaria de marcar meu retorno com a cardiologista', 'Josiane da Silva Morais  02/12 /79', 'Estive aí semana passada realizando meus exames', '719.166.522-04', 'sim, sou eu', 'o primeiro'],
   respRetorno: ['quero consulta com cardiologista', 'é retorno'],
+  hojeFeriado1: ['bom dia, quero fazer exame de sangue hoje'],
+  hojeFeriado2: ['vocês estão abertos hoje? queria passar aí agora pra fazer uma ultrassom'],
+  hojeFeriado3: ['quero marcar consulta com clinico geral pra hoje', 'é nova', 'guamá'],
   dados: ['quero marcar consulta com clinico geral amanhã', 'qualquer unidade', 'pode ser', 'Nome: Aline Ferreira Costa\nData de nascimento: 05/07/1988\nsexo feminino', 'vou pagar na recepção'],
 };
 
