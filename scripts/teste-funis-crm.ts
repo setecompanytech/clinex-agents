@@ -8,7 +8,8 @@ import { aplicarAutomacoes, atrasado, classeDaEtapa, diaBRT, estrelas, funisPadr
 import { FunilError, type CardSnap, type EstadoFunis } from '../src/crm/pipeline/tipos.js';
 import { contatosDoLead, mensagemDoLead } from '../src/crm/pipeline/api.js';
 import { estado as estadoCrm } from '../src/crm/banco.js';
-import { criarLead } from '../src/crm/motor.js';
+import { aplicar, criarLead, vistaDoLead, type Acao } from '../src/crm/motor.js';
+import { alinharCardsELeads } from '../src/crm/sincroniaCardLead.js';
 import { alinharCardsAoFluxo, conferir, itemDaEtapa } from '../src/crm/conferencia.js';
 
 let ok = 0;
@@ -216,7 +217,7 @@ teste('conferência Pipelines x Fluxo: nomes de coluna viram etapa do Fluxo; ali
   assert.equal(itemDaEtapa('EM ABERTO'), 'aberto'); assert.equal(itemDaEtapa('PRIMEIRO CONTATO'), 'primeiro'); assert.equal(itemDaEtapa('RETORNO PERSONALIZADO'), 'retorno'); assert.equal(itemDaEtapa('EM NEGOCIAÇÃO'), 'negociacao');
   assert.equal(itemDaEtapa('CONVERTIDO - ORGANICO'), 'organico'); assert.equal(itemDaEtapa('CONVERTIDO ATIVO'), 'ativo'); assert.equal(itemDaEtapa('Sem retorno'), 'semretorno'); assert.equal(itemDaEtapa('Descarte'), 'descarte'); assert.equal(itemDaEtapa('Outra'), null);
   const est = novoEstado(); const f = funilDestino(est, 'orcamento', AGORA); ingerir(est, f, [snap('a'), snap('b'), snap('c')], AGORA);
-  const l = criarLead({ nome: 'Maria', telefone: '91981628017', valor: 300 }, AGORA); l.cardId = 'a';
+  const l = criarLead({ nome: 'Maria', telefone: '91981628017', valor: 300, d0: '2026-11-01' }, AGORA); l.cardId = 'a';
   const estado = { pipelines: est, leads: [l] } as never;
   const r0 = conferir(estado, AGORA); assert.equal(r0.totais.pipeline, 3); assert.equal(r0.totais.fluxo, 1);
   assert.equal(r0.linhas.find((x) => x.item === 'aberto')!.semLead, 2, 'dois cards sem lead');
@@ -274,5 +275,27 @@ teste('histórico de contatos do card: envio por modelo vira dados organizados (
     assert.ok(!JSON.stringify(a).includes('wamid'), 'o id técnico não aparece');
     assert.equal(b.tipo, 'Ligou'); assert.equal(b.observacao, 'Ligou e caiu na caixa postal'); assert.equal(b.modelo, undefined);
   } finally { estadoCrm.leads.splice(estadoCrm.leads.indexOf(l), 1); }
+});
+teste('Fluxo e Pipelines sempre iguais: o último a mudar vale, sozinho, sem botão', () => {
+  const est = novoEstado(); const f = funilDestino(est, 'orcamento', AGORA); ingerir(est, f, [snap('a')], AGORA);
+  const l = criarLead({ nome: 'Maria', telefone: '91981628017', valor: 300, d0: '2026-11-01' }, AGORA); l.cardId = 'a';
+  const estado = { pipelines: est, leads: [l] } as never; const card = () => est.atribuicoes.find((x) => x.cardId === 'a')!;
+  const col = () => f.stages.find((e) => e.id === card().stageId)!.label;
+  const igual = (t: Date, msg: string) => { assert.deepEqual(conferir(estado, t).divergencias, [], msg); };
+  alinharCardsELeads(estado, AGORA); igual(AGORA, 'recém-criado'); assert.equal(col(), 'EM ABERTO');
+  // 1) o contato é registrado no lead -> o card vai sozinho para Primeiro contato
+  const t1 = em('2026-11-02', '10:00'); aplicar(l, { tipo: 'contato', canal: 'whatsapp', naoFoiRecepcao: true, passo: 'primeiro' } as Acao, t1);
+  assert.equal(vistaDoLead(l, t1).item, 'primeiro'); alinharCardsELeads(estado, t1); assert.equal(col(), 'PRIMEIRO CONTATO'); igual(t1, 'depois do contato');
+  // 2) a equipe arrasta o card para Desconto -> o Fluxo passa a mostrar o lead em Desconto
+  const t2 = em('2026-11-02', '11:00'); moverCard(card(), f, etapa(est, f.nome, 'DESCONTO'), t2, { por: 'Vanuza', manual: true });
+  alinharCardsELeads(estado, em('2026-11-02', '11:01')); assert.equal(vistaDoLead(l, em('2026-11-02', '11:01')).item, 'desconto'); assert.equal(col(), 'DESCONTO'); igual(em('2026-11-02', '11:01'), 'depois de arrastar o card');
+  alinharCardsELeads(estado, em('2026-11-02', '11:02')); assert.equal(col(), 'DESCONTO', 'continua onde a equipe deixou');
+  // 3) o lead se mexe de novo (o paciente responde) -> o card acompanha o lead
+  const t3 = em('2026-11-02', '12:00'); aplicar(l, { tipo: 'resposta' } as Acao, t3);
+  alinharCardsELeads(estado, t3); igual(t3, 'depois da resposta do paciente'); assert.equal(col(), 'EM NEGOCIAÇÃO');
+  // 4) o tempo passa e o item do lead muda sozinho (sem evento): o card acompanha, em qualquer dia
+  for (const d of ['2026-11-03', '2026-11-05', '2026-11-06', '2026-11-09', '2026-11-12']) { const t = em(d, '10:00'); alinharCardsELeads(estado, t); igual(t, 'dia ' + d); }
+  // 5) "Mudar status" para Em aberto: o card volta para a primeira coluna
+  aplicar(l, { tipo: 'status', para: 'aberto' } as Acao, em('2026-11-12', '11:00')); alinharCardsELeads(estado, em('2026-11-12', '11:01')); assert.equal(col(), 'EM ABERTO'); igual(em('2026-11-12', '11:01'), 'depois de Mudar status');
 });
 console.log(`${ok} testes passaram.`);

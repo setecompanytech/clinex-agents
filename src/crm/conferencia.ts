@@ -30,7 +30,7 @@ export function itemDaEtapa(label: string): string | null {
   if (/em aberto/.test(n)) return 'aberto';
   return null;
 }
-const etapaDoItem = (f: Funil, item: string): Etapa | undefined => f.stages.find((e) => itemDaEtapa(e.label) === item);
+export const etapaDoItem = (f: Funil, item: string): Etapa | undefined => f.stages.find((e) => itemDaEtapa(e.label) === item);
 const itemDoLeadNaConferencia = (l: Lead, agora: Date) => { const i = vistaDoLead(l, agora).item; return i === 'reativacao' ? 'descarte' : i; };
 
 export type Divergencia = { leadId: string; cardId: string; nome: string; fluxo: string; pipeline: string; alinhavel: boolean; motivo?: string; statusSugerido: string | null };

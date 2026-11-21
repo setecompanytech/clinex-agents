@@ -61,12 +61,12 @@ export function funisPadrao(agora: Date): Funil[] {
 // ------------------------------------------------------------------------------------------------ mover card (seção 5.3)
 
 /** Bloqueia voltar para a 1ª coluna, grava a trilha no histórico e atualiza a entrada na coluna. */
-export function moverCard(a: Atribuicao, f: Funil, paraId: string, agora: Date, opc: { por?: string; manual?: boolean } = {}): boolean {
+export function moverCard(a: Atribuicao, f: Funil, paraId: string, agora: Date, opc: { por?: string; manual?: boolean; forcar?: boolean } = {}): boolean {
   if (a.caseStatus === 'removido') throw new FunilError('removido', 'Este card foi removido do funil.');
   const para = etapaDe(f, paraId);
   if (!para) throw new FunilError('etapa', 'Coluna de destino não encontrada neste funil.');
   if (a.stageId === paraId) return false;
-  if (paraId === topo(f).id) throw new FunilError('topo', 'Um card não volta para a primeira coluna depois de sair dela.');
+  if (paraId === topo(f).id && !opc.forcar) throw new FunilError('topo', 'Um card não volta para a primeira coluna depois de sair dela.');
   const manual = opc.manual !== false;
   a.historico.push({ stageId: paraId, em: agora.toISOString(), manual, ...(opc.por ? { por: opc.por } : {}) });
   a.stageId = paraId;

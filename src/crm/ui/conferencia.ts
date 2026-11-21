@@ -8,11 +8,13 @@ function cfPedir(forcar) {
   CF.car = true;
   return api('GET', '/conferencia').then(function (d) { CF.d = d; CF.t = Date.now(); CF.car = false; cfAtualizarBotoes(); return d; }).catch(function (e) { CF.car = false; throw e; });
 }
-function cfRotuloBotao() { var n = CF.d ? CF.d.totais.divergentes : null; return 'Conferir com ' + (S.aba === 'pipelines' ? 'o Fluxo' : 'os Pipelines') + (n ? ' · ' + n + ' diferentes' : ''); }
-function cfAtualizarBotoes() { CF.btns = CF.btns.filter(function (b) { return b.isConnected; }); CF.btns.forEach(function (b) { var s = b.querySelector('.cf-rot'); if (s) s.textContent = cfRotuloBotao(); b.classList.toggle('cf-dif-b', !!(CF.d && CF.d.totais.divergentes)); }); }
+/* o sistema já iguala card e lead sozinho; sobram só os sem par (lead sem card, card sem lead), e o botão só aparece quando existem */
+function cfPendentes() { return CF.d ? CF.d.totais.divergentes + (CF.d.semPar ? CF.d.semPar.length : 0) : 0; }
+function cfRotuloBotao() { var n = cfPendentes(); return 'Pendências de dados' + (n ? ' · ' + n : ''); }
+function cfAtualizarBotoes() { CF.btns = CF.btns.filter(function (b) { return b.isConnected; }); CF.btns.forEach(function (b) { var s = b.querySelector('.cf-rot'); if (s) s.textContent = cfRotuloBotao(); b.classList.toggle('cf-dif-b', cfPendentes() > 0); b.style.display = CF.d && !cfPendentes() ? 'none' : ''; }); }
 /* botão para o cabeçalho do Fluxo e dos Pipelines: mostra quantos cards/leads estão contados de forma diferente */
 function cfBotao() {
-  var b = h('button', { class: 'btn', type: 'button', title: 'O Fluxo conta leads pelo guia e o Pipelines conta cards pela coluna. Veja onde os números diferem e por quê.', onclick: function () { abrirConferencia(); } }, [ico('chart', 16), h('span', { class: 'cf-rot', text: cfRotuloBotao() })]);
+  var b = h('button', { class: 'btn', type: 'button', title: 'Leads sem card e cards sem lead: contam de um lado só no Fluxo e nos Pipelines.', onclick: function () { abrirConferencia(); } }, [ico('chart', 16), h('span', { class: 'cf-rot', text: cfRotuloBotao() })]);
   CF.btns.push(b); cfPedir(false).catch(function () { /* o botão continua funcionando */ });
   return b;
 }
@@ -44,7 +46,7 @@ function cfCorpo(d, m) {
     h('thead', null, h('tr', null, ['Etapa', 'Fluxo (leads)', 'Pipelines (cards)', 'Diferença', 'Por que diferem'].map(function (x, i) { return h('th', { scope: 'col', class: i >= 1 && i <= 3 ? 'n' : '', text: x }); }))),
     h('tbody', null, linhas)
   ]));
-  var nota = h('p', { class: 'mut cf-nota', text: 'O Fluxo conta cada lead pela etapa do guia; o Pipelines conta cada card pela coluna onde ele está. Os números só batem quando o card está na coluna que o guia manda. Leads sem card e cards sem lead também entram na diferença.' });
+  var nota = h('p', { class: 'mut cf-nota', text: 'Card e lead se acompanham sozinhos: quem mudou por último vale (contato, resposta ou mudança de status no lead; arrastar o card nos Pipelines). Aqui ficam só as pendências: leads que não têm card nos Pipelines e cards que não têm lead no Fluxo, que por isso contam de um lado só.' });
   var topo = [resumo, nota, tabela];
   var semPar = cfSemPar(d);
   if (!d.divergencias.length) return topo.concat([h('div', { class: 'cf-tudo' }, [ico('check', 18), 'Todos os leads que têm card estão na mesma etapa nos dois lados.'])], semPar);

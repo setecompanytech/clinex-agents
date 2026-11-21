@@ -1,5 +1,6 @@
 import type { Estado } from './banco.js';
-import { acompanharCard, type EventoLead, type Lead } from './motor.js';
+import { acompanharCard, acompanharCardTrabalho, ultimoMovimentoDoLead, vistaDoLead, type EventoLead, type Lead } from './motor.js';
+import { etapaDoItem, itemDaEtapa } from './conferencia.js';
 import type { Status } from './modelo.js';
 import { classeDaEtapa, etapaDe, moverCard } from './pipeline/regras.js';
 import type { Atribuicao, Etapa, Funil } from './pipeline/tipos.js';
@@ -72,16 +73,27 @@ export function alinharCardsELeads(estado: Estado, agora: Date): { leads: number
     const etapa = f && etapaDe(f, a.stageId);
     if (!f || !etapa) continue;
     const doCard = statusDaEtapa(etapa);
-    if (doCard === l.status) continue; // já dizem a mesma coisa
+    if (doCard !== l.status) {
     const tCard = quandoDoCard(a), tLead = quandoDoLead(l);
     if (tCard > 0 && tCard >= tLead) {
       const por = a.historico[a.historico.length - 1]?.por;
       if (doCard && acompanharCard(l, doCard, agora, etapa.label, ehPessoa(por) ? por : undefined)) leads++;
     } else if (tLead > tCard) {
       const alvo = etapaDoStatus(f, l.status);
-      try { if (alvo && alvo.id !== a.stageId && moverCard(a, f, alvo.id, agora, { por: 'CRM (lead)', manual: true })) cards++; }
-      catch { /* regra do funil (ex.: não volta ao topo): o card fica onde está */ }
+      try { if (alvo && alvo.id !== a.stageId && moverCard(a, f, alvo.id, agora, { por: 'CRM (lead)', manual: false, forcar: true })) cards++; }
+      catch { /* o card fica onde está */ }
     }
+    }
+    // colunas de trabalho (Em aberto, Primeiro contato, Nova tentativa, Desconto...): vale quem mudou por último.
+    // Card arrastado pela equipe depois do último movimento do lead -> o Fluxo acompanha o card; senão o card vai para onde o Fluxo diz.
+    const e2 = etapaDe(f, a.stageId), cardItem = e2 ? itemDaEtapa(e2.label) : null;
+    const item0 = vistaDoLead(l, agora).item, leadItem = item0 === 'reativacao' ? 'descarte' : item0;
+    if (!cardItem || cardItem === leadItem) continue;
+    const humano = a.manual && a.historico.length > 1 ? Date.parse(a.enteredAt) || 0 : 0;
+    if (humano > ultimoMovimentoDoLead(l) && acompanharCardTrabalho(l, cardItem, agora, e2!.label, ehPessoa(a.historico[a.historico.length - 1]?.por) ? a.historico[a.historico.length - 1]?.por : undefined)) { leads++; continue; }
+    const destino = etapaDoItem(f, leadItem);
+    try { if (destino && destino.id !== a.stageId && moverCard(a, f, destino.id, agora, { por: 'CRM (lead)', manual: false, forcar: true })) cards++; }
+    catch { /* o card fica onde está */ }
   }
   return { leads, cards };
 }

@@ -52,6 +52,8 @@ export type Lead = {
   semDisparoAuto?: boolean;
   /** card do funil de Orçamentos (Clinilink) que originou este lead, quando veio de lá */
   cardId?: string; fonte?: 'clinilink';
+  /** a equipe arrastou o card para outra coluna de trabalho: o Fluxo passa a mostrar o lead nela, até o próximo movimento do lead (contato, resposta, mudança de status) */
+  itemForcado?: { item: string; em: string };
   criadoEm: string;
   /** D0: dia em que o lead entrou */
   d0: string;
@@ -111,6 +113,7 @@ function entrar(lead: Lead, status: Status, dia: string, extra: { pulados?: stri
   lead.seqFase += 1;
   lead.faseId = `${status}:${dia}:${lead.seqFase}`;
   lead.pulados = extra.pulados ?? [];
+  lead.itemForcado = undefined;
   lead.noShow = extra.noShow || undefined;
   lead.retornoData = undefined;
   if (status === 'negociacao') lead.negD0 = dia;
@@ -172,7 +175,14 @@ export function proximoPasso(lead: Lead, hoje: string): Proximo | null {
 }
 
 /** Em que card do fluxo o lead está agora (para a contagem no mapa e no calendário). */
+const FORCAVEIS = new Set(['aberto', 'primeiro', 'tentativa', 'desconto', 'semretorno']);
+const MOVE_LEAD = new Set<string>(['contato', 'resposta', 'etapa', 'agendamento', 'retorno', 'descarte', 'comparecimento', 'recepcao']);
+/** Instante do último movimento do lead (contato, resposta, mudança de status...). */
+export const ultimoMovimentoDoLead = (lead: Lead) => lead.eventos.reduce((m, e) => (MOVE_LEAD.has(e.tipo) ? Math.max(m, Date.parse(e.quando) || 0) : m), 0);
+
 export function itemDoLead(lead: Lead, hoje: string): string {
+  const f = lead.itemForcado;
+  if (f && FORCAVEIS.has(f.item) && (lead.status === 'aberto' || lead.status === 'sem_retorno') && (Date.parse(f.em) || 0) >= ultimoMovimentoDoLead(lead)) return f.item;
   switch (lead.status) {
     case 'aberto': return passoFeito(lead, passoPorId('primeiro')) ? 'primeiro' : 'aberto';
     case 'sem_retorno': {
@@ -559,6 +569,18 @@ export function resumo(leads: Lead[], agora: Date) {
  * Leva o lead para um status porque o card do funil de Orçamentos foi para a etapa correspondente (e vice-versa).
  * Não confere as regras do guia (compareceu só depois de agendado etc.): o card já foi movido por uma pessoa, então o lead só acompanha.
  */
+/** O card foi arrastado para uma coluna de trabalho (Em aberto, Primeiro contato, Nova tentativa, Desconto, Sem retorno): o lead passa a ficar nela no Fluxo, até o próximo movimento dele. */
+export function acompanharCardTrabalho(lead: Lead, item: string, agora: Date, etapa: string, por?: string): boolean {
+  if (!FORCAVEIS.has(item)) return false;
+  const hoje = hojeDe(agora);
+  if (itemDoLead(lead, hoje) === item) return false;
+  const alvo: Status = item === 'aberto' || item === 'primeiro' ? 'aberto' : 'sem_retorno';
+  if (lead.status !== alvo) { entrar(lead, alvo, hoje, item === 'semretorno' ? { pulados: ['tentativa', 'desconto'] } : {}); lead.descarte = undefined; }
+  lead.itemForcado = { item, em: agora.toISOString() };
+  evento(lead, agora, { tipo: 'automacao', auto: true, texto: `Acompanhou o funil de Orçamentos: o card foi para "${etapa}".`, ...(por ? { atendente: por } : {}) });
+  return true;
+}
+
 export function acompanharCard(lead: Lead, alvo: Status, agora: Date, etapa: string, por?: string): boolean {
   if (lead.status === alvo) return false;
   const hoje = hojeDe(agora);

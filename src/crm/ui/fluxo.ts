@@ -395,7 +395,7 @@ function telaFluxo() {
   var cont = h('div', { class: 'fluxo-corpo' });
   cont.appendChild(S.fluxoVista === 'mapa' ? mapaFluxo() : listaFluxo());
   return h('div', { class: 'tela' }, [
-    cabecalhoTela('Fluxo de atendimento', 'O caminho do lead, do primeiro contato até a conversão. Clique em qualquer card para ver tudo sobre a etapa. O número no canto é quantos leads estão ali agora. Para comparar com os cards dos Pipelines, use "Conferir".', h('div', { class: 'tela-ac' }, [cfBotao(), alternaFluxo()])),
+    cabecalhoTela('Fluxo de atendimento', 'O caminho do lead, do primeiro contato até a conversão. Clique em qualquer card para ver tudo sobre a etapa. O número no canto é quantos leads estão ali agora.', h('div', { class: 'tela-ac' }, [cfBotao(), alternaFluxo()])),
     abasFluxo(),
     bannerPrioridade(),
     h('div', { class: 'cartao fluxo-cartao' }, cont)

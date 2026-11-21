@@ -132,6 +132,7 @@ const dto = (a: Atribuicao, f: Funil, agora: Date, leads?: Map<string, Lead>) =>
 
 pipelines.get('/:id/cards', (req, res) => {
   const f = achar(req.params.id); const agora = new Date();
+  { const s = alinharCardsELeads(estado, agora); if (s.leads + s.cards) salvar(); } // as colunas já saem iguais ao Fluxo
   const q = req.query as Record<string, string | undefined>;
   const por = (['criacao', 'agendamento', 'conversao'].includes(q.por ?? '') ? q.por : 'criacao') as FiltroPor;
   const modo = (q.modo === 'v1' ? 'v1' : 'v2') as Recorte;
