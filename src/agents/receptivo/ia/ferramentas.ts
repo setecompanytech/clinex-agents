@@ -10,7 +10,7 @@ import { escolherExames } from '../../../lib/interpretarExames.js';
 import { env } from '../../../lib/env.js';
 import { feriadoEm } from '../../../lib/feriados.js';
 import { evt } from '../../../lib/log.js';
-import type { Descoberta, Fonte, ItemExame, Servico, Slot, Unidade } from '../script/catalog.js';
+import type { Descoberta, Fonte, ItemExame, OrcamentoCombo, Servico, Slot, Unidade } from '../script/catalog.js';
 import { cpfValido, mensagemConfirmacao, soTelefone } from '../script/engine.js';
 import { chaveEspecialidade, mesmoCadastro } from '../script/clinilinkFonte.js';
 
@@ -32,6 +32,7 @@ export type MemoriaIA = {
   fotoOrcamento?: boolean; // o paciente mandou foto IMPRESSA: depois de informar os valores, a conversa vai para a equipe montar o orçamento // comprovante de pix conferido (só com ele o agendamento pago por pix é gravado)
   combosVistos?: string[];
   ultimasOpcoes?: { id: string; nome: string }[]; // a última lista de opções mostrada (para abrir pelo nome, se o id vier errado)
+  orcamentosCombo?: Record<string, OrcamentoCombo>; // orçamento do combo no Clinilink (por comboId): as próximas etapas usam o mesmo
   perguntouTipo?: Record<string, number>; // consulta: já perguntou 'nova ou retorno?' (tamanho do texto do paciente naquele momento)
   tipoConsulta?: Record<string, 'nova' | 'retorno'>; // consulta: o paciente disse se é consulta nova ou retorno (por servico_id)
   retornos?: Record<string, { base: string; ultima: string; profissional?: string }>; // serviços de retorno conferidos (servico_id do retorno -> consulta anterior)
@@ -524,7 +525,9 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
           cadastro: pac?.id ? undefined : { nome: nomeCompleto, nascimento: nasc, sexo: args.sexo, telefone },
           observacao: ['Agendado pela Amanda (IA) via WhatsApp', sv.retorno ? `RETORNO (sem custo) da consulta de ${(c.mem.retornos?.[sv.id]?.ultima ?? '').split('-').reverse().join('/')}${c.mem.retornos?.[sv.id]?.profissional ? ` com ${c.mem.retornos[sv.id].profissional}` : ''}, conferido pela Amanda` : comercial ? 'Forma de pagamento: a combinar com a equipe' : args.pagamento === 'pix' ? `Pago por pix${c.mem.pix?.valor ? ` (R$ ${c.mem.pix.valor.toFixed(2).replace('.', ',')})` : ''}, comprovante recebido no WhatsApp` : 'Pagamento na recepção'].join('. '),
           comboId: sv.combo?.id ?? c.mem.etapas?.[g.servicoId]?.combo,
+          orcamento: c.mem.orcamentosCombo?.[sv.combo?.id ?? c.mem.etapas?.[g.servicoId]?.combo ?? ''],
         });
+        if (r.ok && r.orcamento) (c.mem.orcamentosCombo ??= {})[r.orcamento.comboId] = r.orcamento;
         if (!r.ok) {
           evt('erro', { mensagem: `IA agendar: ${r.codigo} ${r.motivo}`.slice(0, 200) });
           if (r.incerto) { c.saida.handoff = { motivo: `ATENÇÃO: a reserva pode ou não ter sido gravada (${r.codigo}). Conferir no Clinilink: ${sv.frase} no ${un.nome}, ${g.slot.ymd} ${g.slot.turno}, paciente ${nomeCompleto}.` }; return { erro: 'não deu para confirmar a gravação; a equipe vai conferir. Avise o paciente.' }; }

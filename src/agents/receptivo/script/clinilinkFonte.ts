@@ -1,11 +1,11 @@
 import { soTelefone } from './engine.js';
-import { criarAgendamento, criarOrdemServico, criarPaciente, demandaPorProcedimento, getPacientePorCpf, getPacientesPorNomeNascimento, getPacientesPorTelefone, listAgendamentosDoDia, listAtendidosDoProfissional, listAgenda, listAgendaFresca, listClinicas, listCombos, listProcedimentos, listProfissionais, type Clinica, type Combo, type Horario, type Paciente, type Procedimento } from '../../../integrations/clinilink.js';
+import { criarAgendamento, criarOrcamento, criarOrdemServico, criarPaciente, demandaPorProcedimento, getPacientePorCpf, getPacientesPorNomeNascimento, getPacientesPorTelefone, listAgendamentosDoDia, listAtendidosDoProfissional, listAgenda, listAgendaFresca, listClinicas, listCombos, listProcedimentos, listProfissionais, type Clinica, type Combo, type Horario, type Paciente, type Procedimento } from '../../../integrations/clinilink.js';
 import { env } from '../../../lib/env.js';
 import { exibir, prepararGeneros } from '../../../lib/genero.js';
 import { evt } from '../../../lib/log.js';
 import { ordenarItens } from './combosOrdem.js';
 import { ehServicoExterno } from './servicosExternos.js';
-import { RAIZES, rotuloDaEtapa, type ComboInfo, type Descoberta, type EscolherExames, type Fonte, type ItemDeCombo, type ItemExame, type OfertaCombo, type PedidoReserva, type Periodo, type ResultadoReserva, type Servico, type Slot, type Unidade } from './catalog.js';
+import { RAIZES, rotuloDaEtapa, type ComboInfo, type Descoberta, type EscolherExames, type Fonte, type ItemDeCombo, type ItemExame, type OfertaCombo, type OrcamentoCombo, type PedidoReserva, type Periodo, type ResultadoReserva, type Servico, type Slot, type Unidade } from './catalog.js';
 
 /** Fonte REAL: unidades, médicos, preços, agenda e pacientes vêm do Clinilink. Reservar/cadastrar só com credencial rw. */
 
@@ -723,6 +723,39 @@ async function combosComServicoFonte(sv: Servico): Promise<OfertaCombo[]> {
 }
 
 /** Agenda uma etapa do combo com VÁRIOS exames (laboratório): o primeiro no horário escolhido (com os que a mesma agenda atende) e os demais no mesmo dia, em outras agendas. */
+/**
+ * Itens do ORÇAMENTO do combo para os procedimentos deste horário. Cria o orçamento (todos os itens do combo, preço do combo)
+ * na 1ª etapa; as próximas usam o mesmo. Assim a O.S. gerada no Clinilink puxa o combo inteiro, como quando a recepção agenda.
+ * Qualquer falha: devolve sem itens e o agendamento segue como antes (só com comboId), para não travar o paciente.
+ */
+async function itensDoOrcamento(p: PedidoReserva, pacienteId: string, procIds: string[]): Promise<{ orcamento?: OrcamentoCombo; itemIds?: string[] }> {
+  if (!p.comboId || !p.unidade.id) return {};
+  let orc = p.orcamento && p.orcamento.comboId === p.comboId && p.orcamento.unidadeId === p.unidade.id ? p.orcamento : undefined;
+  if (!orc) {
+    const cb = (await listCombos().catch(() => [] as Combo[])).find((x) => x.id === p.comboId);
+    const todos = [...new Set((cb?.servicos ?? []).map((x) => x.id))];
+    if (!todos.length) return {};
+    const r = await criarOrcamento({ pacienteId, unidadeId: p.unidade.id, procedimentos: todos, comboId: p.comboId });
+    if (!r.ok) { evt('erro', { mensagem: `orçamento do combo não foi criado (${r.codigo}): o agendamento segue só com o combo`.slice(0, 200) }); return {}; }
+    orc = { id: r.dados.orcamento.id, comboId: p.comboId, unidadeId: p.unidade.id, itens: (r.dados.orcamento.itens ?? []).map((i) => ({ id: i.id, procedimentoId: i.procedimentoId ?? '', usado: Boolean(i.agendamentoId) })) };
+  }
+  const livres = orc.itens.filter((i) => !i.usado);
+  const itemIds: string[] = [];
+  for (const pid of procIds) { const k = livres.findIndex((i) => i.procedimentoId === pid); if (k < 0) return { orcamento: orc }; itemIds.push(livres[k].id); livres.splice(k, 1); }
+  return { orcamento: orc, itemIds };
+}
+/** Agenda pelo orçamento; se o Clinilink recusar POR CAUSA do orçamento (vencido, outra unidade, item), agenda como antes, só com o combo. */
+async function criarAgendamentoCombo(a: Parameters<typeof criarAgendamento>[0]) {
+  const r = await criarAgendamento(a);
+  if (!r.ok && a.orcamentoId && /ORCAMENTO|ITEM/.test(r.codigo)) {
+    evt('erro', { mensagem: `agendar pelo orçamento do combo falhou (${r.codigo}): agendado só com o combo`.slice(0, 200) });
+    return criarAgendamento({ ...a, orcamentoId: undefined, orcamentoItemIds: undefined });
+  }
+  return r;
+}
+/** Depois de agendar: os itens usados não entram de novo. */
+const marcarUsados = (orc: OrcamentoCombo | undefined, ids: string[] | undefined) => { if (orc && ids) for (const it of orc.itens) if (ids.includes(it.id)) it.usado = true; };
+
 async function reservarCombo(p: PedidoReserva): Promise<ResultadoReserva> {
   const { unidade, slot, servico } = p; const cmb = servico.combo!;
   if (!unidade.id) return { ok: false, codigo: 'UNIDADE_SEM_ID', motivo: 'unidade sem id' };
@@ -752,11 +785,13 @@ async function reservarCombo(p: PedidoReserva): Promise<ResultadoReserva> {
   // 4) a âncora + os serviços que a mesma agenda atende, no mesmo horário (se alguém ocupou, tenta o próximo livre; até 3)
   let principal: Horario | undefined; let grupoA: { id: string; nome: string }[] = [];
   let ultimo = '';
+  let orcamento: OrcamentoCombo | undefined;
   for (const h of livresA.slice(0, 3)) {
     const junto = outros.filter((i) => (disp.get(i.id) ?? []).some((x) => x.agendaId === h.agendaId));
     const dataHora = h.dataHora ?? `${h.data}T${h.hora}:00-03:00`;
-    const r = await criarAgendamento({ pacienteId, unidadeId: unidade.id, agendaId: h.agendaId, profissionalId: h.profissional?.id ?? slot.profissionalId ?? '', dataHora, procedimentoId: ancora.id, procedimentoIds: [ancora.id, ...junto.map((i) => i.id)], comboId: cmb.semCombo ? undefined : cmb.id, observacao: obs });
-    if (r.ok) { principal = h; grupoA = junto; feitos.push({ itens: [ancora.nome, ...junto.map((i) => i.nome)], hora: inicioMostrado(h), prof: nomeDePessoa(h.profissional?.nome) ?? undefined, profBruto: h.profissional?.nome }); break; }
+    const oA = await itensDoOrcamento(p, pacienteId, [ancora.id, ...junto.map((i) => i.id)]); orcamento = oA.orcamento ?? orcamento;
+    const r = await criarAgendamentoCombo({ ...(oA.itemIds ? { orcamentoId: oA.orcamento!.id, orcamentoItemIds: oA.itemIds } : {}), pacienteId, unidadeId: unidade.id, agendaId: h.agendaId, profissionalId: h.profissional?.id ?? slot.profissionalId ?? '', dataHora, procedimentoId: ancora.id, procedimentoIds: [ancora.id, ...junto.map((i) => i.id)], comboId: cmb.semCombo ? undefined : cmb.id, observacao: obs });
+    if (r.ok) { marcarUsados(oA.orcamento, oA.itemIds); principal = h; grupoA = junto; feitos.push({ itens: [ancora.nome, ...junto.map((i) => i.nome)], hora: inicioMostrado(h), prof: nomeDePessoa(h.profissional?.nome) ?? undefined, profBruto: h.profissional?.nome }); break; }
     ultimo = r.codigo;
     if (r.codigo !== 'HORARIO_OCUPADO') return { ok: false, codigo: r.codigo, motivo: r.mensagem || r.codigo, incerto: r.incerto, cadastrou };
   }
@@ -774,8 +809,10 @@ async function reservarCombo(p: PedidoReserva): Promise<ResultadoReserva> {
     const [agendaId, e] = melhor;
     const h2 = [...e.hs].sort((a, b) => a.hora.localeCompare(b.hora))[0];
     const grupo = restantes.filter((i) => e.ids.has(i.id));
-    const r2 = await criarAgendamento({ pacienteId, unidadeId: unidade.id, agendaId, profissionalId: h2.profissional?.id ?? '', dataHora: h2.dataHora ?? `${h2.data}T${h2.hora}:00-03:00`, procedimentoId: grupo[0].id, procedimentoIds: grupo.map((i) => i.id), comboId: cmb.semCombo ? undefined : cmb.id, observacao: obs });
+    const oB = await itensDoOrcamento({ ...p, orcamento: orcamento ?? p.orcamento }, pacienteId, grupo.map((i) => i.id)); orcamento = oB.orcamento ?? orcamento;
+    const r2 = await criarAgendamentoCombo({ ...(oB.itemIds ? { orcamentoId: oB.orcamento!.id, orcamentoItemIds: oB.itemIds } : {}), pacienteId, unidadeId: unidade.id, agendaId, profissionalId: h2.profissional?.id ?? '', dataHora: h2.dataHora ?? `${h2.data}T${h2.hora}:00-03:00`, procedimentoId: grupo[0].id, procedimentoIds: grupo.map((i) => i.id), comboId: cmb.semCombo ? undefined : cmb.id, observacao: obs });
     if (!r2.ok) return falhou(r2.codigo, `${grupo.map((i) => itemCurto(i.nome)).join(', ')} (${r2.codigo}${r2.mensagem ? `: ${r2.mensagem}` : ''})`, r2.incerto);
+    marcarUsados(oB.orcamento, oB.itemIds);
     feitos.push({ itens: grupo.map((i) => i.nome), hora: inicioMostrado(h2), prof: nomeDePessoa(h2.profissional?.nome) ?? undefined, profBruto: h2.profissional?.nome });
     extras.push({ ord: cmb.itens.findIndex((i) => i.id === grupo[0].id), txt: `${grupo.map((i) => itemCurto(i.nome)).join(', ')} ${grupo.length > 1 ? 'ficam agendados' : 'fica agendado'} no mesmo dia, a partir das ${inicioMostrado(h2)}, por ordem de chegada.` });
     restantes = restantes.filter((i) => !e.ids.has(i.id));
@@ -786,7 +823,7 @@ async function reservarCombo(p: PedidoReserva): Promise<ResultadoReserva> {
   const linhas = todos.slice(0, 14).map((x) => x.linha);
   const mais = todos.length - linhas.length;
   if (mais > 0) linhas.push(`E MAIS ${mais} EXAMES DO COMBO`);
-  return { ok: true, profissional: nomeDePessoa(principal.profissional?.nome) ?? slot.profissional, profissionalBruto: principal.profissional?.nome ?? slot.profissionalBruto, hora: inicioMostrado(principal), cadastrou, pacienteId, linhas, extra: extras.length ? extras.sort((a, b) => a.ord - b.ord).map((e) => e.txt).join(' ') : undefined };
+  return { ok: true, orcamento, profissional: nomeDePessoa(principal.profissional?.nome) ?? slot.profissional, profissionalBruto: principal.profissional?.nome ?? slot.profissionalBruto, hora: inicioMostrado(principal), cadastrou, pacienteId, linhas, extra: extras.length ? extras.sort((a, b) => a.ord - b.ord).map((e) => e.txt).join(' ') : undefined };
 }
 
 const SO_GENERICAS_DE_SANGUE = new Set(['sangue', 'laboratorial', 'laboratorio', 'laboratoriais', 'coleta', 'realizar', 'exame', 'exames', 'teste', 'testes']);
@@ -1133,10 +1170,13 @@ export const fonteClinilink: Fonte = {
 
     // 3) reserva; se alguém ocupou o horário no meio do caminho, tenta o próximo livre (até 3)
     let ultimo = '';
+    // etapa de COMBO com um serviço só (ex.: a consulta do Masculino 1): também a partir do orçamento do combo
+    const oC = p.comboId ? await itensDoOrcamento(p, pacienteId, [servico.id]) : {};
     for (const h of livres.slice(0, 3)) {
       const dataHora = h.dataHora ?? `${h.data}T${h.hora}:00-03:00`;
-      const r = await criarAgendamento({ pacienteId, unidadeId: unidade.id, agendaId: h.agendaId, profissionalId: h.profissional?.id ?? slot.profissionalId ?? '', dataHora, procedimentoId: servico.id, observacao: p.observacao, comboId: p.comboId });
-      if (r.ok) return { ok: true, profissional: nomeDePessoa(h.profissional?.nome) ?? slot.profissional, profissionalBruto: h.profissional?.nome ?? slot.profissionalBruto, hora: inicioMostrado(h), cadastrou, pacienteId, agendamentoId: r.dados.agendamentoId };
+      const r = await criarAgendamentoCombo({ ...(oC.itemIds ? { orcamentoId: oC.orcamento!.id, orcamentoItemIds: oC.itemIds } : {}), pacienteId, unidadeId: unidade.id, agendaId: h.agendaId, profissionalId: h.profissional?.id ?? slot.profissionalId ?? '', dataHora, procedimentoId: servico.id, observacao: p.observacao, comboId: p.comboId });
+      if (r.ok) { marcarUsados(oC.orcamento, oC.itemIds); }
+      if (r.ok) return { ok: true, orcamento: oC.orcamento, profissional: nomeDePessoa(h.profissional?.nome) ?? slot.profissional, profissionalBruto: h.profissional?.nome ?? slot.profissionalBruto, hora: inicioMostrado(h), cadastrou, pacienteId, agendamentoId: r.dados.agendamentoId };
       ultimo = r.codigo;
       if (r.codigo !== 'HORARIO_OCUPADO') return { ok: false, codigo: r.codigo, motivo: r.mensagem || r.codigo, incerto: r.incerto, cadastrou };
     }
