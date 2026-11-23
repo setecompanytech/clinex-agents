@@ -46,15 +46,21 @@ function pontuar(p: Procedimento, texto = '') {
 const inicioMostrado = (h: Horario) => h.agendaHoraInicio ?? h.hora;
 /** Período do horário como o paciente vai ver: pelo início da agenda. */
 function turnoDe(h: Horario): Periodo { return periodoDe(inicioMostrado(h)); }
+/** Hora agora (HH:MM, fuso da clínica). */
+const agoraHm = () => new Intl.DateTimeFormat('pt-BR', { timeZone: env.timezone, hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date());
+/** Vaga de HOJE cuja hora já passou não conta (caso real 23/11: a agenda do Dr. Paulo Mergulhão, das 8h, sumia às 9h mesmo com vagas até 11h44,
+ * porque "já passou" era medido pelo início da agenda). Dias seguintes: todas. */
+const aindaValida = (h: Horario) => h.data !== hojeYmd() || h.hora >= agoraHm();
 const slotDe = (h: Horario): Slot => {
   const inicio = inicioMostrado(h);
-  return { ymd: h.data, turno: periodoDe(inicio), inicio, profissional: nomeDePessoa(h.profissional?.nome), profissionalId: h.profissional?.id, profissionalBruto: h.profissional?.nome };
+  return { ymd: h.data, turno: periodoDe(inicio), inicio, livre: h.hora, profissional: nomeDePessoa(h.profissional?.nome), profissionalId: h.profissional?.id, profissionalBruto: h.profissional?.nome };
 };
 /** Um slot por (data, período): várias horas de uma mesma agenda viram um único período. */
 function agrupar(horarios: Horario[]): Slot[] {
-  const ordenados = [...horarios].sort((a, b) => (a.data + (a.agendaHoraInicio ?? a.hora) + a.hora).localeCompare(b.data + (b.agendaHoraInicio ?? b.hora) + b.hora));
+  const ordenados = [...horarios].filter(aindaValida).sort((a, b) => (a.data + (a.agendaHoraInicio ?? a.hora) + a.hora).localeCompare(b.data + (b.agendaHoraInicio ?? b.hora) + b.hora));
   const vistos = new Set<string>(); const out: Slot[] = [];
-  for (const h of ordenados) { const s = slotDe(h); const k = `${s.ymd}|${s.turno}`; if (!vistos.has(k)) { vistos.add(k); out.push(s); } }
+  const porK = new Map<string, Slot>();
+  for (const h of ordenados) { const s = slotDe(h); const k = `${s.ymd}|${s.turno}`; if (!vistos.has(k)) { vistos.add(k); out.push(s); porK.set(k, s); } else { const g = porK.get(k)!; if (h.hora > (g.ultima ?? g.livre ?? '')) g.ultima = h.hora; } }
   return out;
 }
 
@@ -165,7 +171,14 @@ async function servicoDaProfissional(p: ProfMerged): Promise<Descoberta> {
   const esp = norm(p.especialidade ?? '');
   const raiz = RAIZES.find((r) => r.re.test(esp));
   // sem especialidade no cadastro: olha as consultas em geral e confere quais ela realmente atende
-  const termos = raiz ? [raiz.busca, ...(raiz.alt ?? [])] : esp ? [esp.split(/\s+/)[0]] : ['consulta'];
+  let termos = raiz ? [raiz.busca, ...(raiz.alt ?? [])] : esp ? [esp.split(/\s+/)[0]] : [];
+  // sem especialidade no cadastro (caso real 23/11: Dr. Paulo Mergulhão, psiquiatra, saía "sem agenda"): o nome da agenda dele diz a especialidade
+  if (!termos.length) {
+    const nomesAgenda = new Set<string>();
+    for (const c of p.clinicas) for (const h of await listAgenda({ unidadeId: c.id, dataInicial: hojeYmd(), dataFinal: somaDias(hojeYmd(), 30), profissionalId: p.id }).catch(() => [] as Horario[])) if (h.agendaNome) nomesAgenda.add(norm(h.agendaNome));
+    for (const n of nomesAgenda) { const r = RAIZES.find((x) => x.re.test(n)); if (r) termos.push(r.busca, ...(r.alt ?? [])); else { const w = n.split(/\s+/).find((x) => x.length >= 5); if (w) termos.push(w.slice(0, 8)); } }
+    if (!termos.length) termos = ['consulta'];
+  }
   const cands = new Map<string, Procedimento>();
   for (const c of p.clinicas) for (const termo of termos) for (const pr of await listProcedimentos(c.id, termo).catch(() => [])) cands.set(pr.id, pr);
   const ordenados = [...cands.values()].sort((a, b) => pontuar(b) - pontuar(a)).slice(0, esp ? 4 : 12);
@@ -1088,10 +1101,11 @@ export const fonteClinilink: Fonte = {
     if (!un.id) return [];
     if (sv.combo) return horariosDoCombo(sv, un, de, ate);
     const h = await listAgenda({ unidadeId: un.id, dataInicial: de, dataFinal: ate, procedimentoId: sv.id, profissionalId: sv.profissional?.id });
-    const lista = sv.tipo === 'exame' ? soManha(h) : h;
+    const lista = (sv.tipo === 'exame' ? soManha(h) : h).filter(aindaValida);
     const ordenados = [...lista].sort((a, b) => (a.data + (a.agendaHoraInicio ?? a.hora) + a.hora).localeCompare(b.data + (b.agendaHoraInicio ?? b.hora) + b.hora));
     const vistos = new Set<string>(); const out: Slot[] = [];
-    for (const x of ordenados) { const sl = slotDe(x); const k = `${sl.ymd}|${sl.turno}|${sl.profissionalId ?? ''}`; if (!vistos.has(k)) { vistos.add(k); out.push(sl); } }
+    const porK = new Map<string, Slot>();
+    for (const x of ordenados) { const sl = slotDe(x); const k = `${sl.ymd}|${sl.turno}|${sl.profissionalId ?? ''}`; if (!vistos.has(k)) { vistos.add(k); out.push(sl); porK.set(k, sl); } else { const g = porK.get(k)!; if (x.hora > (g.ultima ?? g.livre ?? '')) g.ultima = x.hora; } }
     return out;
   },
 
@@ -1101,7 +1115,7 @@ export const fonteClinilink: Fonte = {
     if (!unidade.id) return { ok: false, codigo: 'UNIDADE_SEM_ID', motivo: 'unidade sem id' };
     // 1) horário livre AGORA (sem cache): o primeiro do período escolhido, com o mesmo médico informado ao paciente
     const livres = (await listAgendaFresca({ unidadeId: unidade.id, dataInicial: slot.ymd, dataFinal: slot.ymd, procedimentoId: servico.id, profissionalId: servico.profissional?.id }))
-      .filter((h) => turnoDe(h) === slot.turno && (!slot.profissionalId || h.profissional?.id === slot.profissionalId))
+      .filter((h) => turnoDe(h) === slot.turno && (!slot.profissionalId || h.profissional?.id === slot.profissionalId) && aindaValida(h))
       .sort((a, b) => a.hora.localeCompare(b.hora));
     if (livres.length === 0) return { ok: false, codigo: 'SEM_VAGA_AGORA', motivo: 'a vaga escolhida acabou de ser preenchida' };
 
