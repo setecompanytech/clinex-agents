@@ -183,7 +183,13 @@ export async function atenderComIA(p: {
   const cadastroInventado = (t: string) => /(?<!n[aã]o )\b(encontrei|achei|localizei)\b.{0,20}\bcadastro\b/i.test(t) && !mem.paciente?.id && !(c.saida.dados ?? []).some((d) => d.includes('"encontrado":true'));
   // recalculado a cada conferência: a 2ª tentativa pode ter acabado de consultar o combo
   const temCombo = () => Object.values(mem.servicos).some((x) => x.pacote || x.combo) || Boolean(mem.combosOferecidos?.length) || Boolean(Object.keys(mem.etapas ?? {}).length) || Boolean(mem.ultimasOpcoes?.some((o) => o.id.startsWith('combo'))) || (c.saida.dados ?? []).some((d) => /combo/i.test(d)) || /\bcombos?\b/i.test(doPaciente);
-  const regras = (t: string) => [...(/\b(vamos|vou|podemos|pode(mos)?|a gente vai) manter o (valor|preço|preco)\b|\bmanter (o )?(valor|preço|preco) (combinado|antigo|anterior|que (voce|você) pagou)\b/i.test(t) ? ['promessa de manter valor/condição (só a equipe pode confirmar valor combinado antes; transfira para a equipe)'] : []), ...(/\bcombo\b/i.test(t) && !temCombo() ? ['"combo" sem combo nesta conversa (não cite combo que não existe no atendimento)'] : []), ...(/\b(ja |já )?te retorno\b|\bvou te retornar\b|\bte dou um retorno\b/i.test(t) ? ['"te retorno" (você não retorna depois: se a equipe vai continuar, diga que a equipe vai mandar e transfira)'] : []),...(agendouSemAgendar(t) ? ['"agendado" sem ter agendado (o agendamento só existe depois da ferramenta agendar dar certo; diga que vai reservar e peça o que falta)'] : []), ...(cadastroInventado(t) ? ['"encontrei o cadastro" sem ter consultado (chame buscar_paciente antes de dizer que achou)'] : [])];
+  const comboEscolhido = Object.keys(mem.etapas ?? {}).length > 0;
+  const regrasDeServico = (t: string) => [
+    ...(!comboEscolhido && /(feit[oa]s?|faz|fazer|realizad[oa]s?)\s+(durante|junto|juntos|na mesma|no mesmo)[^.]{0,40}(consulta|atendimento)|consulta[^.]{0,50}(inclui|incluso|inclusa|j[aá] faz)[^.]{0,30}(ultrass|usg|exame|preventivo)/i.test(t) ? ['disse que o exame é feito junto/durante a consulta ou que a consulta inclui exame (cada serviço é à parte; só no COMBO escolhido)'] : []),
+    ...(/\b\d+\s*(a|e|ou)?\s*\d*\s*dias?\s*(úteis|uteis)\b|resultados?[^.]{0,40}(fica|ficam|sai|saem)[^.]{0,20}pront/i.test(t) && !fontesDe().join(' ').match(/dias? (úteis|uteis)|prazo/i) ? ['informou prazo de resultado que não veio do Clinilink (a equipe confirma)'] : []),
+    ...(/jejum de \d+|\d+\s*(a\s*\d+\s*)?horas de jejum/i.test(t) && !fontesDe().join(' ').match(/jejum/i) ? ['informou jejum/preparo que não veio do Clinilink (só o preparo cadastrado; sem ele, a equipe confirma)'] : []),
+  ];
+  const regras = (t: string) => [...regrasDeServico(t), ...(/\b(vamos|vou|podemos|pode(mos)?|a gente vai) manter o (valor|preço|preco)\b|\bmanter (o )?(valor|preço|preco) (combinado|antigo|anterior|que (voce|você) pagou)\b/i.test(t) ? ['promessa de manter valor/condição (só a equipe pode confirmar valor combinado antes; transfira para a equipe)'] : []), ...(/\bcombo\b/i.test(t) && !temCombo() ? ['"combo" sem combo nesta conversa (não cite combo que não existe no atendimento)'] : []), ...(/\b(ja |já )?te retorno\b|\bvou te retornar\b|\bte dou um retorno\b/i.test(t) ? ['"te retorno" (você não retorna depois: se a equipe vai continuar, diga que a equipe vai mandar e transfira)'] : []),...(agendouSemAgendar(t) ? ['"agendado" sem ter agendado (o agendamento só existe depois da ferramenta agendar dar certo; diga que vai reservar e peça o que falta)'] : []), ...(cadastroInventado(t) ? ['"encontrei o cadastro" sem ter consultado (chame buscar_paciente antes de dizer que achou)'] : [])];
   let ruins = c.saida.confirmacoes.length ? [] : [...inventados(resposta.texto, fontesDe(), doPaciente), ...regras(resposta.texto)];
   if (ruins.length) {
     evt('erro', { mensagem: 'IA: resposta com dado que não veio do Clinilink (refazendo)', itens: ruins, rascunho: resposta.texto.slice(0, 400) });
@@ -241,6 +247,12 @@ export async function atenderComIA(p: {
   if (!texto && c.saida.handoff) texto = 'Vou passar pra alguém da equipe te ajudar com isso. Só um instante.';
   if (!texto) return null;
   // foto de pedido de exame vai para a equipe: texto FIXO (pedido do usuário 18/11: sem "tá bom?" nem "posso ajudar em mais alguma coisa?"); só a saudação do 1º contato fica
+  // REGRA DA CLÍNICA (23/11/2026): pedido de ORÇAMENTO (ou de valores de exames) vai SEMPRE para a equipe, sem a IA citar valores
+  if (c.pedidoOrcamento && !c.saida.confirmacoes.length && !c.saida.agendouComercial) {
+    const saud = texto.match(/^\s*(bom dia|boa tarde|boa noite|ol[aá]|oi)[!,.]?\s*(sou a amanda, da clinex[.!]?)?/i)?.[0]?.trim();
+    texto = `${saud ? `${saud} ` : ''}Certo! O orçamento é feito pela nossa equipe. Já estou passando seu pedido e eles vão te responder por aqui com os valores.`;
+    c.saida.handoff = { motivo: `Paciente pediu ORÇAMENTO: a equipe monta e envia os valores. Pedido: "${conversa.filter((m) => m.role === 'user').slice(-4).map((m) => m.content).join(' | ').slice(0, 400)}"` };
+  }
   if (c.saida.pedidoNaEquipe) {
     const saudacao = texto.match(/^\s*(bom dia|boa tarde|boa noite|ol[aá]|oi)[!,.]?\s*(sou a amanda, da clinex[.!]?)?/i)?.[0]?.trim();
     texto = `${saudacao ? `${saudacao} ` : ''}Recebi seu pedido de exame e já estou encaminhando para a equipe analisar. Eles vão responder aqui em breve com as informações.`;

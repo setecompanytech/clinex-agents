@@ -338,6 +338,10 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
           const unica = opcaoPeloNome(t, d.opcoes, true);
           if (unica) { const aberto = await f.resolver(unica.id); if (aberto && 'servico' in aberto) d = aberto; }
         }
+        // pediu EXAME de imagem e a busca achou uma CONSULTA: nunca oferecer a consulta no lugar do exame (caso real 20/11, "ultrassom ginecológica")
+        if (d && 'servico' in d && d.servico.tipo === 'consulta' && /(ultraw*|usg|ecografw*|raio|rx|mamografw*|tomografw*|ressonw*|doppler)/.test(t)) {
+          return { resultado: 'nao_encontrado', orientacao: 'O paciente pediu um EXAME de imagem e não achei esse exame com esse nome. Pergunte qual exame exatamente (ex.: transvaginal, pélvica, abdome total, mamas) ou como está no pedido médico. NUNCA ofereça consulta no lugar do exame e nunca diga que o exame é feito na consulta.' };
+        }
         return servicoParaModelo(await descobertaParaModelo(d, c), c);
       }
       case 'abrir_servico': {

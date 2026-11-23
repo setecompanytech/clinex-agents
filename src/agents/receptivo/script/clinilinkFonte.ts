@@ -983,6 +983,12 @@ export const fonteClinilink: Fonte = {
   async descobrir(t, buscando, forte = false) {
     // combo ("tem combo feminino?"): lista os combos, mostra o que inclui e o preço; escolhido, segue o fluxo normal de unidade, dia e pagamento
     if (buscando && !forte) { const combo = await descobrirCombo(t); if (combo !== undefined) return combo; }
+    // "ultrassom ginecológica/ginecológico" não é nome de serviço: são o USG transvaginal e o USG pélvico (caso real 20/11: virava CONSULTA
+    // ginecologista e a Amanda disse que o ultrassom era feito na consulta). O paciente escolhe qual.
+    if (buscando && !forte && /\b(ultra\w*|usg|ecograf\w*)\b/.test(t) && /gineco/.test(t) && !/transvaginal|pelvic/.test(t)) {
+      const itens = (await catalogo()).filter((i) => /^usg (transvaginal|pelvica)$/.test(norm(i.cand.proc.nome).replace(/\s+/g, ' ').trim()));
+      if (itens.length) { for (const i of itens) conhecidos.set(i.cand.proc.id, i.cand); return { opcoes: itens.map((i) => ({ id: i.cand.proc.id, nome: titulo(i.cand.proc.nome) })), intro: 'O ultrassom ginecológico é um exame à parte (não é feito na consulta). Temos estas opções:', pergunta: 'Qual delas o pedido médico indica?' }; }
+    }
     // "tenho um pedido médico com exames": é o pedido de exames (antes de procurar uma pessoa pelo "com ...")
     if (buscando && !forte && /\b(pedido (medico|de exames?)|requisicao de exames?|solicitacao de exames?|orcamento de exames?|orcar (os )?exames?)\b/.test(t)) return { pedirPedido: true };
     // serviço EXTERNO pedido pelo nome ("tomografia de abdome", "ecocardiograma"): não vira ultrassom só porque cita o mesmo órgão. Se o catálogo do chatbot NÃO tem um
@@ -1023,7 +1029,8 @@ export const fonteClinilink: Fonte = {
     const viaSintoma = raizes.some((r) => r.sintoma?.test(t));
 
     // "exame de gravidez", "teste ergo": o NOME do serviço ganha da raiz de especialidade (gravidez != consulta de ginecologia)
-    const dizExame = /\b(exames?|testes?)\b/.test(t);
+    // exame de imagem também (caso real 20/11: "ultrassom ginecológica" virou CONSULTA Ginecologista e a Amanda disse que o ultrassom era feito na consulta)
+    const dizExame = /\b(exames?|testes?|ultra\w*|usg|ecograf\w*|raio|rx|mamograf\w*|tomograf\w*|resson\w*|doppler|ecocardio\w*|eletro\w*)\b/.test(t);
     if (buscando && palavras.length && (termos.length === 0 || dizExame)) {
       const forte = await buscarSimilares(t, palavras, viaSintoma, true);
       if (forte) return forte;
