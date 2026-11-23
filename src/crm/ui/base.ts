@@ -147,12 +147,19 @@ function aviso(texto, tipo) {
 }
 
 /* ------------------------------------------------------------------ API */
-function api(metodo, caminho, corpo) {
+function api(metodo, caminho, corpo, tentativa) {
   return fetch('/painel/crm/api' + caminho, {
     method: metodo, credentials: 'same-origin', cache: 'no-store',
     headers: corpo !== undefined ? { 'Content-Type': 'application/json' } : undefined,
     body: corpo !== undefined ? JSON.stringify(corpo) : undefined
   }).then(function (r) {
+    /* 401 solto no meio do uso: na Vercel uma instância que acabou de subir ainda não leu as contas. Leituras tentam de novo; se persistir, volta ao login (sem ficar piscando o erro) */
+    if (r.status === 401 && metodo === 'GET') {
+      if (!tentativa) return new Promise(function (ok) { setTimeout(ok, 700); }).then(function () { return api(metodo, caminho, corpo, 1); });
+      if (tentativa === 1) return new Promise(function (ok) { setTimeout(ok, 1500); }).then(function () { return api(metodo, caminho, corpo, 2); });
+      location.href = '/painel/login?next=' + encodeURIComponent(location.pathname + location.search);
+      return new Promise(function () {});
+    }
     return r.json().catch(function () { return {}; }).then(function (j) {
       if (!r.ok) { var e = new Error(j.mensagem || ('O servidor respondeu ' + r.status)); e.codigo = j.erro; e.dados = j; throw e; }
       return j;
