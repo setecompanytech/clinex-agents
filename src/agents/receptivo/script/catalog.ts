@@ -55,7 +55,7 @@ export type Descoberta =
   | undefined; // não achou
 
 /** Um período de atendimento (ordem de chegada) numa data. `inicio` = hora em que a agenda abre. */
-export type Slot = { ymd: string; turno: Periodo; inicio: string; profissional?: string; profissionalId?: string; profissionalBruto?: string; unidade?: string /* só nas listas que misturam unidades */ };
+export type Slot = { ymd: string; turno: Periodo; inicio: string; /** HOJE: primeira e última vaga livre a partir de agora (o paciente ouve o início da agenda; isto diz se ainda há vaga e até que horas) */ livre?: string; ultima?: string; profissional?: string; profissionalId?: string; profissionalBruto?: string; unidade?: string /* só nas listas que misturam unidades */ };
 export type PacienteInfo = { id?: string; nome: string; nascimento?: string /* YYYY-MM-DD, quando o cadastro tem */ };
 export type AgendamentoExistente = { unidade: string; hora?: string; periodo?: Periodo; profissional?: string };
 
