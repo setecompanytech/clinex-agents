@@ -6,6 +6,7 @@ import type { Janela } from './periodo.js';
 import type { Rodada } from './disparo-auto-tipos.js';
 import { GATILHOS_AUTO, NOMES_DIA, configAuto, enviadosPelaIAHoje, fila, modoDisparoAuto, rodarDisparoAuto } from './ia-disparo.js';
 import { registrarResposta, ROTULO_INTENCAO, type RespostaRecebida } from './rastreio.js';
+import { alinharCardsELeads } from './sincroniaCardLead.js';
 import { chaveFone, ehEnvio, statusDisparo } from './whatsapp.js';
 
 /** Liga o motor da IA (puro) ao CRM de verdade: banco, trava entre instâncias e gravação a cada envio. */
@@ -23,6 +24,8 @@ export async function rodarAgora(): Promise<{ rodada?: Rodada; pulou?: string }>
     if (estadoAtivo() && !(await travaCurta('crm:disparo-auto:trava', 4 * 60_000))) return { pulou: 'Já há uma rodada em andamento.' };
     await atualizarLeadsDoBanco(); // parte do que o banco tem agora: outra instância pode ter enviado ou pausado
     const rodada = await rodarDisparoAuto(estado, new Date(), { gravar: async () => { salvar(); await gravarAntesDeResponder(); } });
+    // o que a IA fez (contato enviado) já leva o card para a coluna certa, sem esperar alguém abrir a tela
+    if (rodada.enviados > 0) { const s = alinharCardsELeads(estado, new Date()); if (s.leads + s.cards) { salvar(); await gravarAntesDeResponder(); } }
     return { rodada };
   } finally { emAndamento = false; }
 }
@@ -36,7 +39,7 @@ export async function registrarRespostaWhatsApp(r: RespostaRecebida) {
   if (!estado.leads.some((l) => chaveFone(l.telefone) === chave)) return { registrado: false, motivo: 'telefone não é de nenhum lead do CRM' };
   await atualizarLeadsDoBanco();
   const res = registrarResposta(estado, r, new Date());
-  if (res.registrado) { salvar(); await gravarAntesDeResponder(); }
+  if (res.registrado) { alinharCardsELeads(estado, new Date()); salvar(); await gravarAntesDeResponder(); } // a resposta do paciente também move o card
   return res;
 }
 
