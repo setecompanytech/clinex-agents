@@ -52,11 +52,11 @@ var TM_COLS = [
 ];
 /* a IA de disparo é mais uma linha do time, em vermelho; o que não se aplica a ela (carteira, movimentos de cards, ciclo) fica em traço */
 var TM_COR_IA = 'var(--acc)';
-var TM_SEM_IA = { ciclo: 1, pipeMov: 1, carteiraN: 1, atrasadas: 1 };
+var TM_SEM_IA = { ciclo: 1, carteiraN: 1, atrasadas: 1 };
 function tmComIA(D) {
   var x = D.ia; if (!x || !x.contatos) return D.equipe;
   var ia = { nome: x.nome, ia: true, recebidos: x.recebidos, contatos: x.contatos, respostas: x.respostas, taxaResposta: x.taxaResposta, agendamentos: x.agendamentos, convertidos: x.convertidos, conversao: x.conversao, receita: x.receita, ticket: x.ticket, primeiroContato: x.primeiroContato === undefined ? null : x.primeiroContato, ciclo: null,
-    anterior: { receita: 0, convertidos: 0, contatos: 0, conversao: null, recebidos: 0 }, pipeline: { movimentos: 0, noshowTrabalhados: x.noshow ? x.noshow.convites : 0, recuperados: x.noshow ? x.noshow.recuperados : 0, valorRecuperado: x.noshow ? x.noshow.valor : 0 }, carteira: { n: 0, valor: 0, atrasadas: 0 } };
+    anterior: { receita: 0, convertidos: 0, contatos: 0, conversao: null, recebidos: 0 }, pipeline: { movimentos: x.cards ? x.cards.movimentos : 0, proxima: x.cards ? x.cards.proxima : 0, saltou: x.cards ? x.cards.saltou : 0, voltou: x.cards ? x.cards.voltou : 0, perdeu: x.cards ? x.cards.perdeu : 0, noshowTrabalhados: x.noshow ? x.noshow.convites : 0, recuperados: x.noshow ? x.noshow.recuperados : 0, valorRecuperado: x.noshow ? x.noshow.valor : 0 }, carteira: { n: 0, valor: 0, atrasadas: 0 } };
   return D.equipe.concat([ia]);
 }
 function tmValor(e, c) { return c.v ? c.v(e) : e[c.k]; }
@@ -137,16 +137,17 @@ function tmCartoes(D) {
   r.push(blocoCartao('No-show recuperado', 'Quem levou no-shows para Recuperado e o valor. Total do time: ' + D.totais.pipeline.recuperados + ' · ' + brl(D.totais.pipeline.valorRecuperado) + '.', barras(comRec.slice().sort(function (a, b) { return b.pipeline.valorRecuperado - a.pipeline.valorRecuperado || b.pipeline.recuperados - a.pipeline.recuperados; }).map(function (e) {
     return { rotulo: e.nome, valor: e.pipeline.valorRecuperado, texto: brl(e.pipeline.valorRecuperado), extra: e.pipeline.recuperados + ' de ' + e.pipeline.noshowTrabalhados + (e.ia ? ' convidados' : ' trabalhados'), cor: e.ia ? TM_COR_IA : tmCor(D, e.nome) };
   }), { max: maxRec, vazio: 'Nenhum movimento de cards no período.' }), 6));
-  var comAv = D.equipe.filter(function (e) { return e.pipeline.proxima + e.pipeline.saltou > 0; }).sort(function (a, b) { return (b.pipeline.proxima + b.pipeline.saltou) - (a.pipeline.proxima + a.pipeline.saltou) || a.nome.localeCompare(b.nome); });
+  var comAv = tmComIA(D).filter(function (e) { return e.pipeline.proxima + e.pipeline.saltou > 0; }).sort(function (a, b) { return (b.pipeline.proxima + b.pipeline.saltou) - (a.pipeline.proxima + a.pipeline.saltou) || a.nome.localeCompare(b.nome); });
   var maxAv = Math.max.apply(null, comAv.map(function (e) { return e.pipeline.proxima + e.pipeline.saltou; }).concat([1]));
   var TP = D.totais.pipeline;
   r.push(blocoCartao('Cards avançados de etapa', 'Quantas vezes cada pessoa levou um card para a etapa seguinte (ou além) no Pipelines. Total do time: ' + (TP.proxima + TP.saltou) + '.', barras(comAv.map(function (e) {
     var p = e.pipeline, av = p.proxima + p.saltou;
-    return { rotulo: e.nome, valor: av, texto: nf0.format(av), extra: p.proxima + ' p/ a seguinte' + (p.saltou ? ' · ' + p.saltou + ' pulando' : '') + (p.voltou ? ' · ' + p.voltou + ' voltaram' : ''), cor: tmCor(D, e.nome),
+    return { rotulo: e.nome, valor: av, texto: nf0.format(av), extra: p.proxima + ' p/ a seguinte' + (p.saltou ? ' · ' + p.saltou + ' pulando' : '') + (p.voltou ? ' · ' + p.voltou + ' voltaram' : ''), cor: e.ia ? TM_COR_IA : tmCor(D, e.nome),
       dica: { titulo: e.nome, linhas: [{ valor: nf0.format(p.proxima), rotulo: 'para a etapa seguinte' }, { valor: nf0.format(p.saltou), rotulo: 'pulando etapas' }, { valor: nf0.format(p.voltou), rotulo: 'voltaram uma etapa' }, { valor: nf0.format(p.perdeu), rotulo: 'foram para descarte/perda' }] } };
   }), { max: maxAv, vazio: 'Nenhum card avançado de etapa no período.' }), 6));
-  var maxPM = Math.max.apply(null, comRecMov.map(function (e) { return e.pipeline.movimentos; }).concat([1]));
-  r.push(blocoCartao('Movimentos no Pipelines', 'Cards movidos por cada pessoa no período (No-show e Orçamentos).', barras(comRecMov.slice().sort(function (a, b) { return b.pipeline.movimentos - a.pipeline.movimentos; }).map(function (e) { return { rotulo: e.nome, valor: e.pipeline.movimentos, texto: String(e.pipeline.movimentos), cor: tmCor(D, e.nome) }; }), { max: maxPM, vazio: 'Nenhum movimento de cards no período.' }), 6));
+  var movTodos = comRecMov.concat(D.ia && D.ia.cards && D.ia.cards.movimentos > 0 ? [{ nome: D.ia.nome, ia: true, pipeline: { movimentos: D.ia.cards.movimentos } }] : []);
+  var maxPM = Math.max.apply(null, movTodos.map(function (e) { return e.pipeline.movimentos; }).concat([1]));
+  r.push(blocoCartao('Movimentos no Pipelines', 'Cards movidos por cada pessoa no período (No-show e Orçamentos).', barras(movTodos.slice().sort(function (a, b) { return b.pipeline.movimentos - a.pipeline.movimentos; }).map(function (e) { return { rotulo: e.nome, valor: e.pipeline.movimentos, texto: String(e.pipeline.movimentos), extra: e.ia ? 'cards que se moveram após mensagem da IA' : '', cor: e.ia ? TM_COR_IA : tmCor(D, e.nome) }; }), { max: maxPM, vazio: 'Nenhum movimento de cards no período.' }), 6));
   return r;
 }
 function corpoTime() {

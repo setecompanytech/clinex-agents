@@ -1,4 +1,4 @@
-import { movimentosDeCards, resumoPorPessoa } from './pipeline/atividade.js';
+import { movimentosDeCards, movimentosPelaIA, resumoPorPessoa } from './pipeline/atividade.js';
 import type { EstadoFunis } from './pipeline/tipos.js';
 import { diaDoInstante, diffDias, ehConversaoAtiva, ehEspelho, hojeDe, horaDe, somaDias, type EventoLead, type Lead, type Tarefa, type Vista } from './motor.js';
 import { LIMITES, MENSAGENS, type Status } from './modelo.js';
@@ -508,7 +508,8 @@ export function analisarTime(todos: Lead[], agora: Date, per: Periodo | Janela, 
     // a IA de disparo como mais uma pessoa do time: mensagens de WhatsApp dela, respostas em até 72 h e o que veio depois (crédito da última mensagem)
     ia: (() => {
       const x = desempenhoPorAutor(todos, pl, J, [{ nome: 'IA CRM', ia: true, autor: (e) => e.auto === true }])[0];
-      return { noshow: x.noshow, primeiroContato: x.primeiroContato, nome: x.nome, ia: true, recebidos: x.leads, contatos: x.enviadas, respostas: x.respostas, taxaResposta: x.taxaResposta, agendamentos: x.agendamentos, convertidos: x.conversoes, conversao: pc(x.conversoes, x.leads), receita: x.receita, ticket: x.ticket, tempoResposta: x.tempoResposta };
+      const cardsIA = pl ? resumoPorPessoa(movimentosPelaIA(pl, todos, ini, hoje)).get('IA CRM') : undefined;
+      return { cards: { movimentos: cardsIA?.movimentos ?? 0, proxima: cardsIA?.proxima ?? 0, saltou: cardsIA?.saltou ?? 0, voltou: cardsIA?.voltou ?? 0, perdeu: cardsIA?.perdeu ?? 0 }, noshow: x.noshow, primeiroContato: x.primeiroContato, nome: x.nome, ia: true, recebidos: x.leads, contatos: x.enviadas, respostas: x.respostas, taxaResposta: x.taxaResposta, agendamentos: x.agendamentos, convertidos: x.conversoes, conversao: pc(x.conversoes, x.leads), receita: x.receita, ticket: x.ticket, tempoResposta: x.tempoResposta };
     })(),
     equipe, totais: { atual: totalAtual, anterior: totalAnterior, pipeline: { proxima: soma([...cardsPor.values()].map((x) => x.proxima)), saltou: soma([...cardsPor.values()].map((x) => x.saltou)), voltou: soma([...cardsPor.values()].map((x) => x.voltou)), perdeu: soma([...cardsPor.values()].map((x) => x.perdeu)), movimentos: cardsMov.length, noshowTrabalhados: soma([...cardsPor.values()].map((x) => x.noshow)), recuperados: soma([...cardsPor.values()].map((x) => x.recuperados)), valorRecuperado: soma([...cardsPor.values()].map((x) => x.valorRecuperado)) } },
     series: { total, ia, pessoas, principais }, heat, funil, unidades, mensagens, destaques,

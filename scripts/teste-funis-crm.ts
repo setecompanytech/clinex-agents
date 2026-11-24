@@ -12,7 +12,7 @@ import { aplicar, criarLead, vistaDoLead, type Acao } from '../src/crm/motor.js'
 import { alinharCardsELeads } from '../src/crm/sincroniaCardLead.js';
 import { alinharCardsAoFluxo, conferir, itemDaEtapa } from '../src/crm/conferencia.js';
 import { leadsDosNoShow } from '../src/crm/leadsNoShow.js';
-import { movimentosDeCards, resumoPorPessoa } from '../src/crm/pipeline/atividade.js';
+import { movimentosDeCards, movimentosPelaIA, resumoPorPessoa } from '../src/crm/pipeline/atividade.js';
 import { avaliarLead } from '../src/crm/ia-disparo.js';
 
 let ok = 0;
@@ -336,5 +336,23 @@ teste('Avanços de etapa: cada movimento de uma pessoa é classificado como etap
   const r = resumoPorPessoa(movs);
   assert.deepEqual([r.get('Maria')!.proxima, r.get('Maria')!.saltou, r.get('Maria')!.voltou, r.get('Maria')!.perdeu], [1, 1, 1, 1]);
   assert.deepEqual([r.get('Joana')!.proxima, r.get('Joana')!.saltou], [1, 0]); assert.equal(r.has('CRM (lead)'), false);
+});
+teste('Cards que se movem sozinhos depois de uma mensagem da IA são da IA CRM; depois de contato da equipe, não', () => {
+  const est = novoEstado(); const f = funilDestino(est, 'orcamento', AGORA); ingerir(est, f, [snap('a'), snap('b')], AGORA);
+  const la = criarLead({ nome: 'Ana', telefone: '91981628017', valor: 300, d0: '2026-11-01' }, AGORA); la.cardId = 'a';
+  const lb = criarLead({ nome: 'Bia', telefone: '91981628018', valor: 300, d0: '2026-11-01' }, AGORA); lb.cardId = 'b';
+  const estado = { pipelines: est, leads: [la, lb] } as never;
+  const t1 = em('2026-11-02', '09:00');
+  aplicar(la, { tipo: 'contato', canal: 'whatsapp', naoFoiRecepcao: true, passo: 'primeiro', auto: true, atendente: 'IA' } as Acao, t1);
+  aplicar(lb, { tipo: 'contato', canal: 'whatsapp', naoFoiRecepcao: true, passo: 'primeiro', atendente: 'Carla' } as Acao, t1);
+  alinharCardsELeads(estado, em('2026-11-02', '09:05'));
+  const col = (id: string) => f.stages.find((e) => e.id === est.atribuicoes.find((x) => x.cardId === id)!.stageId)!.label;
+  assert.equal(col('a'), 'PRIMEIRO CONTATO'); assert.equal(col('b'), 'PRIMEIRO CONTATO');
+  const ia = movimentosPelaIA(est, [la, lb], '2026-11-02', '2026-11-02');
+  assert.equal(ia.length, 1, 'só o card da Ana, que se moveu depois da mensagem da IA'); assert.equal(ia[0].cardId, 'a'); assert.equal(ia[0].por, 'IA CRM'); assert.equal(ia[0].sentido, 'proxima'); assert.equal(ia[0].de, 'EM ABERTO');
+  assert.equal(movimentosDeCards(est, '2026-11-02', '2026-11-02').length, 0, 'movimento do sistema não é de pessoa');
+  // a equipe arrasta depois: continua sendo da pessoa, e o da IA não muda
+  moverCard(est.atribuicoes.find((x) => x.cardId === 'a')!, f, etapa(est, 'Orçamentos em aberto', 'DESCONTO'), em('2026-11-02', '10:00'), { por: 'Maria', manual: true });
+  assert.equal(movimentosPelaIA(est, [la, lb], '2026-11-02', '2026-11-02').length, 1); assert.equal(movimentosDeCards(est, '2026-11-02', '2026-11-02').length, 1);
 });
 console.log(`${ok} testes passaram.`);
