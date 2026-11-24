@@ -276,6 +276,16 @@ I(['Dias até o primeiro contato'],
   'Menos é melhor. A mediana evita que um caso muito atrasado distorça o número.',
   INFO_ORIGEM_LEADS + ' Mediana dos dias entre o D0 do lead e o primeiro contato registrado.',
   'Leads sem nenhum contato ainda não entram na conta.');
+I(['IA contra os vendedores'],
+  'A IA de disparo ao lado de cada vendedor, medida do mesmo jeito, para comparar o desempenho.',
+  'Compare as linhas pelas colunas "a cada 100 mensagens": elas tiram o efeito do volume (a IA envia muito mais que uma pessoa). A linha Todo o time soma todos os vendedores, sem a IA. Quem tem taxa de resposta e receita por mensagem maiores aproveita melhor cada contato.',
+  'Só entram mensagens de WhatsApp. Resposta = o paciente respondeu em até 72 horas e antes do próximo contato. Agendamento e conversão são de quem fez o último contato antes do resultado, em até 14 dias, e só se ninguém mais contatou o paciente depois: assim ninguém conta o mesmo resultado duas vezes. Receita = valor do orçamento de quem pagou depois desse contato. A origem é o histórico dos leads.',
+  'Este critério é diferente dos números de cada vendedor na tabela acima (que usam o responsável do lead) e por isso os totais não batem: aqui o crédito é de quem contatou por último. Ligações não entram, mas contam como contato que interrompe o crédito.');
+I(['Resposta: IA e vendedores', 'Agendamentos a cada 100 mensagens', 'Receita a cada 100 mensagens'],
+  'Um indicador da comparação IA contra vendedores, uma barra para cada um.',
+  'Barras maiores são melhores. A barra da IA tem cor própria. Quando o volume é muito diferente, olhe o número de mensagens ao lado da barra.',
+  'Mesmo critério da tabela IA contra os vendedores: WhatsApp, resposta em 72 horas, crédito de quem fez o último contato antes do resultado. A cada 100 mensagens = o total dividido pelas mensagens enviadas, vezes 100.',
+  'Quem enviou poucas mensagens tem número instável: três respostas em quatro mensagens é 75%.');
 I(['Cards avançados de etapa'],
   'Quantas vezes cada pessoa do time levou um card para a próxima etapa do funil, no período.',
   'Barra maior = mais cards avançados. Cada linha mostra quantos foram para a etapa imediatamente seguinte, quantos pularam etapas e quantos voltaram. Passe o mouse para ver também os que foram para descarte ou perda.',

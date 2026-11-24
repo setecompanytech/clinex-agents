@@ -136,6 +136,33 @@ function tmCartoes(D) {
   r.push(blocoCartao('Movimentos no Pipelines', 'Cards movidos por cada pessoa no período (No-show e Orçamentos).', barras(comRec.slice().sort(function (a, b) { return b.pipeline.movimentos - a.pipeline.movimentos; }).map(function (e) { return { rotulo: e.nome, valor: e.pipeline.movimentos, texto: String(e.pipeline.movimentos), cor: tmCor(D, e.nome) }; }), { max: maxPM, vazio: 'Nenhum movimento de cards no período.' }), 6));
   return r;
 }
+/* a IA de disparo ao lado de cada vendedor, no mesmo critério (só WhatsApp, resposta em 72 h, crédito de quem fez o último contato) */
+function tmIA(D) {
+  var C = D.comparativoIA; if (!C) return null;
+  var ia = C.linhas.filter(function (x) { return x.ia; })[0], gente = C.linhas.filter(function (x) { return !x.ia && x.nome.indexOf('Todo o time') !== 0; }), todo = C.linhas.filter(function (x) { return x.nome.indexOf('Todo o time') === 0; })[0];
+  var corDe = function (x) { return x.ia ? 'var(--acc)' : tmCor(D, x.nome); }; /* a IA tem cor própria, que nenhum vendedor usa */
+  var linha = function (x) {
+    return h('tr', { class: x.ia ? 'tm-ia' : '' }, [h('td', null, h('div', { class: 'cel-quem' }, [x.ia ? h('span', { class: 'pill pl-selo', text: 'IA' }) : avatar(x.nome), h('b', { text: x.nome })])),
+      h('td', { class: 'num', text: nf0.format(x.enviadas) }), h('td', { class: 'num' }, h('b', { text: tmPct(x.taxaResposta) })), h('td', { class: 'num', text: nf0.format(x.agendamentos) }),
+      h('td', { class: 'num', text: x.por100.agendamentos === null ? '–' : nf1.format(x.por100.agendamentos) }), h('td', { class: 'num', text: nf0.format(x.conversoes) }),
+      h('td', { class: 'num' }, h('b', { text: brl(x.receita) })), h('td', { class: 'num', text: x.por100.receita === null ? '–' : brlCompacto(x.por100.receita) }), h('td', { class: 'num', text: ipDur(x.tempoResposta) })]);
+  };
+  var cab = ['Quem', 'Mensagens', 'Resposta', 'Agend.', 'Agend. / 100 msgs', 'Conversões', 'Receita', 'Receita / 100 msgs', '1ª resposta'];
+  var tabela = blocoCartao('IA contra os vendedores', C.criterio + ' "A cada 100 mensagens" tira o efeito do volume: a IA envia muito mais que uma pessoa.',
+    h('div', { class: 'tbl-w' }, h('table', { class: 'tbl tm-tbl' }, [h('thead', null, h('tr', null, cab.map(function (c, i) { return h('th', { scope: 'col', class: i ? 'num' : '', text: c }); }))),
+      h('tbody', null, [ia].concat(gente).filter(Boolean).map(linha)), todo ? h('tfoot', null, linha(todo)) : null])), 12);
+  var barra = function (titulo, sub, campo, fmt, max) {
+    var linhas = [ia].concat(gente).filter(function (x) { return x && x.enviadas > 0; });
+    var m = max || Math.max.apply(null, linhas.map(function (x) { return campo(x) || 0; }).concat([1]));
+    return blocoCartao(titulo, sub, barras(linhas.slice().sort(function (a, b) { return (campo(b) || 0) - (campo(a) || 0); }).map(function (x) {
+      return { rotulo: x.nome, valor: campo(x) || 0, texto: fmt(campo(x)), extra: nf0.format(x.enviadas) + ' msgs', cor: corDe(x) };
+    }), { max: m, vazio: 'Nenhuma mensagem de WhatsApp no período.' }), 4);
+  };
+  return h('div', { class: 'g12' }, [tabela,
+    barra('Resposta: IA e vendedores', 'Dos WhatsApp enviados, quantos tiveram resposta em até 72 h.', function (x) { return x.taxaResposta; }, tmPct, 100),
+    barra('Agendamentos a cada 100 mensagens', 'Quantos agendamentos saem de cada 100 mensagens de WhatsApp.', function (x) { return x.por100.agendamentos; }, function (v) { return v === null ? '–' : nf1.format(v); }),
+    barra('Receita a cada 100 mensagens', 'Receita convertida a cada 100 mensagens de WhatsApp.', function (x) { return x.por100.receita; }, function (v) { return v === null ? '–' : brlCompacto(v); })]);
+}
 function corpoTime() {
   var D = pedirTime();
   if (!D) return esqueleto();
@@ -143,6 +170,6 @@ function corpoTime() {
   var pares = tmCartoes(D);
   var grade = [];
   for (var i = 0; i < pares.length; i += 2) grade.push(h('div', { class: 'g12' }, pares.slice(i, i + 2)));
-  return [destaques(D), kpisTime(D), tabelaTime(D)].concat(grade);
+  return [destaques(D), kpisTime(D), tabelaTime(D), tmIA(D)].concat(grade);
 }
 `;

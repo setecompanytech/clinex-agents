@@ -4,7 +4,7 @@
  */
 import assert from 'node:assert/strict';
 import { criarLead, type EventoLead, type Lead } from '../src/crm/motor.js';
-import { analisarIAPerformance } from '../src/crm/ia-performance.js';
+import { analisarIAPerformance, desempenhoPorAutor } from '../src/crm/ia-performance.js';
 
 let ok = 0;
 const teste = (nome: string, fn: () => void) => { try { fn(); ok++; console.log(`  ok  ${nome}`); } catch (e) { console.error(`FALHOU  ${nome}\n        ${(e as Error).message}`); process.exitCode = 1; } };
@@ -67,5 +67,19 @@ teste('IA Performance: receita recuperada soma conversões e no-show recuperado,
   assert.equal(r.receita.aReceber.valor, 800); assert.equal(r.receita.aReceber.n, 1, 'Bia agendou e ainda não pagou');
   assert.equal(r.atual.receita, r.receita.total); assert.equal(r.serie.receita.reduce((x, y) => x + y, 0), 1350); assert.equal(r.desdeOComeco.receita.reduce((x, y) => x + y, 0), 1350);
   assert.equal(r.noshow.valorRecuperado, 950);
+});
+teste('IA contra vendedores: mesmo critério para todos, e o crédito do resultado é de quem fez o último contato (ninguém conta duas vezes)', () => {
+  const humano = (l: Lead, quando: Date, quem: string) => ev(l, quando, { tipo: 'contato', canal: 'whatsapp', auto: false, atendente: quem, texto: 'WhatsApp enviado' });
+  const a = lead('Ana', 400); ia(a, em('2026-11-16', '09:00')); ev(a, em('2026-11-16', '10:00'), { tipo: 'agendamento', texto: 'Agendou' });
+  const b = lead('Bia', 600); humano(b, em('2026-11-16', '09:00'), 'Carla'); ev(b, em('2026-11-16', '09:20'), { tipo: 'resposta' }); ev(b, em('2026-11-17', '10:00'), { tipo: 'comparecimento', texto: 'Compareceu e pagou: Convertido ativo.' });
+  const c2 = lead('Cris', 500); ia(c2, em('2026-11-16', '09:00')); humano(c2, em('2026-11-16', '11:00'), 'Carla'); ev(c2, em('2026-11-16', '12:00'), { tipo: 'agendamento', texto: 'Agendou' });
+  const d = lead('Dora', 300); humano(d, em('2026-11-16', '09:00'), 'Joana');
+  const r = desempenhoPorAutor([a, b, c2, d], undefined, J, [{ nome: 'IA', ia: true, autor: (e) => e.auto === true }, { nome: 'Carla', autor: (e) => !e.auto && e.atendente === 'Carla' }, { nome: 'Joana', autor: (e) => !e.auto && e.atendente === 'Joana' }]);
+  const iaL = r[0], carla = r[1], joana = r[2];
+  assert.equal(iaL.enviadas, 2); assert.equal(iaL.agendamentos, 1, 'só a Ana: na Cris a Carla contatou depois da IA'); assert.equal(iaL.conversoes, 0);
+  assert.equal(carla.enviadas, 2); assert.equal(carla.agendamentos, 1, 'a Cris agendou depois do contato da Carla'); assert.equal(carla.conversoes, 1); assert.equal(carla.receita, 600);
+  assert.equal(carla.respostas, 1); assert.equal(carla.taxaResposta, 50);
+  assert.equal(joana.enviadas, 1); assert.equal(joana.taxaResposta, 0); assert.equal(joana.receita, 0);
+  assert.equal(carla.por100.receita, 30000, 'R$ 600 em 2 mensagens = R$ 30.000 a cada 100 mensagens');
 });
 console.log(`${ok} testes passaram.`);

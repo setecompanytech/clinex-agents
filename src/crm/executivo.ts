@@ -3,6 +3,7 @@ import type { EstadoFunis } from './pipeline/tipos.js';
 import { diaDoInstante, diffDias, ehConversaoAtiva, ehEspelho, hojeDe, horaDe, somaDias, type EventoLead, type Lead, type Tarefa, type Vista } from './motor.js';
 import { LIMITES, MENSAGENS, type Status } from './modelo.js';
 import { marcosDe, type Marcos } from './analise.js';
+import { desempenhoPorAutor } from './ia-performance.js';
 import { transicoes, type Periodo } from './tempo.js';
 import { fraseJanela, janela, type Janela } from './periodo.js';
 
@@ -504,6 +505,12 @@ export function analisarTime(todos: Lead[], agora: Date, per: Periodo | Janela, 
 
   return {
     dias, hoje, de: ini, ate: hoje, ...fraseJanela(J, hojeReal), semanal: P.semanal, rotulos: P.rotulos, titulos: P.titulos,
+    comparativoIA: (() => {
+      const humanos = equipe.filter((e) => e.nome !== 'Sem responsável' && (e.contatos > 0 || e.recebidos > 0)).map((e) => e.nome);
+      const zeroHumano = (e: EventoLead, l: Lead) => !e.auto && quem(e, l) !== IA;
+      const linhas = desempenhoPorAutor(todos, pl, J, [{ nome: 'IA de disparo', ia: true, autor: (e) => e.auto === true }, ...humanos.map((n) => ({ nome: n, autor: (e: EventoLead, l: Lead) => !e.auto && quem(e, l) === n })), { nome: 'Todo o time (sem a IA)', autor: zeroHumano }]);
+      return { linhas, criterio: 'Só mensagens de WhatsApp. Resposta em até 72 h. Agendamento e conversão são de quem fez o último contato antes do resultado, em até 14 dias, e só se ninguém mais contatou o paciente depois.' };
+    })(),
     equipe, totais: { atual: totalAtual, anterior: totalAnterior, pipeline: { proxima: soma([...cardsPor.values()].map((x) => x.proxima)), saltou: soma([...cardsPor.values()].map((x) => x.saltou)), voltou: soma([...cardsPor.values()].map((x) => x.voltou)), perdeu: soma([...cardsPor.values()].map((x) => x.perdeu)), movimentos: cardsMov.length, noshowTrabalhados: soma([...cardsPor.values()].map((x) => x.noshow)), recuperados: soma([...cardsPor.values()].map((x) => x.recuperados)), valorRecuperado: soma([...cardsPor.values()].map((x) => x.valorRecuperado)) } },
     series: { total, ia, pessoas, principais }, heat, funil, unidades, mensagens, destaques,
     semResponsavel: { n: semDono.length, valor: soma(semDono.map((l) => l.valor)) },

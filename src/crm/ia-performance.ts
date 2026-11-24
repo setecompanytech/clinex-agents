@@ -1,4 +1,4 @@
-import { diaDoInstante, diffDias, ehConversaoAtiva, hojeDe, somaDias, type Lead } from './motor.js';
+import { diaDoInstante, diffDias, ehConversaoAtiva, hojeDe, somaDias, type EventoLead, type Lead } from './motor.js';
 import { PASSOS } from './modelo.js';
 import { ROTULO_INTENCAO } from './rastreio.js';
 import type { Janela } from './periodo.js';
@@ -38,13 +38,14 @@ const r1 = (v: number | null) => (v === null ? null : Math.round(v * 10) / 10);
 const parteBRT = (t: number) => { const d = new Date(t - 3 * MS_H); return { hora: d.getUTCHours(), dow: d.getUTCDay() }; };
 
 /** Tudo da IA, evento a evento, de todos os leads. */
-function coletar(leads: Lead[], cartoes: Map<string, Atribuicao>) {
+type OpcoesColeta = { autor?: (e: EventoLead, l: Lead) => boolean; exclusivo?: boolean };
+function coletar(leads: Lead[], cartoes: Map<string, Atribuicao>, op: OpcoesColeta = {}) {
   const contatos: Contato[] = [], resultados: Resultado[] = [];
   const pendentes: { lead: Lead; intencao: string; t: number; resp: string }[] = [];
   for (const l of leads) {
     if (l.demo) continue;
     const evs = [...l.eventos].sort((a, b) => a.quando.localeCompare(b.quando));
-    const ia = evs.filter((e) => e.tipo === 'contato' && e.auto === true && e.canal === 'whatsapp');
+    const ia = evs.filter((e) => e.tipo === 'contato' && e.canal === 'whatsapp' && (op.autor ? op.autor(e, l) : e.auto === true));
     if (!ia.length) continue;
     const mine: Contato[] = ia.map((e) => {
       const t = Date.parse(e.quando), { hora, dow } = parteBRT(t);
@@ -63,6 +64,8 @@ function coletar(leads: Lead[], cartoes: Map<string, Atribuicao>) {
       const t = Date.parse(e.quando);
       const c = [...mine].reverse().find((x) => x.t <= t);
       if (!c || t - c.t > JANELA_RESULTADO_D * 86_400_000) continue;
+      // crédito exclusivo (comparar a IA com cada vendedor): só vale se ninguém mais contatou o paciente entre esse contato e o resultado
+      if (op.exclusivo && evs.some((x) => x.tipo === 'contato' && Date.parse(x.quando) > c.t && Date.parse(x.quando) <= t)) continue;
       const sozinha = !evs.some((x) => x.tipo === 'contato' && !x.auto && Date.parse(x.quando) > c.t && Date.parse(x.quando) <= t);
       resultados.push({ lead: l, t, dia: diaDoInstante(e.quando), tipo, passo: c.passo, sozinha, valor: l.valor });
     }
@@ -250,4 +253,23 @@ export function analisarIAPerformance(leads: Lead[], pipelines: EstadoFunis | un
     desdeOComeco: { rotulos: fimSem.map((x) => `${x.slice(8, 10)}/${x.slice(5, 7)}`), ...hist, acumEnviadas: acum(hist.enviadas), acumAgendamentos: acum(hist.agendamentos), acumConversoes: acum(hist.conversoes), acumReceita: acum(hist.receita), taxaResposta: hist.enviadas.map((e, i) => (e > 0 ? Math.round((hist.respostas[i] / e) * 1000) / 10 : null)) },
     porPasso, calor, horas, semana: dowT, tempoFaixas, intencoes, porUnidade, porValor, noshow, esperando, totalEsperando, insights,
   };
+}
+
+/**
+ * Comparar a IA com cada vendedor no MESMO critério: só mensagens de WhatsApp, resposta em até 72 h, e agendamento/conversão
+ * creditados a quem fez o último contato antes do resultado (crédito exclusivo, ninguém conta duas vezes). Cada autor traz o que
+ * decide se um contato é dele. "por100" normaliza pelo volume: a IA envia muito mais mensagens que uma pessoa.
+ */
+export function desempenhoPorAutor(leads: Lead[], pipelines: EstadoFunis | undefined, J: Janela, autores: { nome: string; ia?: boolean; autor: (e: EventoLead, l: Lead) => boolean }[]) {
+  const cartoes = new Map<string, Atribuicao>(pipelines ? pipelines.atribuicoes.map((a) => [a.cardId, a] as const) : []);
+  return autores.map((a) => {
+    const d = coletar(leads, cartoes, { autor: a.autor, exclusivo: true });
+    const t = totais(d, J.de, J.ate);
+    const p = (v: number) => (t.enviadas > 0 ? Math.round((v / t.enviadas) * 1000) / 10 : null);
+    return {
+      nome: a.nome, ia: !!a.ia, enviadas: t.enviadas, leads: t.leads, respostas: t.respostas, taxaResposta: t.taxaResposta, agendamentos: t.agendamentos, conversoes: t.conversoes,
+      receita: t.receita, ticket: t.recuperados ? Math.round(t.receita / t.recuperados) : null, tempoResposta: t.tempoResposta,
+      por100: { agendamentos: p(t.agendamentos), conversoes: p(t.conversoes), receita: t.enviadas > 0 ? Math.round((t.receita / t.enviadas) * 100) : null },
+    };
+  });
 }
