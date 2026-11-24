@@ -432,7 +432,7 @@ export function analisarTime(todos: Lead[], agora: Date, per: Periodo | Janela, 
       nome: n, ...atual, anterior: { receita: anterior.receita, convertidos: anterior.convertidos, contatos: anterior.contatos, conversao: anterior.conversao, recebidos: anterior.recebidos },
       carteira: { n: cart.length, valor: soma(cart.map((l) => l.valor)), atrasadas: tarefas.filter((t) => t.situacao === 'atrasada' && ids.has(t.leadId)).length, foraDoLimite: cart.filter((l) => vistas.get(l.id)?.limite?.excedido).length },
       noshow: { entraram: ns.length, recuperados: rc.length, valorRecuperado: soma(rc.map((c) => c.valor)) },
-      pipeline: { movimentos: cardsPor.get(n)?.movimentos ?? 0, noshowTrabalhados: cardsPor.get(n)?.noshow ?? 0, recuperados: cardsPor.get(n)?.recuperados ?? 0, valorRecuperado: cardsPor.get(n)?.valorRecuperado ?? 0 },
+      pipeline: { proxima: cardsPor.get(n)?.proxima ?? 0, saltou: cardsPor.get(n)?.saltou ?? 0, voltou: cardsPor.get(n)?.voltou ?? 0, perdeu: cardsPor.get(n)?.perdeu ?? 0, movimentos: cardsPor.get(n)?.movimentos ?? 0, noshowTrabalhados: cardsPor.get(n)?.noshow ?? 0, recuperados: cardsPor.get(n)?.recuperados ?? 0, valorRecuperado: cardsPor.get(n)?.valorRecuperado ?? 0 },
     };
   }).sort((a, b) => b.receita - a.receita || b.contatos - a.contatos || a.nome.localeCompare(b.nome));
   const totalAtual = metricas(null, ini, hoje), totalAnterior = metricas(null, ini0, fim0);
@@ -504,7 +504,7 @@ export function analisarTime(todos: Lead[], agora: Date, per: Periodo | Janela, 
 
   return {
     dias, hoje, de: ini, ate: hoje, ...fraseJanela(J, hojeReal), semanal: P.semanal, rotulos: P.rotulos, titulos: P.titulos,
-    equipe, totais: { atual: totalAtual, anterior: totalAnterior, pipeline: { movimentos: cardsMov.length, noshowTrabalhados: soma([...cardsPor.values()].map((x) => x.noshow)), recuperados: soma([...cardsPor.values()].map((x) => x.recuperados)), valorRecuperado: soma([...cardsPor.values()].map((x) => x.valorRecuperado)) } },
+    equipe, totais: { atual: totalAtual, anterior: totalAnterior, pipeline: { proxima: soma([...cardsPor.values()].map((x) => x.proxima)), saltou: soma([...cardsPor.values()].map((x) => x.saltou)), voltou: soma([...cardsPor.values()].map((x) => x.voltou)), perdeu: soma([...cardsPor.values()].map((x) => x.perdeu)), movimentos: cardsMov.length, noshowTrabalhados: soma([...cardsPor.values()].map((x) => x.noshow)), recuperados: soma([...cardsPor.values()].map((x) => x.recuperados)), valorRecuperado: soma([...cardsPor.values()].map((x) => x.valorRecuperado)) } },
     series: { total, ia, pessoas, principais }, heat, funil, unidades, mensagens, destaques,
     semResponsavel: { n: semDono.length, valor: soma(semDono.map((l) => l.valor)) },
   };

@@ -276,6 +276,11 @@ I(['Dias até o primeiro contato'],
   'Menos é melhor. A mediana evita que um caso muito atrasado distorça o número.',
   INFO_ORIGEM_LEADS + ' Mediana dos dias entre o D0 do lead e o primeiro contato registrado.',
   'Leads sem nenhum contato ainda não entram na conta.');
+I(['Cards avançados de etapa'],
+  'Quantas vezes cada pessoa do time levou um card para a próxima etapa do funil, no período.',
+  'Barra maior = mais cards avançados. Cada linha mostra quantos foram para a etapa imediatamente seguinte, quantos pularam etapas e quantos voltaram. Passe o mouse para ver também os que foram para descarte ou perda.',
+  INFO_ORIGEM_CARDS + ' Para cada movimento de coluna registrado por uma pessoa, compara a coluna de origem com a de destino na ordem do funil: destino logo depois da origem = etapa seguinte; mais adiante = pulou etapas; antes = voltou; coluna de perda (descarte, sem retorno, perdido) = perda. O número principal soma etapa seguinte e pulou etapas.',
+  'Só conta movimentos feitos por uma pessoa: os que o sistema ou a IA fazem sozinhos não entram. Vale para os funis de Orçamentos e de No-show juntos, e depende do período escolhido no topo.');
 I(['Leads recebidos e convertidos', 'Movimentos ao longo do tempo', 'Movimentos no Pipelines', 'Movimentações por dia', 'Produtividade por usuário', 'Mensagens do time'],
   'O volume de trabalho, entradas e conversões, ou de movimentações de cards, no tempo ou por pessoa.',
   'Compare pessoas e dias. Movimentar mais não significa converter mais: veja junto com a receita.',

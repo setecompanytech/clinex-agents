@@ -12,6 +12,7 @@ import { aplicar, criarLead, vistaDoLead, type Acao } from '../src/crm/motor.js'
 import { alinharCardsELeads } from '../src/crm/sincroniaCardLead.js';
 import { alinharCardsAoFluxo, conferir, itemDaEtapa } from '../src/crm/conferencia.js';
 import { leadsDosNoShow } from '../src/crm/leadsNoShow.js';
+import { movimentosDeCards, resumoPorPessoa } from '../src/crm/pipeline/atividade.js';
 import { avaliarLead } from '../src/crm/ia-disparo.js';
 
 let ok = 0;
@@ -318,5 +319,22 @@ teste('No-show: quem faltou ontem vira lead para a IA convidar a reagendar, sem 
   const av = avaliarLead(estado as never, l, T, { ignorarLista: true }); assert.ok(av, 'tem passo automático'); assert.equal(av!.tipo, 'pronto', JSON.stringify(av)); assert.equal((av as { msg: number }).msg, 10);
   // no dia anterior à falta+1 ele só espera; depois do dia certo passa a atrasado e a IA não age
   assert.equal(vistaDoLead(l, em('2026-11-01', '10:00')).proximo!.situacao, 'futura'); assert.equal(vistaDoLead(l, em('2026-11-03', '10:00')).proximo!.situacao, 'atrasada');
+});
+teste('Avanços de etapa: cada movimento de uma pessoa é classificado como etapa seguinte, pulou etapas, voltou ou perda', () => {
+  const est = novoEstado(); const f = funilDestino(est, 'orcamento', AGORA); ingerir(est, f, [snap('a'), snap('b')], AGORA);
+  const a = est.atribuicoes.find((x) => x.cardId === 'a')!, b = est.atribuicoes.find((x) => x.cardId === 'b')!;
+  const t = (h: number) => em('2026-11-02', String(h).padStart(2, '0') + ':00');
+  moverCard(a, f, etapa(est, 'Orçamentos em aberto', 'PRIMEIRO CONTATO'), t(10), { por: 'Maria', manual: true });
+  moverCard(a, f, etapa(est, 'Orçamentos em aberto', 'DESCONTO'), t(11), { por: 'Maria', manual: true });
+  moverCard(a, f, etapa(est, 'Orçamentos em aberto', 'NOVA TENTATIVA'), t(12), { por: 'Maria', manual: true });
+  moverCard(a, f, etapa(est, 'Orçamentos em aberto', 'Descarte'), t(13), { por: 'Maria', manual: true });
+  moverCard(b, f, etapa(est, 'Orçamentos em aberto', 'PRIMEIRO CONTATO'), t(14), { por: 'Joana', manual: true });
+  moverCard(b, f, etapa(est, 'Orçamentos em aberto', 'NOVA TENTATIVA'), t(15), { por: 'CRM (lead)', manual: false, forcar: true }); // movimento do sistema: não conta
+  const movs = movimentosDeCards(est, '2026-11-02', '2026-11-02');
+  assert.deepEqual(movs.filter((m) => m.por === 'Maria').reverse().map((m) => m.sentido), ['proxima', 'saltou', 'voltou', 'perdeu']);
+  assert.equal(movs.filter((m) => m.por === 'Maria').reverse()[0].de, 'EM ABERTO');
+  const r = resumoPorPessoa(movs);
+  assert.deepEqual([r.get('Maria')!.proxima, r.get('Maria')!.saltou, r.get('Maria')!.voltou, r.get('Maria')!.perdeu], [1, 1, 1, 1]);
+  assert.deepEqual([r.get('Joana')!.proxima, r.get('Joana')!.saltou], [1, 0]); assert.equal(r.has('CRM (lead)'), false);
 });
 console.log(`${ok} testes passaram.`);

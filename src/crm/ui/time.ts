@@ -124,6 +124,14 @@ function tmCartoes(D) {
   r.push(blocoCartao('No-show recuperado', 'Quem levou no-shows para Recuperado e o valor. Total do time: ' + D.totais.pipeline.recuperados + ' · ' + brl(D.totais.pipeline.valorRecuperado) + '.', barras(comRec.slice().sort(function (a, b) { return b.pipeline.valorRecuperado - a.pipeline.valorRecuperado || b.pipeline.recuperados - a.pipeline.recuperados; }).map(function (e) {
     return { rotulo: e.nome, valor: e.pipeline.valorRecuperado, texto: brl(e.pipeline.valorRecuperado), extra: e.pipeline.recuperados + ' de ' + e.pipeline.noshowTrabalhados + ' trabalhados', cor: tmCor(D, e.nome) };
   }), { max: maxRec, vazio: 'Nenhum movimento de cards no período.' }), 6));
+  var comAv = D.equipe.filter(function (e) { return e.pipeline.proxima + e.pipeline.saltou > 0; }).sort(function (a, b) { return (b.pipeline.proxima + b.pipeline.saltou) - (a.pipeline.proxima + a.pipeline.saltou) || a.nome.localeCompare(b.nome); });
+  var maxAv = Math.max.apply(null, comAv.map(function (e) { return e.pipeline.proxima + e.pipeline.saltou; }).concat([1]));
+  var TP = D.totais.pipeline;
+  r.push(blocoCartao('Cards avançados de etapa', 'Quantas vezes cada pessoa levou um card para a etapa seguinte (ou além) no Pipelines. Total do time: ' + (TP.proxima + TP.saltou) + '.', barras(comAv.map(function (e) {
+    var p = e.pipeline, av = p.proxima + p.saltou;
+    return { rotulo: e.nome, valor: av, texto: nf0.format(av), extra: p.proxima + ' p/ a seguinte' + (p.saltou ? ' · ' + p.saltou + ' pulando' : '') + (p.voltou ? ' · ' + p.voltou + ' voltaram' : ''), cor: tmCor(D, e.nome),
+      dica: { titulo: e.nome, linhas: [{ valor: nf0.format(p.proxima), rotulo: 'para a etapa seguinte' }, { valor: nf0.format(p.saltou), rotulo: 'pulando etapas' }, { valor: nf0.format(p.voltou), rotulo: 'voltaram uma etapa' }, { valor: nf0.format(p.perdeu), rotulo: 'foram para descarte/perda' }] } };
+  }), { max: maxAv, vazio: 'Nenhum card avançado de etapa no período.' }), 6));
   var maxPM = Math.max.apply(null, comRec.map(function (e) { return e.pipeline.movimentos; }).concat([1]));
   r.push(blocoCartao('Movimentos no Pipelines', 'Cards movidos por cada pessoa no período (No-show e Orçamentos).', barras(comRec.slice().sort(function (a, b) { return b.pipeline.movimentos - a.pipeline.movimentos; }).map(function (e) { return { rotulo: e.nome, valor: e.pipeline.movimentos, texto: String(e.pipeline.movimentos), cor: tmCor(D, e.nome) }; }), { max: maxPM, vazio: 'Nenhum movimento de cards no período.' }), 6));
   return r;
