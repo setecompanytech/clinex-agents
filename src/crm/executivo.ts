@@ -500,14 +500,14 @@ export function analisarTime(todos: Lead[], agora: Date, per: Periodo | Janela, 
   if (lentos && lentos.primeiroContato! >= 2) add('atencao', `${lentos.nome} leva em média ${fmt(lentos.primeiroContato!, 0)} dias para o primeiro contato (mediana). Quanto antes, mais o lead responde.`);
   if (semDono.length) add('atencao', `${semDono.length} ${semDono.length === 1 ? 'lead ativo está' : 'leads ativos estão'} sem responsável (${brl(soma(semDono.map((l) => l.valor)))}). Defina quem atende.`);
   const iaTotal = soma(ia.contatos);
-  if (iaTotal) add('info', `A IA de disparo fez ${iaTotal} de ${totalAtual.contatos} contatos do período (${fmt((iaTotal / Math.max(1, totalAtual.contatos)) * 100, 0)}%).`);
+  if (iaTotal) add('info', `A IA CRM fez ${iaTotal} de ${totalAtual.contatos} contatos do período (${fmt((iaTotal / Math.max(1, totalAtual.contatos)) * 100, 0)}%).`);
   if (!destaques.length) add('info', 'Ainda não há movimento suficiente no período para destacar alguém.');
 
   return {
     dias, hoje, de: ini, ate: hoje, ...fraseJanela(J, hojeReal), semanal: P.semanal, rotulos: P.rotulos, titulos: P.titulos,
     // a IA de disparo como mais uma pessoa do time: mensagens de WhatsApp dela, respostas em até 72 h e o que veio depois (crédito da última mensagem)
     ia: (() => {
-      const x = desempenhoPorAutor(todos, pl, J, [{ nome: 'IA de disparo', ia: true, autor: (e) => e.auto === true }])[0];
+      const x = desempenhoPorAutor(todos, pl, J, [{ nome: 'IA CRM', ia: true, autor: (e) => e.auto === true }])[0];
       return { nome: x.nome, ia: true, recebidos: x.leads, contatos: x.enviadas, respostas: x.respostas, taxaResposta: x.taxaResposta, agendamentos: x.agendamentos, convertidos: x.conversoes, conversao: pc(x.conversoes, x.leads), receita: x.receita, ticket: x.ticket, tempoResposta: x.tempoResposta };
     })(),
     equipe, totais: { atual: totalAtual, anterior: totalAnterior, pipeline: { proxima: soma([...cardsPor.values()].map((x) => x.proxima)), saltou: soma([...cardsPor.values()].map((x) => x.saltou)), voltou: soma([...cardsPor.values()].map((x) => x.voltou)), perdeu: soma([...cardsPor.values()].map((x) => x.perdeu)), movimentos: cardsMov.length, noshowTrabalhados: soma([...cardsPor.values()].map((x) => x.noshow)), recuperados: soma([...cardsPor.values()].map((x) => x.recuperados)), valorRecuperado: soma([...cardsPor.values()].map((x) => x.valorRecuperado)) } },

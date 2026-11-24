@@ -28,7 +28,7 @@ function kpisTime(D) {
     kpi2({ rotulo: 'Receita convertida', valor: brlCompacto(a.receita), delta: vs(a.receita, p.receita, { bom: 'sobe' }), sub: a.ticket ? 'ticket médio ' + brl(a.ticket) : 'sem conversões', serie: s.receita, cor: COR.convertidos }),
     kpi2({ rotulo: 'Convertidos', valor: nf0.format(a.convertidos), delta: vs(a.convertidos, p.convertidos, { bom: 'sobe' }), sub: a.ciclo === null ? null : 'ciclo de ' + nf1.format(a.ciclo) + ' d', serie: s.convertidos, cor: COR.convertidos }),
     kpi2({ rotulo: 'Leads recebidos', valor: nf0.format(a.recebidos), delta: vs(a.recebidos, p.recebidos, { bom: 'sobe' }), sub: a.semContato ? a.semContato + ' ainda sem contato' : 'todos contatados', serie: s.recebidos, cor: COR.novos }),
-    kpi2({ rotulo: 'Contatos feitos', valor: nf0.format(a.contatos), delta: vs(a.contatos, p.contatos, { bom: 'sobe' }), sub: iaN ? iaN + ' pela IA de disparo' : 'pela equipe', serie: s.contatos, cor: COR.contatos }),
+    kpi2({ rotulo: 'Contatos feitos', valor: nf0.format(a.contatos), delta: vs(a.contatos, p.contatos, { bom: 'sobe' }), sub: iaN ? iaN + ' pela IA CRM' : 'pela equipe', serie: s.contatos, cor: COR.contatos }),
     kpi2({ rotulo: 'Taxa de resposta', valor: tmPct(a.taxaResposta), delta: vs(a.taxaResposta, p.taxaResposta, { pp: true, bom: 'sobe' }), sub: a.respostas + ' respostas', serie: s.respostas, cor: COR.respostas }),
     kpi2({ rotulo: 'Conversão', valor: tmPct(a.conversao), delta: vs(a.conversao, p.conversao, { pp: true, bom: 'sobe' }), sub: a.primeiroContato === null ? null : '1º contato em ' + nf1.format(a.primeiroContato) + ' d' })
   ]);
@@ -106,9 +106,9 @@ function tmCartoes(D) {
   }), { max: maxR }) : vazio('Nenhuma conversão no período.'), 5));
   r.push(blocoCartao('Evolução da receita', 'Receita convertida de cada vendedor ' + sufixo(D) + '.', soma(D.series.total.receita) ? linhasTempo({ rotulos: D.rotulos, titulos: D.titulos, altura: 260, fmt: brlCompacto, aria: 'Receita por vendedor ao longo do tempo', series: tmSeries(D, 'receita') }) : vazio('Nenhuma conversão no período.'), 7));
   var outrosC = D.series.total.contatos.map(function (v, i) { var ps = 0; D.series.principais.forEach(function (n) { ps += D.series.pessoas[n].contatos[i]; }); return Math.max(0, v - ps - D.series.ia.contatos[i]); });
-  var serCont = tmSeries(D, 'contatos').concat([{ nome: 'IA de disparo', cor: TM_COR_IA, valores: D.series.ia.contatos }]);
+  var serCont = tmSeries(D, 'contatos').concat([{ nome: 'IA CRM', cor: TM_COR_IA, valores: D.series.ia.contatos }]);
   if (soma(outrosC)) serCont.push({ nome: 'Outros', cor: 'var(--g6)', valores: outrosC });
-  r.push(blocoCartao('Atendimento ao longo do tempo', 'Contatos feitos ' + sufixo(D) + ', por quem fez. A IA de disparo aparece à parte.', soma(D.series.total.contatos) ? areaEmpilhada({ rotulos: D.rotulos, titulos: D.titulos, altura: 270, aria: 'Contatos por vendedor ao longo do tempo', series: serCont }) : vazio('Nenhum contato no período.'), 7));
+  r.push(blocoCartao('Atendimento ao longo do tempo', 'Contatos feitos ' + sufixo(D) + ', por quem fez. A IA CRM aparece à parte.', soma(D.series.total.contatos) ? areaEmpilhada({ rotulos: D.rotulos, titulos: D.titulos, altura: 270, aria: 'Contatos por vendedor ao longo do tempo', series: serCont }) : vazio('Nenhum contato no período.'), 7));
   r.push(blocoCartao('Conversão por vendedor', 'Dos leads que cada um recebeu no período, quantos converteram.', barras(todos.filter(function (e) { return e.recebidos > 0; }).sort(function (a, b) { return (b.conversao || 0) - (a.conversao || 0); }).map(function (e) {
     return { rotulo: e.nome, valor: e.conversao || 0, texto: tmPct(e.conversao), extra: e.recebidos + ' ' + plural(e.recebidos, 'lead', 'leads'), cor: e.ia ? TM_COR_IA : tmCor(D, e.nome) };
   }), { max: 100, vazio: 'Nenhum lead recebido no período.' }), 5));
