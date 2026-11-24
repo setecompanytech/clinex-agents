@@ -68,6 +68,10 @@ const CASOS: Record<string, string[]> = {
   hojeFeriado1: ['bom dia, quero fazer exame de sangue hoje'],
   hojeFeriado2: ['vocês estão abertos hoje? queria passar aí agora pra fazer uma ultrassom'],
   hojeFeriado3: ['quero marcar consulta com clinico geral pra hoje', 'é nova', 'guamá'],
+  mergulhao: ['Bom dia. O doutor Paulo Mergulhão vai atender hoje? até que horas?', 'é consulta nova'],
+  gisele: ['Bom dia', 'Gostaria de um orçamento por gentileza'],
+  usgGineco: ['A ultrassom ginecológica precisa agendar? qual o valor?', 'é nova', 'guamá'],
+  renato: ['quero marcar clinico geral', 'é nova', 'guamá', 'o primeiro', 'renato giovanny\n08071999\nesse numero aqui'],
   dados: ['quero marcar consulta com clinico geral amanhã', 'qualquer unidade', 'pode ser', 'Nome: Aline Ferreira Costa\nData de nascimento: 05/07/1988\nsexo feminino', 'vou pagar na recepção'],
 };
 

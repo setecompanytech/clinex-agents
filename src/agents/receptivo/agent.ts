@@ -219,6 +219,23 @@ async function processar(ev: MessageReceivedEvent) {
   if (ev.isGroup) return skip('grupo');
   if (ehReacao(ev)) return skip('reação do paciente (emoji numa mensagem): não é mensagem, a Amanda não responde');
   if (ev.isAssigned) return skip(`atendimento já tem atendente humano ${ev.attendanceInfo}`);
+  // REGRA DA CLÍNICA (23/11/2026): o paciente tocou em "CONFIRMAR" na mensagem automática de confirmação da clínica → o atendimento é
+  // FINALIZADO (antes ficava "aguardando" na fila). "Reagendar"/"Cancelar" seguem como antes (a equipe resolve).
+  if (/^\s*confirm/i.test(ev.text ?? '') || /interactive|button/i.test(ev.type ?? '')) {
+    await sleep(Math.min(env.debounceMs, 8000)); // se ele escrever mais alguma coisa logo depois (uma dúvida), não finaliza
+    const { messages: h } = await getHistory(ev.attendanceId, 15).catch(() => ({ messages: [] as InovstarMessage[] }));
+    const msg = h.find((m) => m._id === ev.messageId);
+    const respostaAoModelo = Boolean(msg && (msg.replyTo?.type === 'template' || msg.interactiveReply?.kind === 'template_button'));
+    // botão pode chegar sem texto: o "Confirmar" está no título do botão
+    const confirmou = /^\s*confirm/i.test(msg?.interactiveReply?.title ?? msg?.text ?? ev.text ?? '');
+    const lastIn = [...h].reverse().find((m) => m.direction === 'in' && m.type !== 'system' && !ehReacao(m));
+    const equipeDepois = h.slice(h.findIndex((m) => m._id === ev.messageId) + 1).some((m) => ehMensagemDaEquipe(m, usuarioDaIntegracao(h)));
+    if (respostaAoModelo && confirmou && lastIn?._id === ev.messageId && !equipeDepois) {
+      try { await closeAttendance(ev.attendanceId); evt('ignorado', { motivo: 'paciente confirmou pela mensagem automática da clínica: atendimento finalizado' }); }
+      catch (e) { evt('erro', { mensagem: `não consegui finalizar o atendimento da confirmação: ${(e as Error).message.slice(0, 160)}` }); }
+      return;
+    }
+  }
   // Conversa parada na fila da equipe, sem atendente: se foi a Amanda que transferiu, ela pode retomar quando o paciente volta a escrever.
   let naFilaDaEquipe = Boolean(env.humanSectorId) && ev.sectorId === env.humanSectorId;
   // A primeira mensagem de uma conversa nova chega SEM setor (ou na fila da equipe) e só depois o assistente da Inovstar transfere para a IA.

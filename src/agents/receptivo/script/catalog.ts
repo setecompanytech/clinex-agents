@@ -65,9 +65,12 @@ export type PedidoReserva = {
   cadastro?: { nome: string; nascimento: string; sexo: 'feminino' | 'masculino'; telefone: string }; // paciente novo
   observacao?: string; // gravada no agendamento (forma de pagamento, comprovante)
   comboId?: string; // o serviço faz parte de um combo (o Clinilink liga o agendamento ao combo)
+  orcamento?: OrcamentoCombo; // orçamento do combo já criado nesta conversa (as próximas etapas usam o mesmo)
 };
+/** Orçamento do combo no Clinilink: a O.S. gerada de qualquer etapa puxa TODOS os itens do combo dele (caso real 23/11: Masculino 1, só a consulta agendada, a O.S. saiu sem os exames). */
+export type OrcamentoCombo = { id: string; comboId: string; unidadeId: string; itens: { id: string; procedimentoId: string; usado: boolean }[] };
 export type ResultadoReserva =
-  | { ok: true; profissional?: string; profissionalBruto?: string; hora: string; cadastrou: boolean; pacienteId?: string; linhas?: string[]; extra?: string; agendamentoId?: string }
+  | { ok: true; profissional?: string; profissionalBruto?: string; hora: string; cadastrou: boolean; pacienteId?: string; linhas?: string[]; extra?: string; agendamentoId?: string; orcamento?: OrcamentoCombo }
   | { ok: false; codigo: string; motivo: string; incerto?: boolean; cadastrou?: boolean };
 
 export interface Fonte {

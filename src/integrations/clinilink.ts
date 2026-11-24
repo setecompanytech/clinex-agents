@@ -188,7 +188,8 @@ export async function getPacientesPorNomeNascimento(nome: string, nascimento: st
 // ---------------------------- ESCRITA (exige credencial rw) ----------------------------
 
 export type NovoPaciente = { nome: string; cpf?: string; dataNascimento?: string; sexo?: 'feminino' | 'masculino'; telefone?: string };
-export type NovoAgendamento = { pacienteId: string; unidadeId: string; agendaId: string; profissionalId: string; dataHora: string; procedimentoId: string; observacao?: string; /** combo: vários serviços do mesmo combo no mesmo horário */ comboId?: string; procedimentoIds?: string[] };
+export type NovoAgendamento = { pacienteId: string; unidadeId: string; agendaId: string; profissionalId: string; dataHora: string; procedimentoId: string; observacao?: string; /** combo: vários serviços do mesmo combo no mesmo horário */ comboId?: string; procedimentoIds?: string[];
+  /** combo agendado a partir do ORÇAMENTO do combo (o Clinilink gera a O.S. com todos os itens do combo a partir dele): itens deste horário */ orcamentoId?: string; orcamentoItemIds?: string[] };
 export type RespostaEscrita<T> = { ok: true; dados: T } | { ok: false; codigo: string; mensagem: string; incerto?: boolean; corpo?: any };
 
 /** POST sem retry. `incerto` = não sabemos se gravou (timeout/queda/500) e alguém precisa conferir. */
@@ -215,8 +216,14 @@ export const criarPaciente = (p: NovoPaciente) =>
 export const criarAgendamento = (a: NovoAgendamento) =>
   post<{ agendamentoId: string; status: string; dataHora: string; profissional?: { nome: string }; valorTotal?: number }>('/v1/agendamento/agendamentos', {
     pacienteId: a.pacienteId, unidadeId: a.unidadeId, agendaId: a.agendaId, profissionalId: a.profissionalId, dataHora: a.dataHora,
-    procedimentos: a.procedimentoIds?.length ? a.procedimentoIds : [a.procedimentoId], ...(a.comboId ? { comboId: a.comboId } : {}), observacao: a.observacao ?? 'Agendado pela Amanda (IA) via WhatsApp', origem: 'whatsapp',
+    // com orçamento, os procedimentos e o combo vêm dele (a API recusa os dois juntos)
+    ...(a.orcamentoId ? { orcamentoId: a.orcamentoId, orcamentoItemIds: a.orcamentoItemIds } : { procedimentos: a.procedimentoIds?.length ? a.procedimentoIds : [a.procedimentoId], ...(a.comboId ? { comboId: a.comboId } : {}) }), observacao: a.observacao ?? 'Agendado pela Amanda (IA) via WhatsApp', origem: 'whatsapp',
   });
+
+/** Orçamento (aberto) do paciente na unidade. Com comboId: todos os itens do combo, com o preço do combo. */
+export type OrcamentoCriado = { id: string; itens: { id: string; procedimentoId?: string | null; agendamentoId?: string | null }[] };
+export const criarOrcamento = (o: { pacienteId: string; unidadeId: string; procedimentos: string[]; comboId?: string }) =>
+  post<{ orcamento: OrcamentoCriado }>('/v1/agendamento/orcamentos', { pacienteId: o.pacienteId, unidadeId: o.unidadeId, procedimentos: o.procedimentos, ...(o.comboId ? { comboId: o.comboId } : {}), observacao: 'Combo agendado pela Amanda (IA) via WhatsApp', origem: 'whatsapp' });
 
 /** Gera a O.S. (aberta) do agendamento. Repetir não cria outra: devolve OS_JA_EXISTE com o id da que existe. */
 export const criarOrdemServico = (agendamentoId: string) =>
