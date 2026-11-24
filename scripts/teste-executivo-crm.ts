@@ -245,8 +245,21 @@ teste('contatos da IA aparecem à parte e entram no total', () => {
   aplicar(l, { tipo: 'contato', canal: 'whatsapp', naoFoiRecepcao: true, atendente: 'IA', auto: true }, em(dia(1), '09:00'));
   const t = time([...TODOS, l]);
   assert.equal(t.series.ia.contatos.reduce((a, b) => a + b, 0), 1);
-  assert.ok(t.destaques.some((d) => /IA de disparo/.test(d.texto)));
+  assert.ok(t.destaques.some((d) => /IA CRM/.test(d.texto)));
   assert.equal(t.totais.atual.contatos, time(TODOS).totais.atual.contatos + 1);
+});
+teste('a IA CRM tem carteira: leads ativos cujo último contato foi dela, com os passos atrasados', () => {
+  const daIA = novo('Carteira IA', dia(2), 400, { atendente: 'Amanda' });
+  aplicar(daIA, { tipo: 'contato', canal: 'whatsapp', naoFoiRecepcao: true, atendente: 'IA', auto: true }, em(dia(2), '09:00'));
+  const depoisHumano = novo('Carteira Humana', dia(2), 900, { atendente: 'Amanda' });
+  aplicar(depoisHumano, { tipo: 'contato', canal: 'whatsapp', naoFoiRecepcao: true, atendente: 'IA', auto: true }, em(dia(2), '09:00'));
+  aplicar(depoisHumano, { tipo: 'contato', canal: 'ligacao', naoFoiRecepcao: true, atendente: 'Amanda' }, em(dia(1), '10:00'));
+  const t = time([...TODOS, daIA, depoisHumano]);
+  assert.equal(t.ia.carteira.n >= 1, true, 'o lead cujo último contato foi da IA está na carteira dela');
+  const base = time(TODOS).ia.carteira.n;
+  assert.equal(t.ia.carteira.n, base + 1, 'o lead que a equipe contatou depois sai da carteira da IA');
+  assert.equal(t.ia.carteira.valor, time(TODOS).ia.carteira.valor + 400);
+  assert.ok(t.ia.carteira.atrasadas >= 0);
 });
 teste('exemplos do CRM: o time fecha com a visão executiva', () => {
   const t = time(demo, 30);

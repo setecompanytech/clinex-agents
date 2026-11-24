@@ -52,11 +52,11 @@ var TM_COLS = [
 ];
 /* a IA de disparo é mais uma linha do time, em vermelho; o que não se aplica a ela (carteira, movimentos de cards, ciclo) fica em traço */
 var TM_COR_IA = 'var(--acc)';
-var TM_SEM_IA = { ciclo: 1, carteiraN: 1, atrasadas: 1 };
+var TM_SEM_IA = { ciclo: 1 };
 function tmComIA(D) {
   var x = D.ia; if (!x || !x.contatos) return D.equipe;
   var ia = { nome: x.nome, ia: true, recebidos: x.recebidos, contatos: x.contatos, respostas: x.respostas, taxaResposta: x.taxaResposta, agendamentos: x.agendamentos, convertidos: x.convertidos, conversao: x.conversao, receita: x.receita, ticket: x.ticket, primeiroContato: x.primeiroContato === undefined ? null : x.primeiroContato, ciclo: null,
-    anterior: { receita: 0, convertidos: 0, contatos: 0, conversao: null, recebidos: 0 }, pipeline: { movimentos: x.cards ? x.cards.movimentos : 0, proxima: x.cards ? x.cards.proxima : 0, saltou: x.cards ? x.cards.saltou : 0, voltou: x.cards ? x.cards.voltou : 0, perdeu: x.cards ? x.cards.perdeu : 0, noshowTrabalhados: x.noshow ? x.noshow.convites : 0, recuperados: x.noshow ? x.noshow.recuperados : 0, valorRecuperado: x.noshow ? x.noshow.valor : 0 }, carteira: { n: 0, valor: 0, atrasadas: 0 } };
+    anterior: { receita: 0, convertidos: 0, contatos: 0, conversao: null, recebidos: 0 }, pipeline: { movimentos: x.cards ? x.cards.movimentos : 0, proxima: x.cards ? x.cards.proxima : 0, saltou: x.cards ? x.cards.saltou : 0, voltou: x.cards ? x.cards.voltou : 0, perdeu: x.cards ? x.cards.perdeu : 0, noshowTrabalhados: x.noshow ? x.noshow.convites : 0, recuperados: x.noshow ? x.noshow.recuperados : 0, valorRecuperado: x.noshow ? x.noshow.valor : 0 }, carteira: x.carteira || { n: 0, valor: 0, atrasadas: 0 } };
   return D.equipe.concat([ia]);
 }
 function tmValor(e, c) { return c.v ? c.v(e) : e[c.k]; }
@@ -118,9 +118,9 @@ function tmCartoes(D) {
   r.push(blocoCartao('Quando o time contata', 'Contatos por dia da semana e hora. Mais escuro, mais contatos.', heatTotal ? mapaCalor(D.heat) : vazio('Nenhum contato no período.'), 7));
   var F = D.funil, cor = ['var(--f0)', 'var(--f1)', 'var(--f2)', 'var(--f3)', 'var(--f4)'];
   r.push(blocoCartao('Funil do time', 'Leads que entraram no período e até onde chegaram.', barras(F.map(function (f, i) { return { rotulo: f.etapa, valor: f.n, texto: nf0.format(f.n), cor: cor[i], extra: pct(f.pct) + (i && f.perda > 0 ? '  ·  −' + nf0.format(f.perda) + '%' : '') }; }), { max: F[0].n || 1, alta: true, vazio: 'Sem leads no período.' }), 5));
-  var maxCart = Math.max.apply(null, D.equipe.map(function (e) { return e.carteira.n; }).concat([1]));
-  r.push(blocoCartao('Carteira de agora', 'Leads ativos de cada vendedor e quantos têm passo atrasado.', barras(D.equipe.filter(function (e) { return e.carteira.n > 0; }).map(function (e) {
-    return { rotulo: e.nome, valor: e.carteira.n, texto: e.carteira.n + ' · ' + brlCompacto(e.carteira.valor), extra: e.carteira.atrasadas ? e.carteira.atrasadas + ' atrasados' : 'em dia', cor: e.carteira.atrasadas ? 'var(--bad)' : tmCor(D, e.nome) };
+  var maxCart = Math.max.apply(null, todos.map(function (e) { return e.carteira.n; }).concat([1]));
+  r.push(blocoCartao('Carteira de agora', 'Leads ativos de cada vendedor e quantos têm passo atrasado.', barras(todos.filter(function (e) { return e.carteira.n > 0; }).map(function (e) {
+    return { rotulo: e.nome, valor: e.carteira.n, texto: e.carteira.n + ' · ' + brlCompacto(e.carteira.valor), extra: e.carteira.atrasadas ? e.carteira.atrasadas + ' atrasados' : 'em dia', cor: e.ia ? TM_COR_IA : e.carteira.atrasadas ? 'var(--bad)' : tmCor(D, e.nome) };
   }), { max: maxCart, vazio: 'Nenhum lead ativo.' }), 6));
   var comPC = tmComIA(D).filter(function (e) { return e.primeiroContato !== null && e.primeiroContato !== undefined; });
   var maxPC = Math.max.apply(null, comPC.map(function (e) { return e.primeiroContato; }).concat([1]));

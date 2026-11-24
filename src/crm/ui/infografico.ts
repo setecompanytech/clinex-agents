@@ -243,7 +243,7 @@ I(['Quem mais converteu', 'Receita por vendedor', 'Conversão por vendedor', 'De
   'O resultado de cada pessoa do time no período.',
   'Compare as pessoas pelo mesmo indicador. A barra mostra a fatia da receita do time. Clique em uma pessoa para abrir tudo sobre ela.',
   INFO_ORIGEM_LEADS + ' A receita é atribuída ao responsável do lead; a atividade por login conta os movimentos registrados por cada usuário.',
-  'Quem recebe mais leads tende a converter mais: compare também a conversão e o ticket. A IA CRM aparece como mais uma linha, em vermelho: as mensagens são os WhatsApp enviados por ela, a resposta vale em até 72 horas e o agendamento ou a conversão é creditado à última mensagem dela antes do resultado (em até 14 dias, sem contato da equipe depois). Por isso a receita dela também aparece nos vendedores responsáveis e não é somada ao Time todo. Carteira, ciclo e movimentos de cards não se aplicam a ela.');
+  'Quem recebe mais leads tende a converter mais: compare também a conversão e o ticket. A IA CRM aparece como mais uma linha, em vermelho: as mensagens são os WhatsApp enviados por ela, a resposta vale em até 72 horas e o agendamento ou a conversão é creditado à última mensagem dela antes do resultado (em até 14 dias, sem contato da equipe depois). Por isso a receita dela também aparece nos vendedores responsáveis e não é somada ao Time todo. A carteira da IA CRM são os leads ativos cujo último contato foi dela. O ciclo não se aplica a ela.');
 I(['Recuperação de no-show', 'No-show recuperado', 'No-show recuperados', 'No-show e descartes'],
   'O caminho de quem faltou: da falta até voltar a comparecer.',
   'Mostra quantos faltantes entraram, quantos foram trabalhados e quantos voltaram. Valor recuperado é o dos cards levados para Recuperado.',
@@ -264,7 +264,7 @@ I(['Evolução da receita', 'Receita convertida', 'Receita convertida por dia'],
 I(['Carteira de agora', 'Carteira por etapa', 'Carteira ativa por etapa'],
   'Os leads ativos de cada pessoa, ou da pessoa por etapa.',
   'Mostra a carga de trabalho. Muitos leads com passo atrasado indicam sobrecarga.',
-  INFO_ORIGEM_LEADS + ' Só leads ativos, hoje.',
+  INFO_ORIGEM_LEADS + ' Só leads ativos, hoje. A carteira da IA CRM (em vermelho) são os leads ativos cujo último contato, de qualquer pessoa, foi dela; quando a equipe contata o paciente depois, ele sai da carteira da IA. Atrasados são os que têm passo vencido: a IA não age em passo atrasado, então esses precisam de uma pessoa.',
   'É uma foto de hoje, não depende do período.');
 I(['Posição na equipe'],
   'Onde a pessoa fica entre os responsáveis em quatro indicadores do período: receita convertida, convertidos, contatos feitos e conversão.',
