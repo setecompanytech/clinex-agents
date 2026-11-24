@@ -53,4 +53,19 @@ teste('IA Performance: sem nenhum envio da IA devolve tudo zerado, sem quebrar',
   const r = analisarIAPerformance([lead('Jo')], undefined, AGORA, J);
   assert.equal(r.temDados, false); assert.equal(r.atual.enviadas, 0); assert.equal(r.atual.taxaResposta, null); assert.deepEqual(r.porPasso, []); assert.equal(r.primeiroEnvio, null);
 });
+teste('IA Performance: receita recuperada soma conversões e no-show recuperado, cada paciente uma vez, e separa o que ainda vai receber', () => {
+  const orc = lead('Ana', 400); ia(orc, em('2026-11-16', '09:00')); ev(orc, em('2026-11-16', '10:00'), { tipo: 'agendamento', texto: 'Agendou' }); ev(orc, em('2026-11-18', '15:00'), { tipo: 'comparecimento', texto: 'Compareceu e pagou: Convertido ativo.' });
+  const ns = lead('Nina', 300); ns.fonte = 'noshow'; ns.cardId = 'c1'; ia(ns, em('2026-11-16', '08:35'), 'noshow', 10);
+  const ns2 = lead('Otto', 250); ns2.fonte = 'noshow'; ns2.cardId = 'c2'; ia(ns2, em('2026-11-16', '08:35'), 'noshow', 10); ev(ns2, em('2026-11-17', '10:00'), { tipo: 'comparecimento', texto: 'Compareceu e pagou: Convertido ativo.' });
+  const ag = lead('Bia', 800); ia(ag, em('2026-11-17', '09:00')); ev(ag, em('2026-11-17', '09:30'), { tipo: 'agendamento', texto: 'Agendou' }); ag.status = 'agendado';
+  const card = (id: string, valor: number) => ({ cardId: id, caseStatus: 'recuperado', recoveredAt: em('2026-11-17', '11:00').toISOString(), ultimoSnapshot: { valor } });
+  const pip = { atribuicoes: [card('c1', 700), card('c2', 999)] } as never;
+  const r = analisarIAPerformance([orc, ns, ns2, ag], pip, AGORA, J);
+  assert.equal(r.receita.total, 400 + 700 + 250, 'Ana 400 + Nina 700 (valor do card) + Otto 250 (conversão, uma vez só: o card dele não duplica)');
+  assert.equal(r.receita.orcamentos.valor, 400); assert.equal(r.receita.orcamentos.n, 1); assert.equal(r.receita.noshow.valor, 950); assert.equal(r.receita.noshow.n, 2);
+  assert.equal(r.receita.pacientes, 3); assert.equal(r.receita.ticket, 450);
+  assert.equal(r.receita.aReceber.valor, 800); assert.equal(r.receita.aReceber.n, 1, 'Bia agendou e ainda não pagou');
+  assert.equal(r.atual.receita, r.receita.total); assert.equal(r.serie.receita.reduce((x, y) => x + y, 0), 1350); assert.equal(r.desdeOComeco.receita.reduce((x, y) => x + y, 0), 1350);
+  assert.equal(r.noshow.valorRecuperado, 950);
+});
 console.log(`${ok} testes passaram.`);

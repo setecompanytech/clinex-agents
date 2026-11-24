@@ -2,7 +2,8 @@ import { diaDoInstante, diffDias, ehConversaoAtiva, hojeDe, somaDias, type Lead 
 import { PASSOS } from './modelo.js';
 import { ROTULO_INTENCAO } from './rastreio.js';
 import type { Janela } from './periodo.js';
-import type { EstadoFunis } from './pipeline/tipos.js';
+import { diaBRT } from './pipeline/regras.js';
+import type { Atribuicao, EstadoFunis } from './pipeline/tipos.js';
 
 /**
  * IA Performance: tudo o que a IA de disparo (contatos com auto = true) trouxe de resultado. Função pura, lida só dos eventos que
@@ -10,6 +11,8 @@ import type { EstadoFunis } from './pipeline/tipos.js';
  *
  * Regras de atribuição (iguais em todos os números):
  *  - Resposta da IA: o paciente respondeu em até 72 h depois de um contato da IA e antes do próximo contato da IA.
+ *  - Receita recuperada: o valor dos pacientes que a IA trouxe de volta e pagaram: quem compareceu e pagou (conversão) depois de uma mensagem da IA
+ *    e os no-show que a equipe levou para "Recuperado" depois do convite da IA. Cada paciente conta uma vez, pelo valor do orçamento (ou do card).
  *  - Agendamento/conversão da IA: o evento aconteceu em até 14 dias depois de um contato da IA. O passo creditado é o do contato
  *    da IA mais recente antes do evento. "Sozinha": a equipe não fez nenhum contato entre esse contato e o evento.
  */
@@ -25,6 +28,7 @@ type Contato = {
   lead: Lead; t: number; dia: string; hora: number; dow: number; passo: string; msg: number;
   respondeu: boolean; minResp: number | null; intencao: string | null;
 };
+type Recup = { lead: Lead; t: number; dia: string; valor: number; origem: 'orcamento' | 'noshow' };
 type Resultado = { lead: Lead; t: number; dia: string; tipo: 'agendamento' | 'conversao'; passo: string; sozinha: boolean; valor: number };
 
 const pct = (a: number, b: number) => (b > 0 ? Math.round((a / b) * 1000) / 10 : null);
@@ -34,7 +38,7 @@ const r1 = (v: number | null) => (v === null ? null : Math.round(v * 10) / 10);
 const parteBRT = (t: number) => { const d = new Date(t - 3 * MS_H); return { hora: d.getUTCHours(), dow: d.getUTCDay() }; };
 
 /** Tudo da IA, evento a evento, de todos os leads. */
-function coletar(leads: Lead[]) {
+function coletar(leads: Lead[], cartoes: Map<string, Atribuicao>) {
   const contatos: Contato[] = [], resultados: Resultado[] = [];
   const pendentes: { lead: Lead; intencao: string; t: number; resp: string }[] = [];
   for (const l of leads) {
@@ -73,7 +77,23 @@ function coletar(leads: Lead[]) {
       }
     }
   }
-  return { contatos, resultados, pendentes };
+  // receita recuperada: cada paciente uma vez (a primeira conversão; ou o card de no-show levado a Recuperado depois do convite da IA)
+  const recup = new Map<string, Recup>();
+  for (const r of [...resultados].sort((a, b) => a.t - b.t)) {
+    if (r.tipo !== 'conversao' || recup.has(r.lead.id)) continue;
+    recup.set(r.lead.id, { lead: r.lead, t: r.t, dia: r.dia, valor: r.valor, origem: r.passo === 'noshow' || r.lead.fonte === 'noshow' ? 'noshow' : 'orcamento' });
+  }
+  for (const c of contatos) {
+    const a = c.lead.cardId ? cartoes.get(c.lead.cardId) : undefined;
+    if (c.passo !== 'noshow' || recup.has(c.lead.id) || !a || a.caseStatus !== 'recuperado' || !a.recoveredAt) continue;
+    const t = Date.parse(a.recoveredAt);
+    if (t < c.t || t - c.t > JANELA_RESULTADO_D * 86_400_000) continue;
+    recup.set(c.lead.id, { lead: c.lead, t, dia: diaBRT(a.recoveredAt), valor: a.ultimoSnapshot.valor || c.lead.valor, origem: 'noshow' });
+  }
+  // agendados pela IA que ainda não pagaram: receita a receber
+  const agendados = new Map<string, Resultado>();
+  for (const r of [...resultados].sort((a, b) => a.t - b.t)) if (r.tipo === 'agendamento' && !recup.has(r.lead.id) && r.lead.status === 'agendado' && !agendados.has(r.lead.id)) agendados.set(r.lead.id, r);
+  return { contatos, resultados, pendentes, recup: [...recup.values()], agendados: [...agendados.values()] };
 }
 
 type Dados = ReturnType<typeof coletar>;
@@ -83,6 +103,7 @@ function totais(d: Dados, de: string, ate: string) {
   const cs = d.contatos.filter((c) => c.dia >= de && c.dia <= ate);
   const rs = d.resultados.filter((r) => r.dia >= de && r.dia <= ate);
   const ag = rs.filter((r) => r.tipo === 'agendamento'), cv = rs.filter((r) => r.tipo === 'conversao');
+  const rc = d.recup.filter((r) => r.dia >= de && r.dia <= ate);
   const leadsAlc = new Set(cs.map((c) => c.lead.id));
   const leadsResp = new Set(cs.filter((c) => c.respondeu).map((c) => c.lead.id));
   const tempos = cs.map((c) => c.minResp).filter((x): x is number => x !== null);
@@ -90,14 +111,17 @@ function totais(d: Dados, de: string, ate: string) {
     enviadas: cs.length, leads: leadsAlc.size, respostas: cs.filter((c) => c.respondeu).length, leadsResponderam: leadsResp.size,
     taxaResposta: pct(cs.filter((c) => c.respondeu).length, cs.length),
     agendamentos: new Set(ag.map((r) => r.lead.id)).size, conversoes: new Set(cv.map((r) => r.lead.id)).size,
-    receita: soma([...new Map(cv.map((r) => [r.lead.id, r.valor])).values()]),
+    receita: soma(rc.map((r) => r.valor)), recuperados: rc.length,
+    receitaOrcamentos: soma(rc.filter((r) => r.origem === 'orcamento').map((r) => r.valor)), receitaNoshow: soma(rc.filter((r) => r.origem === 'noshow').map((r) => r.valor)),
+    nOrcamentos: rc.filter((r) => r.origem === 'orcamento').length, nNoshow: rc.filter((r) => r.origem === 'noshow').length,
     agSozinha: new Set(ag.filter((r) => r.sozinha).map((r) => r.lead.id)).size,
     tempoResposta: r1(mediana(tempos)),
   };
 }
 
 export function analisarIAPerformance(leads: Lead[], pipelines: EstadoFunis | undefined, agora: Date, J: Janela) {
-  const d = coletar(leads);
+  const cartoes = new Map<string, Atribuicao>(pipelines ? pipelines.atribuicoes.map((a) => [a.cardId, a] as const) : []);
+  const d = coletar(leads, cartoes);
   const hoje = hojeDe(agora);
   const dias = J.dias, anterior = { de: somaDias(J.de, -dias), ate: somaDias(J.de, -1) };
   const atual = totais(d, J.de, J.ate), ant = totais(d, anterior.de, anterior.ate);
@@ -114,7 +138,8 @@ export function analisarIAPerformance(leads: Lead[], pipelines: EstadoFunis | un
   const serie = { enviadas: z(), respostas: z(), agendamentos: z(), conversoes: z(), receita: z() };
   for (const c of cs) { const i = idx(c.dia); if (i >= 0) { serie.enviadas[i]++; if (c.respondeu) serie.respostas[i]++; } }
   const vistos = { agendamento: new Set<string>(), conversao: new Set<string>() };
-  for (const r of rs) { const i = idx(r.dia), k = r.tipo; if (i < 0 || vistos[k].has(r.lead.id)) continue; vistos[k].add(r.lead.id); if (k === 'agendamento') serie.agendamentos[i]++; else { serie.conversoes[i]++; serie.receita[i] += r.valor; } }
+  for (const r of rs) { const i = idx(r.dia), k = r.tipo; if (i < 0 || vistos[k].has(r.lead.id)) continue; vistos[k].add(r.lead.id); if (k === 'agendamento') serie.agendamentos[i]++; else serie.conversoes[i]++; }
+  for (const r of d.recup) { const i = idx(r.dia); if (i >= 0) serie.receita[i] += r.valor; }
   const taxaPorPonto = serie.enviadas.map((e, i) => (e > 0 ? Math.round((serie.respostas[i] / e) * 1000) / 10 : null));
   const rotulos = inis.map((x) => `${x.slice(8, 10)}/${x.slice(5, 7)}`);
   const titulos = fins.map((f, i) => (semanal ? `${rotulos[i]} a ${f.slice(8, 10)}/${f.slice(5, 7)}` : new Date(`${f}T12:00:00-03:00`).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' })));
@@ -127,7 +152,8 @@ export function analisarIAPerformance(leads: Lead[], pipelines: EstadoFunis | un
   const hist = { enviadas: Array<number>(sem).fill(0), respostas: Array<number>(sem).fill(0), agendamentos: Array<number>(sem).fill(0), conversoes: Array<number>(sem).fill(0), receita: Array<number>(sem).fill(0) };
   for (const c of d.contatos) { const i = iSem(c.dia); if (i >= 0) { hist.enviadas[i]++; if (c.respondeu) hist.respostas[i]++; } }
   const vh = { agendamento: new Set<string>(), conversao: new Set<string>() };
-  for (const r of d.resultados) { const i = iSem(r.dia); if (i < 0 || vh[r.tipo].has(r.lead.id)) continue; vh[r.tipo].add(r.lead.id); if (r.tipo === 'agendamento') hist.agendamentos[i]++; else { hist.conversoes[i]++; hist.receita[i] += r.valor; } }
+  for (const r of d.resultados) { const i = iSem(r.dia); if (i < 0 || vh[r.tipo].has(r.lead.id)) continue; vh[r.tipo].add(r.lead.id); if (r.tipo === 'agendamento') hist.agendamentos[i]++; else hist.conversoes[i]++; }
+  for (const r of d.recup) { const i = iSem(r.dia); if (i >= 0) hist.receita[i] += r.valor; }
   const acum = (a: number[]) => { let s = 0; return a.map((v) => (s += v)); };
 
   // ------------------------------------------------------------------ por passo (etapa da cadência)
@@ -179,13 +205,20 @@ export function analisarIAPerformance(leads: Lead[], pipelines: EstadoFunis | un
   // ------------------------------------------------------------------ No-show (reagendar quem faltou)
   const ns = cs.filter((c) => c.passo === 'noshow'), nsRes = rs.filter((r) => r.passo === 'noshow');
   const nsLeads = new Set(ns.map((c) => c.lead.id));
-  const cartoes = pipelines ? new Map(pipelines.atribuicoes.map((a) => [a.cardId, a])) : new Map();
-  const recuperados = [...nsLeads].map((id) => d.contatos.find((c) => c.lead.id === id)?.lead).filter((l): l is Lead => !!l && !!l.cardId && cartoes.get(l.cardId)?.caseStatus === 'recuperado');
   const noshow = {
     enviadas: ns.length, respostas: ns.filter((c) => c.respondeu).length, taxaResposta: pct(ns.filter((c) => c.respondeu).length, ns.length),
     reagendados: new Set(nsRes.filter((r) => r.tipo === 'agendamento').map((r) => r.lead.id)).size,
     compareceram: new Set(nsRes.filter((r) => r.tipo === 'conversao').map((r) => r.lead.id)).size,
-    recuperadosNoPipeline: recuperados.length, valorRecuperado: soma(recuperados.map((l) => cartoes.get(l.cardId as string)?.ultimoSnapshot.valor ?? l.valor)),
+    recuperadosNoPipeline: atual.nNoshow, valorRecuperado: atual.receitaNoshow,
+  };
+
+  // ------------------------------------------------------------------ receita recuperada (o número que a diretoria quer ver)
+  const aReceber = d.agendados.filter((r) => r.dia >= J.de && r.dia <= J.ate);
+  const receita = {
+    total: atual.receita, anterior: ant.receita, pacientes: atual.recuperados, ticket: atual.recuperados ? Math.round(atual.receita / atual.recuperados) : null,
+    orcamentos: { valor: atual.receitaOrcamentos, n: atual.nOrcamentos }, noshow: { valor: atual.receitaNoshow, n: atual.nNoshow },
+    aReceber: { valor: soma(aReceber.map((r) => r.valor)), n: aReceber.length },
+    totalDesdeOComeco: soma(d.recup.map((r) => r.valor)), pacientesDesdeOComeco: d.recup.length,
   };
 
   // ------------------------------------------------------------------ quem espera a equipe
@@ -213,7 +246,7 @@ export function analisarIAPerformance(leads: Lead[], pipelines: EstadoFunis | un
   return {
     periodo: { de: J.de, ate: J.ate, dias, anterior, semanal }, regras: { respostaHoras: JANELA_RESPOSTA_H, resultadoDias: JANELA_RESULTADO_D },
     primeiroEnvio: d.contatos.length ? primeiro : null, temDados: d.contatos.length > 0,
-    atual, anterior: ant, funil, serie: { rotulos, titulos, ...serie, taxaResposta: taxaPorPonto },
+    atual, anterior: ant, receita, funil, serie: { rotulos, titulos, ...serie, taxaResposta: taxaPorPonto },
     desdeOComeco: { rotulos: fimSem.map((x) => `${x.slice(8, 10)}/${x.slice(5, 7)}`), ...hist, acumEnviadas: acum(hist.enviadas), acumAgendamentos: acum(hist.agendamentos), acumConversoes: acum(hist.conversoes), acumReceita: acum(hist.receita), taxaResposta: hist.enviadas.map((e, i) => (e > 0 ? Math.round((hist.respostas[i] / e) * 1000) / 10 : null)) },
     porPasso, calor, horas, semana: dowT, tempoFaixas, intencoes, porUnidade, porValor, noshow, esperando, totalEsperando, insights,
   };
