@@ -72,6 +72,9 @@ const CASOS: Record<string, string[]> = {
   gisele: ['Bom dia', 'Gostaria de um orçamento por gentileza'],
   usgGineco: ['A ultrassom ginecológica precisa agendar? qual o valor?', 'é nova', 'guamá'],
   renato: ['quero marcar clinico geral', 'é nova', 'guamá', 'o primeiro', 'renato giovanny\n08071999\nesse numero aqui'],
+  unidadeOi: ['oi'],
+  unidadeDireto: ['quero marcar consulta com cardiologista', 'é nova', 'primeira opção'],
+  setores: ['bom dia, que horas vocês funcionam?', 'telégrafo', 'qual o horário da coleta de sangue?', 'e eletrocardiograma, dá pra fazer à tarde?'],
   dados: ['quero marcar consulta com clinico geral amanhã', 'qualquer unidade', 'pode ser', 'Nome: Aline Ferreira Costa\nData de nascimento: 05/07/1988\nsexo feminino', 'vou pagar na recepção'],
 };
 

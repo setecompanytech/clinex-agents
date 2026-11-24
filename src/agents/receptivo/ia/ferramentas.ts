@@ -102,7 +102,7 @@ function jaPassou(sl: Slot, agora: Date): boolean {
   const hm = hmDe(agora);
   // a fonte já tirou as vagas de hoje que passaram: se sobrou vaga (livre), o período ainda atende
   if (sl.livre) return sl.livre < hm;
-  if (sl.turno === 'manhã' && hm >= '11:00') return true;
+  if (sl.turno === 'manhã' && hm >= '12:00') return true;
   if (hm >= '17:00') return true;
   // atendimento por ordem de chegada: o período já começou há mais de 1 h, não oferece
   const [h, m] = sl.inicio.split(':').map(Number);
@@ -200,7 +200,7 @@ async function servicoParaModelo(r: any, c: Contexto): Promise<unknown> {
   if (tipo === 'nova') return comCombos(r, c);
   const { preco: _preco, ...semValor } = r;
   if (tipo === 'retorno') return { ...semValor, tipo_consulta: 'retorno', orientacao: 'é RETORNO: o agendamento do retorno é com a EQUIPE (regra da clínica, 19/11). NÃO procure cadastro, NÃO confira consulta anterior, NÃO mostre horários nem valor. Avise numa frase que a equipe vai agendar o retorno e chame transferir_para_humano com o resumo (especialidade, profissional se ele disse, nome e nascimento se já informou).' };
-  return { ...semValor, pergunta_obrigatoria: PERGUNTA_TIPO, orientacao: `CONSULTA: antes de falar valor, combo ou horários, pergunte exatamente "${PERGUNTA_TIPO}" (pode ir junto com a unidade, ex.: "${PERGUNTA_TIPO} E prefere a unidade Guamá ou Telégrafo?"). NÃO cite valor nem combo nesta resposta. Quando ele responder consulta nova, chame abrir_servico com este servico_id para ter o valor.` };
+  return { ...semValor, pergunta_obrigatoria: PERGUNTA_TIPO, orientacao: `CONSULTA: antes de falar valor, combo ou horários, pergunte exatamente "${PERGUNTA_TIPO}" (pode ir junto com a unidade, ex.: "${PERGUNTA_TIPO} E em qual unidade: *Guamá* ou *Telégrafo*?"). NÃO cite valor nem combo nesta resposta. Quando ele responder consulta nova, chame abrir_servico com este servico_id para ter o valor.` };
 }
 
 async function comCombos(r: any, c: Contexto): Promise<unknown> {
@@ -322,6 +322,8 @@ const SEM_CADASTRO = 'Paciente novo (não achei cadastro com esse nome, nascimen
 /** RETORNO e o cadastro não apareceu pelo nome, nascimento e telefone: localizar pelo CPF (o paciente já é da clínica). */
 const SEM_CADASTRO_RETORNO = 'Se nome, nascimento e telefone não acharem o cadastro: quem pede RETORNO já é paciente e o cadastro pode estar com outro telefone. Peça o CPF para localizar o cadastro ("Pra eu localizar seu cadastro, pode me passar seu CPF?") e chame buscar_paciente com o cpf; sem o CPF à mão, peça o telefone que ela usa no cadastro (buscar_paciente com nome, nascimento e esse telefone). NÃO cadastre de novo. Só se nem assim aparecer, explique com delicadeza que não localizou e passe para a equipe conferir (transferir_para_humano com o nome, o nascimento e o que ela pediu).';
 /** A conversa é de RETORNO (o paciente pediu retorno ou a consulta já foi marcada como retorno). */
+/** O paciente já disse a unidade (ou respondeu depois de a Amanda perguntar Guamá/Telégrafo)? Regra da clínica (24/11/2026): sem a unidade não se consulta agenda. */
+const disseUnidade = (c: Contexto) => /guama|telegraf/.test(c.textoPaciente ?? '') || (/guama/.test(c.conversaTexto ?? '') && /telegraf/.test(c.conversaTexto ?? '') && /unidade/.test(c.conversaTexto ?? ''));
 const pedindoRetorno = (c: Contexto) => Object.values(c.mem.tipoConsulta ?? {}).includes('retorno') || /\bretorno\b|\bretornar\b/.test((c.textoPaciente ?? '').replace(/nao (e|eh|sou de|quero) (um |o )?retorno/g, ''));
 
 // ------------------------------------------------------------------------------------------------ execução
@@ -383,6 +385,7 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
           if (tipo === 'retorno') return { erro: 'é RETORNO: o agendamento do retorno é com a EQUIPE (regra da clínica, 19/11). NÃO procure cadastro, NÃO confira consulta anterior, NÃO mostre horários nem valor. Avise numa frase que a equipe vai agendar o retorno e chame transferir_para_humano com o resumo (especialidade, profissional se ele disse, nome e nascimento se já informou).' };
         }
         if (sv.pacote) return { erro: 'este servico_id é o COMBO inteiro: os horários são por etapa. Chame etapa_do_combo (este servico_id, etapa 1 ou a próxima que falta) e use em ver_horarios o servico_id que ela devolver. NÃO diga ao paciente que não há vaga.' };
+        if (sv.unidades.length > 1 && !disseUnidade(c)) return { erro: 'o paciente ainda NÃO informou a unidade (regra da clínica: sem a unidade não se consulta agenda). Pergunte agora, com as opções em negrito: "Em qual unidade você deseja ser atendido(a): *Guamá* ou *Telégrafo*?". Não mostre horários nesta resposta.' };
         const un = acharUnidade(sv, args.unidade);
         if (!un) return { erro: 'unidade sem agenda para este serviço', unidades_com_agenda: sv.unidades.map((u) => u.nome) };
         // REGRA DA CLÍNICA (19/11/2026): feriado nacional a clínica não funciona (mesmo que a agenda do Clinilink tenha vaga aberta)

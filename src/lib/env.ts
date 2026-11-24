@@ -67,7 +67,14 @@ export const env = {
   // CNPJ(s) da conta que recebe o pix (separados por vírgula): comprovante que mostra o CNPJ de destino em vez da chave (ex.: Stone)
   pixCnpjs: (process.env.PIX_CNPJ ?? '22065464000132').split(',').map((x) => x.replace(/\D/g, '')).filter((x) => x.length === 14),
   // horário de atendimento da equipe, como a Amanda informa (o mesmo da resposta automática da clínica)
-  clinicHorario: process.env.CLINIC_HORARIO ?? 'Realizamos o atendimento de segunda a sexta, das 07h às 11h e das 14h às 16h, e aos sábados, das 07h às 10h30.',
+  clinicHorario: process.env.CLINIC_HORARIO ?? 'Funcionamos de segunda a sexta, das 07h às 12h e das 14h às 17h, e aos sábados, das 07h às 10h30, nas duas unidades (Guamá e Telégrafo).',
+  // REGRA DA CLÍNICA (24/11/2026): horários de coleta, eletrocardiograma e raio-X por unidade (a Amanda informa quando precisar)
+  clinicHorarioSetores: process.env.CLINIC_HORARIO_SETORES ?? [
+    'Coleta de exames no Guamá: das 07h às 11h (para os exames que precisam de jejum).',
+    'Coleta de exames no Telégrafo: das 07h às 10h30 para todas as coletas; só o PCCU (preventivo) e a coleta de secreção podem ser feitos à tarde.',
+    'Eletrocardiograma e Raio-X no Guamá: só pela manhã, de segunda a sexta das 08h às 11h30 e aos sábados das 07h às 10h30.',
+    'Eletrocardiograma no Telégrafo: de segunda a sexta das 07h às 11h30 e das 14h às 16h30; aos sábados das 07h às 10h30.',
+  ].join('\n'),
   // palavras (separadas por vírgula) que identificam o recebedor no comprovante; basta uma aparecer no nome ou na chave
   pixRecebedor: process.env.PIX_RECEBEDOR ?? 'clinex',
   clinicName: process.env.CLINIC_NAME ?? 'Clínica',
