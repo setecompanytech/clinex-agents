@@ -32,6 +32,7 @@ export type MemoriaIA = {
   fotoOrcamento?: boolean; // o paciente mandou foto IMPRESSA: depois de informar os valores, a conversa vai para a equipe montar o orçamento // comprovante de pix conferido (só com ele o agendamento pago por pix é gravado)
   combosVistos?: string[];
   ultimasOpcoes?: { id: string; nome: string }[]; // a última lista de opções mostrada (para abrir pelo nome, se o id vier errado)
+  buscouSemAchar?: boolean; // buscar_paciente (ou o agendar) procurou o cadastro e NÃO achou: só então pode falar em cadastro novo
   orcamentosCombo?: Record<string, OrcamentoCombo>; // orçamento do combo no Clinilink (por comboId): as próximas etapas usam o mesmo
   perguntouTipo?: Record<string, number>; // consulta: já perguntou 'nova ou retorno?' (tamanho do texto do paciente naquele momento)
   tipoConsulta?: Record<string, 'nova' | 'retorno'>; // consulta: o paciente disse se é consulta nova ou retorno (por servico_id)
@@ -82,7 +83,8 @@ export function isoNascimento(v: unknown): string | undefined {
   const t = String(v ?? '').trim();
   let d: number, m: number, a: number;
   const iso = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-  const br = t.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2}|\d{4})$/);
+  // também com espaço ("02/12 /79") e SEM separador: "08071999", "080799" (caso real 24/11: "08071999" era "data inválida" e ela ia cadastrar de novo)
+  const br = t.match(/^(\d{1,2})\s*[\/.\- ]\s*(\d{1,2})\s*[\/.\- ]\s*(\d{2}|\d{4})$/) ?? t.match(/^(\d{2})(\d{2})(\d{4}|\d{2})$/);
   if (iso) { a = +iso[1]; m = +iso[2]; d = +iso[3]; }
   else if (br) { d = +br[1]; m = +br[2]; a = +br[3]; if (br[3].length === 2) a += a > (new Date().getFullYear() % 100) ? 1900 : 2000; }
   else return undefined;
@@ -436,6 +438,7 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
           if (!cpfValido(cpf)) return { erro: 'CPF inválido: peça para conferir os números' };
           const p = await f.paciente(cpf);
           if (p) { c.mem.paciente = { id: p.id, nome: p.nome, nascimento: p.nascimento }; return { encontrado: true, nome: p.nome, orientacao: 'Pergunte se é esse o paciente (mostre só o nome). Se for, use ESTE cadastro no agendar (não cadastre de novo).' }; }
+          c.mem.buscouSemAchar = true;
           return { encontrado: false, orientacao: 'Sem cadastro com esse CPF: siga com nome completo, nascimento e sexo para cadastrar.' };
         }
         if (args.nome_completo && args.nascimento && f.pacientePorDados) {
@@ -445,6 +448,7 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
           if (p) { c.mem.paciente = { id: p.id, nome: p.nome, nascimento: nascIso }; return { encontrado: true, nome: p.nome, orientacao: 'Confirme só o nome com o paciente. Se for ele, use ESTE cadastro no agendar (não cadastre de novo).' }; }
           // RETORNO: quem pede retorno JÁ é paciente; o cadastro pode estar com outro telefone (caso real 19/11, Josiane: nome e nascimento certos,
           // WhatsApp diferente do telefone do cadastro). Pede o CPF para localizar; nunca abre cadastro novo nesse caso.
+          c.mem.buscouSemAchar = true;
           if (pedindoRetorno(c)) return { encontrado: false, orientacao: SEM_CADASTRO_RETORNO };
           return { encontrado: false, orientacao: SEM_CADASTRO };
         }
@@ -503,6 +507,7 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
           if (!nasc) return { erro: 'data de nascimento inválida: peça para o paciente conferir (dia/mês/ano)' };
           // paciente pode já existir pelo telefone + nome + nascimento (procura ANTES de pensar em cadastro novo)
           const achado = f.pacientePorDados ? await f.pacientePorDados({ nome: nomeCompleto, nascimento: nasc, telefones: telefonesDoPaciente(c, args.telefone) }).catch(() => null) : null;
+          if (!achado) c.mem.buscouSemAchar = true;
           if (achado) c.mem.paciente = { id: achado.id, nome: achado.nome, nascimento: nasc };
           else {
             if (args.nome_confirmado !== true) return { erro: `paciente NOVO: antes de cadastrar, confirme o nome com o paciente ("Vou cadastrar como ${nomeCompleto}, está certo?"). Só chame agendar de novo com nome_confirmado=true depois que ele confirmar.` };
