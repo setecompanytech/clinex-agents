@@ -176,7 +176,7 @@ function fvAbaContatos(D, a, etapa, recarregar) {
     msg ? h('div', { class: 'fv-msg' }, [h('b', { text: 'Mensagem ' + msg.n + ': ' + msg.titulo }), h('pre', { text: texto }),
       faltantes(texto).length ? h('p', { class: 'mut peq', text: 'Complete antes de enviar: ' + faltantes(texto).join(', ') }) : null,
       h('div', { class: 'au-linha' }, [botao('Enviar por template', 'pri', function () { fvEnviarTemplate(D, s, recarregar); }, 'bolt'), botao('Copiar', '', function () { copiar(texto); }, 'copy'), s.contato ? h('a', { class: 'btn', href: linkWA(s.contato, texto), target: '_blank', rel: 'noopener noreferrer' }, [ico('message', 16), 'Abrir no WhatsApp']) : null])
-    ]) : h('p', { class: 'mut', text: 'Esta coluna não tem uma mensagem-modelo do guia.' })
+    ]) : h('div', { class: 'fv-msg' }, [h('p', { class: 'mut', text: 'Esta coluna não tem uma mensagem-modelo do guia, mas dá para mandar ao paciente um modelo aprovado.' }), h('div', { class: 'au-linha' }, [botao('Enviar por template', 'pri', function () { fvEnviarTemplate(D, s, recarregar); }, 'bolt')])])
   ]);
   var regis = h('section', null, [
     h('h4', { class: 'au-h', text: 'Registrar contato' }), tipos, obsC,

@@ -381,5 +381,24 @@ await teste('laboratório: o relógio simulado vem em horário de Belém', () =>
 
 void hojeDe;
 
+// envio manual por modelo: um paciente Agendado (coluna sem mensagem do guia) também pode receber; convertido não
+{
+  const { checarEnvio } = await import('../src/crm/whatsapp.js');
+  process.env.DISPARO_LIBERADO = 'true';
+  const dia = '2026-11-20', agora = em(dia, '10:00');
+  const ag = criarLead({ nome: 'Andrea', telefone: '91982797488', valor: 250, d0: '2026-11-10' }, em('2026-11-10', '09:00'));
+  aplicar(ag, { tipo: 'agendou', data: '2026-11-18', hora: '13:20' } as never, em('2026-11-17', '09:00'));
+  assert.equal(ag.status, 'agendado');
+  const est = { leads: [ag] } as never as Estado;
+  await teste('envio por modelo: paciente Agendado pode receber mensagem avulsa (sem passo do guia)', () => {
+    assert.equal(checarEnvio(est, ag, 'primeiro_contato', agora), null);
+  });
+  await teste('envio por modelo: convertido continua bloqueado', () => {
+    const conv = criarLead({ nome: 'Caio', telefone: '91982797489', valor: 100, d0: '2026-11-10' }, em('2026-11-10', '09:00'));
+    conv.status = 'convertido_ativo';
+    assert.equal(checarEnvio({ leads: [conv] } as never as Estado, conv, 'primeiro_contato', agora)?.codigo, 'estado');
+  });
+}
+
 console.log(`\n${ok} testes passaram${process.exitCode ? ', COM FALHAS' : ''}.`);
 servidor.close(); process.exit(process.exitCode ?? 0);

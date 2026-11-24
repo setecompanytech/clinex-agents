@@ -93,13 +93,14 @@ function decisao(l, px) {
       h('p', { class: 'texto', text: 'O agendamento era em ' + dBRfull(l.agendamento.data) + (l.agendamento.hora ? ' às ' + l.agendamento.hora : '') + '. O paciente compareceu e pagou?' }),
       h('div', { class: 'linha-b' }, [
         botao('Compareceu e pagou', 'pri ok', function () { agir(l.id, { tipo: 'compareceu' }).then(function () { aviso('Convertido ativo!', 'ok'); }); }, 'check'),
-        botao('No show (faltou)', 'perigo', function () { agir(l.id, { tipo: 'noshow' }).then(function () { aviso('No show: voltou para Em negociação. Envie a mensagem 10.', 'info'); }); }, 'alert')
+        botao('No show (faltou)', 'perigo', function () { agir(l.id, { tipo: 'noshow' }).then(function () { aviso('No show: voltou para Em negociação. Envie a mensagem 10.', 'info'); }); }, 'alert'),
+        botao('Enviar WhatsApp por modelo', '', function () { dialogoModeloWA(l, null); }, 'bolt')
       ])
     ];
   }
   return [
     h('p', { class: 'texto', text: 'D8 da negociação: sem resposta. O lead deve ser descartado, sempre com motivo. Se ainda houver conversa, continue com um contato avulso.' }),
-    h('div', { class: 'linha-b' }, [botao('Descartar com motivo', 'pri perigo', function () { dialogoDescartar(l, '', 'Sem resposta no D8 da negociação.'); }, 'x'), botao('Contato avulso', '', function () { dialogoContato(l, null, ''); }, 'message')])
+    h('div', { class: 'linha-b' }, [botao('Descartar com motivo', 'pri perigo', function () { dialogoDescartar(l, '', 'Sem resposta no D8 da negociação.'); }, 'x'), botao('Contato avulso', '', function () { dialogoContato(l, null, ''); }, 'message'), botao('Enviar WhatsApp por modelo', '', function () { dialogoModeloWA(l, null); }, 'bolt')])
   ];
 }
 
@@ -192,6 +193,7 @@ function blocoRespostas(l) {
   }
   if (ativo) b.push(botao('Descartar', 'perigo', function () { dialogoDescartar(l, '', ''); }, 'x'));
   if (s !== 'convertido_ativo' && s !== 'convertido_organico') b.push(botao('Já foi à recepção', '', function () { confirmar({ titulo: 'O paciente já foi à recepção?', texto: 'O lead vira Convertido orgânico e você não deve entrar em contato.', sim: 'Sim, já foi', aoSim: function () { agir(l.id, { tipo: 'recepcao' }).then(function () { aviso('Convertido orgânico.', 'ok'); }); } }); }, 'shield'));
+  if (s !== 'convertido_ativo' && s !== 'convertido_organico') b.push(botao('Enviar WhatsApp por modelo', '', function () { dialogoModeloWA(l, null); }, 'bolt')); /* vale em qualquer coluna, inclusive Agendado, que não tem mensagem do guia */
   b.push(botao('Mudar status', '', function () { dialogoMudarStatus(l); }, 'arrow'));
   var rapidos = botoesDaUltima(l);
   var corpo = [h('div', { class: 'linha-b quebra' }, b)];
