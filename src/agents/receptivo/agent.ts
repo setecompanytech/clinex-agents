@@ -151,7 +151,19 @@ export function tempoDeDigitacao(texto: string, primeiro: boolean): number {
 
 /** Parágrafos separados por linha em branco viram balões separados (até 4), como uma pessoa que manda um texto em partes. */
 export function dividirEmBaloes(texto: string): string[] {
-  const partes = texto.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+  const soltas = texto.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+  // uma LISTA de opções (• Guamá / • Telégrafo) nunca fica sozinha num balão: vai junto da frase de antes e da pergunta curta de depois
+  // (caso real 24/11: "temos duas unidades" / "• Guamá • Telégrafo" / "qual você prefere?" chegaram em 3 balões)
+  const ehLista = (p: string) => p.split('\n').every((l) => /^\s*(•|-|\*?\d{1,2}[.)])\s+\S/.test(l) && l.length <= 80);
+  const partes: string[] = [];
+  for (let i = 0; i < soltas.length; i++) {
+    const p = soltas[i];
+    if (ehLista(p) && partes.length) {
+      partes[partes.length - 1] += `\n\n${p}`;
+      const prox = soltas[i + 1];
+      if (prox && !prox.includes('\n') && prox.length <= 120 && /\?\s*$/.test(prox)) { partes[partes.length - 1] += `\n\n${prox}`; i++; }
+    } else partes.push(p);
+  }
   // a confirmação de um combo traz o modelo da clínica de CADA agendamento: cada um precisa do seu balão (para o paciente encaminhar ou guardar)
   const max = /\(COMBO [^)\n]+\)/.test(texto) ? 9 : 4;
   if (partes.length <= max) return partes.length ? partes : [texto];

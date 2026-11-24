@@ -385,7 +385,7 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
           if (tipo === 'retorno') return { erro: 'é RETORNO: o agendamento do retorno é com a EQUIPE (regra da clínica, 19/11). NÃO procure cadastro, NÃO confira consulta anterior, NÃO mostre horários nem valor. Avise numa frase que a equipe vai agendar o retorno e chame transferir_para_humano com o resumo (especialidade, profissional se ele disse, nome e nascimento se já informou).' };
         }
         if (sv.pacote) return { erro: 'este servico_id é o COMBO inteiro: os horários são por etapa. Chame etapa_do_combo (este servico_id, etapa 1 ou a próxima que falta) e use em ver_horarios o servico_id que ela devolver. NÃO diga ao paciente que não há vaga.' };
-        if (sv.unidades.length > 1 && !disseUnidade(c)) return { erro: 'o paciente ainda NÃO informou a unidade (regra da clínica: sem a unidade não se consulta agenda). Pergunte agora, com as opções em negrito: "Em qual unidade você deseja ser atendido(a): *Guamá* ou *Telégrafo*?". Não mostre horários nesta resposta.' };
+        if (sv.unidades.length > 1 && !disseUnidade(c)) return { erro: 'o paciente ainda NÃO informou a unidade (regra da clínica: sem a unidade não se consulta agenda). Pergunte agora no formato da regra UNIDADE PRIMEIRO (pergunta, linha em branco, • *Guamá* e • *Telégrafo* em linhas separadas). Não mostre horários nesta resposta.' };
         const un = acharUnidade(sv, args.unidade);
         if (!un) return { erro: 'unidade sem agenda para este serviço', unidades_com_agenda: sv.unidades.map((u) => u.nome) };
         // REGRA DA CLÍNICA (19/11/2026): feriado nacional a clínica não funciona (mesmo que a agenda do Clinilink tenha vaga aberta)
