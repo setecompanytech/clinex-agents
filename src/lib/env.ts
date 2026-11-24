@@ -27,9 +27,9 @@ export const env = {
   typingMsPerChar: Number(process.env.TYPING_MS_PER_CHAR ?? 40),
   testReply: process.env.TEST_REPLY ?? 'Olá! Aqui é o assistente virtual da Clinex. Recebi sua mensagem e a equipe já vai te responder. (teste)',
   // título que abre toda mensagem enviada (negrito no WhatsApp com asteriscos). Vazio = sem título.
-  agentTitle: process.env.AGENT_TITLE ?? '*Amanda S. (Clinex):*',
+  agentTitle: process.env.AGENT_TITLE ?? '*Amanda:*',
   // títulos usados antes: as mensagens antigas na conversa continuam sendo reconhecidas como da Amanda
-  agentTitlesAntigos: ['*Amanda (IA) - Nova*'],
+  agentTitlesAntigos: ['*Amanda S. (Clinex):*', '*Amanda (IA) - Nova*'], // 24/11/2026: o título virou só "Amanda"
   timezone: process.env.CLINIC_TZ ?? 'America/Sao_Paulo',
   // 'scripted' = roteiro fixo, sem IA (padrão) | 'claude' = modelo de linguagem (precisa de ANTHROPIC_API_KEY)
   mode: (process.env.AGENT_MODE ?? 'scripted') as 'scripted' | 'claude' | 'ia',
