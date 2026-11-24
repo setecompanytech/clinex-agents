@@ -24,9 +24,10 @@ function descreverMov(f: Funil, a: Atribuicao, i: number, por: string, dia: stri
 }
 
 /**
- * Cards que se moveram SOZINHOS por causa de uma mensagem da IA: o movimento foi feito pelo sistema ("CRM (lead)", o card acompanha o lead)
- * e o último movimento do lead antes dele foi um contato da IA. São da IA CRM, não de uma pessoa. Se foi a resposta do paciente, uma
- * ação da equipe ou a Conferência que moveu, não é da IA.
+ * Cards que se moveram SOZINHOS por causa da IA: o movimento foi feito pelo sistema ("CRM (lead)", o card acompanha o lead) e a causa foi
+ * (1) uma mensagem da IA (o contato dela foi o último movimento do lead) ou (2) o paciente respondendo a uma mensagem da IA (a resposta veio
+ * em até 72 h depois do contato dela, e foi o último movimento do lead). São da IA CRM, não de uma pessoa. Se a causa foi a equipe
+ * (contato ou ação manual) ou a Conferência, não é da IA.
  */
 const MOV_LEAD = new Set(['contato', 'resposta', 'etapa', 'agendamento', 'retorno', 'descarte', 'comparecimento', 'recepcao']);
 export const NOME_IA_CARD = 'IA CRM';
@@ -38,13 +39,21 @@ export function movimentosPelaIA(est: EstadoFunis, leads: Lead[], de: string, at
     const f = funis.get(a.funilId), l = porCard.get(a.cardId); if (!f || !l) continue;
     if (unidade && (a.ultimoSnapshot.unidade ?? '').trim() !== unidade) continue;
     const evs = l.eventos.filter((e) => MOV_LEAD.has(e.tipo)).sort((x, y) => x.quando.localeCompare(y.quando));
+    const respQ = new Set(evs.filter((e) => e.tipo === 'resposta').map((e) => e.quando));
     for (let i = 1; i < a.historico.length; i++) {
       const m = a.historico[i];
       if ((m.por ?? '').trim() !== 'CRM (lead)') continue;
       const dia = diaBRT(m.em); if (dia < de || dia > ate) continue;
       const t = Date.parse(m.em);
-      let antes; for (const e of evs) { if (Date.parse(e.quando) <= t) antes = e; else break; }
-      if (!antes || antes.tipo !== 'contato' || antes.auto !== true) continue;
+      // o evento "etapa" que a resposta grava junto (mesmo instante) é só consequência dela: a causa é a resposta
+      let antes; for (const e of evs) { if (Date.parse(e.quando) > t) break; if (!(e.tipo === 'etapa' && respQ.has(e.quando))) antes = e; }
+      if (!antes) continue;
+      let daIA = antes.tipo === 'contato' && antes.auto === true;
+      if (antes.tipo === 'resposta') {
+        const tr = Date.parse(antes.quando); let c0; for (const e of evs) { if (e.tipo === 'contato' && Date.parse(e.quando) < tr) c0 = e; }
+        daIA = !!c0 && c0.auto === true && tr - Date.parse(c0.quando) <= 72 * 3_600_000;
+      }
+      if (!daIA) continue;
       out.push(descreverMov(f, a, i, NOME_IA_CARD, dia, est));
     }
   }
