@@ -177,7 +177,7 @@ export async function atenderComIA(p: {
   let resposta = await pensar(system, conversa, c, leve);
   // conferência: médico ou valor que não veio do Clinilink -> refaz UMA vez, obrigando a consultar; se insistir, não envia o inventado
   const doPaciente = conversa.filter((m) => m.role === 'user').map((m) => m.content).join('\n');
-  const fontesDe = () => [...(c.saida.dados ?? []), JSON.stringify(listaUnidades), JSON.stringify(proximosFeriados(hoje, 120)), env.clinicHorario, env.clinicName, 'Clinex', JSON.stringify({ servicos: mem.servicos, slots: mem.slots, orcamento: mem.orcamento, combos: mem.combosOferecidos, paciente: mem.paciente })];
+  const fontesDe = () => [...(c.saida.dados ?? []), JSON.stringify(listaUnidades), JSON.stringify(proximosFeriados(hoje, 120)), env.clinicHorario, env.clinicHorarioSetores, env.clinicName, 'Clinex', JSON.stringify({ servicos: mem.servicos, slots: mem.slots, orcamento: mem.orcamento, combos: mem.combosOferecidos, paciente: mem.paciente })];
   const agendouSemAgendar = (t: string) => !c.saida.confirmacoes.length && !mem.agendados.length && /\b(ficou|esta|está|foi|ja esta|já está) (agendad|marcad|confirmad|reservad)\w*|\bagendamento (feito|confirmado|realizado)\b/i.test(t);
   // "encontrei o cadastro" sem ter procurado (caso real: disse que achou a Joana sem chamar buscar_paciente)
   const cadastroInventado = (t: string) => /(?<!n[aã]o )\b(encontrei|achei|localizei)\b.{0,20}\bcadastro\b/i.test(t) && !mem.paciente?.id && !(c.saida.dados ?? []).some((d) => d.includes('"encontrado":true'));
