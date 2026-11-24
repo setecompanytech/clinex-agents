@@ -248,7 +248,7 @@ I(['Recuperação de no-show', 'No-show recuperado', 'No-show recuperados', 'No-
   'O caminho de quem faltou: da falta até voltar a comparecer.',
   'Mostra quantos faltantes entraram, quantos foram trabalhados e quantos voltaram. Valor recuperado é o dos cards levados para Recuperado.',
   INFO_ORIGEM_CARDS + ' Faltas vêm do Clinilink (agendamentos com falta). Recuperado = a equipe levou o card para a coluna Recuperado.',
-  'Quem a IA convida e recupera também aparece aqui. O que a IA fez tem a aba IA Performance.');
+  'A IA CRM aparece em vermelho, com os convites de reagendamento que enviou e os faltantes que voltaram depois deles. O detalhe da IA está na aba IA Performance.');
 
 /* ---------------------------------------------------------------- Time, pessoa, Meu Report */
 I(['Atendimento ao longo do tempo', 'Atividade ao longo do período', 'Respostas e agendamentos', 'Atividade dos últimos 14 dias'],

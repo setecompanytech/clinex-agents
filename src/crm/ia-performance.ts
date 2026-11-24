@@ -260,6 +260,7 @@ export function analisarIAPerformance(leads: Lead[], pipelines: EstadoFunis | un
  * creditados a quem fez o último contato antes do resultado (crédito exclusivo, ninguém conta duas vezes). Cada autor traz o que
  * decide se um contato é dele. "por100" normaliza pelo volume: a IA envia muito mais mensagens que uma pessoa.
  */
+const primeiros = (d: Dados, J: Janela) => { const prim = new Map<string, { lead: Lead; dia: string }>(); for (const c of d.contatos) { const x = prim.get(c.lead.id); if (!x || c.dia < x.dia) prim.set(c.lead.id, { lead: c.lead, dia: c.dia }); } return [...prim.values()].filter((x) => x.lead.d0 >= J.de && x.lead.d0 <= J.ate).map((x) => Math.max(0, diffDias(x.lead.d0, x.dia))); };
 export function desempenhoPorAutor(leads: Lead[], pipelines: EstadoFunis | undefined, J: Janela, autores: { nome: string; ia?: boolean; autor: (e: EventoLead, l: Lead) => boolean }[]) {
   const cartoes = new Map<string, Atribuicao>(pipelines ? pipelines.atribuicoes.map((a) => [a.cardId, a] as const) : []);
   return autores.map((a) => {
@@ -269,6 +270,9 @@ export function desempenhoPorAutor(leads: Lead[], pipelines: EstadoFunis | undef
     return {
       nome: a.nome, ia: !!a.ia, enviadas: t.enviadas, leads: t.leads, respostas: t.respostas, taxaResposta: t.taxaResposta, agendamentos: t.agendamentos, conversoes: t.conversoes,
       receita: t.receita, ticket: t.recuperados ? Math.round(t.receita / t.recuperados) : null, tempoResposta: t.tempoResposta,
+      // convites de no-show (Msg 10) enviados e quantos voltaram; dias entre o lead entrar e a primeira mensagem do autor (leads que entraram no período)
+      noshow: { convites: d.contatos.filter((c) => c.passo === 'noshow' && c.dia >= J.de && c.dia <= J.ate).length, recuperados: t.nNoshow, valor: t.receitaNoshow },
+      primeiroContato: mediana(primeiros(d, J)),
       por100: { agendamentos: p(t.agendamentos), conversoes: p(t.conversoes), receita: t.enviadas > 0 ? Math.round((t.receita / t.enviadas) * 100) : null },
     };
   });
