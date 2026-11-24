@@ -220,8 +220,9 @@ async function processar(ev: MessageReceivedEvent) {
   if (ehReacao(ev)) return skip('reação do paciente (emoji numa mensagem): não é mensagem, a Amanda não responde');
   if (ev.isAssigned) return skip(`atendimento já tem atendente humano ${ev.attendanceInfo}`);
   // REGRA DA CLÍNICA (23/11/2026): o paciente tocou em "CONFIRMAR" na mensagem automática de confirmação da clínica → o atendimento é
-  // FINALIZADO (antes ficava "aguardando" na fila). "Reagendar"/"Cancelar" seguem como antes (a equipe resolve).
-  if (/^\s*confirm/i.test(ev.text ?? '') || /interactive|button/i.test(ev.type ?? '')) {
+  // FINALIZADO (antes ficava "aguardando" na fila).
+  // REGRA DA CLÍNICA (24/11/2026): "Reagendar"/"Cancelar" → vai para o atendimento HUMANO com nota interna do que a equipe deve fazer.
+  if (/^\s*(confirm|reagend|remarc|cancel)/i.test(ev.text ?? '') || /interactive|button/i.test(ev.type ?? '')) {
     await sleep(Math.min(env.debounceMs, 8000)); // se ele escrever mais alguma coisa logo depois (uma dúvida), não finaliza
     const { messages: h } = await getHistory(ev.attendanceId, 15).catch(() => ({ messages: [] as InovstarMessage[] }));
     const msg = h.find((m) => m._id === ev.messageId);
@@ -233,6 +234,24 @@ async function processar(ev: MessageReceivedEvent) {
     if (respostaAoModelo && confirmou && lastIn?._id === ev.messageId && !equipeDepois) {
       try { await closeAttendance(ev.attendanceId); evt('ignorado', { motivo: 'paciente confirmou pela mensagem automática da clínica: atendimento finalizado' }); }
       catch (e) { evt('erro', { mensagem: `não consegui finalizar o atendimento da confirmação: ${(e as Error).message.slice(0, 160)}` }); }
+      return;
+    }
+    const titulo = msg?.interactiveReply?.title ?? msg?.text ?? ev.text ?? '';
+    const acao = /^\s*(reagend|remarc)/i.test(titulo) ? 'reagendar' : /^\s*cancel/i.test(titulo) ? 'cancelar' : undefined;
+    if (respostaAoModelo && acao && !equipeDepois) {
+      const iMsg = h.findIndex((m) => m._id === ev.messageId);
+      const modeloEnviado = h.slice(0, iMsg < 0 ? h.length : iMsg).reverse().find((m) => m.direction === 'out' && (m.type === 'template' || /confirm/i.test(String(m.text ?? ''))));
+      const detalhe = modeloEnviado?.text ? `\n\nMensagem de confirmação enviada ao paciente:\n${String(modeloEnviado.text).slice(0, 700)}` : '';
+      const nota = acao === 'reagendar'
+        ? `PACIENTE PEDIU PARA REAGENDAR (tocou em "Reagendar" na mensagem automática de confirmação).\nO que fazer: falar com o paciente, combinar o novo dia e horário, remarcar o agendamento no Clinilink e liberar o horário antigo.${detalhe}`
+        : `PACIENTE PEDIU PARA CANCELAR (tocou em "Cancelar" na mensagem automática de confirmação).\nO que fazer: cancelar o agendamento no Clinilink (liberar a vaga) e perguntar ao paciente se deseja remarcar para outro dia.${detalhe}`;
+      try { await sendNote({ channelId: ev.channelId, to: ev.to, attendanceId: ev.attendanceId, text: nota, clientMessageId: `agente-nota-${ev.messageId}-${acao}` }); }
+      catch (e) { evt('erro', { mensagem: `não consegui gravar a nota de ${acao}: ${(e as Error).message.slice(0, 160)}` }); }
+      if (env.humanSectorId && ev.sectorId !== env.humanSectorId) {
+        try { await transferToSector(ev.attendanceId, env.humanSectorId, acao === 'reagendar' ? 'Paciente pediu para REAGENDAR pela confirmação automática: remarcar no Clinilink (ver nota interna)' : 'Paciente pediu para CANCELAR pela confirmação automática: cancelar no Clinilink (ver nota interna)'); }
+        catch (e) { evt('erro', { mensagem: `não consegui passar o pedido de ${acao} para a equipe: ${(e as Error).message.slice(0, 160)}` }); }
+      }
+      evt('ignorado', { motivo: `paciente tocou em "${acao === 'reagendar' ? 'Reagendar' : 'Cancelar'}" na confirmação automática: nota interna + atendimento humano` });
       return;
     }
   }
