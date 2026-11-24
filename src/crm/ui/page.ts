@@ -601,6 +601,9 @@ ${parte_abas}
 }
 /* ===== IA Manager (mg-) ===== */
 .mg{display:flex;flex-direction:column;gap:26px;padding-bottom:90px}
+/* "!" de cada gráfico: explica a lógica por trás dele */
+.inf-b{display:inline-grid;place-items:center;vertical-align:middle;width:17px;height:17px;margin-left:8px;padding:0;border-radius:50%;border:1.5px solid color-mix(in srgb,var(--mut) 70%,transparent);background:transparent;color:var(--mut);font:700 10.5px/1 "Segoe UI",system-ui;cursor:pointer;opacity:.7;transition:opacity .15s,color .15s,border-color .15s,transform .15s}.inf-b:hover,.inf-b:focus-visible{opacity:1;color:var(--g1);border-color:var(--g1);transform:scale(1.08)}.inf-b:focus-visible{outline:2px solid var(--g1);outline-offset:2px}
+.inf-m .inf-s{margin:0 0 16px}.inf-m .inf-s:last-child{margin-bottom:0}.inf-m .inf-s h4{font:700 13px/1.3 "Segoe UI Variable Display","Segoe UI";color:var(--g1);letter-spacing:.01em;margin-bottom:4px;text-transform:none}.inf-m .inf-s p{font-size:14px;line-height:1.55;color:var(--ink,inherit)}
 /* IA Performance */
 .ip{display:flex;flex-direction:column;gap:18px}.ip>.g12{margin:0}
 .ip-ins{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}

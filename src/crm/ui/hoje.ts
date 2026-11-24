@@ -38,7 +38,7 @@ function kpi2(o) {
 /* cartão de gráfico: título, uma linha de contexto e (opcional) um número-resumo à direita */
 function blocoCartao(titulo, sub, corpo, span, destaque, id) {
   return h('section', { class: 'cartao sp' + span, id: id || null }, [
-    h('header', { class: 'card-h' }, [h('div', null, [h('h3', { text: titulo }), sub ? h('p', { text: sub }) : null]), destaque || null]),
+    h('header', { class: 'card-h' }, [h('div', null, [h('h3', null, [titulo, botaoInfo(titulo)]), sub ? h('p', { text: sub }) : null]), destaque || null]),
     h('div', { class: 'card-b' }, corpo)
   ]);
 }

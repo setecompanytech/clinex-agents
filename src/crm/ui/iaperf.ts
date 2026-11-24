@@ -136,7 +136,7 @@ function ipQuando(D) {
 
 function ipSegmentos(D) {
   var r = [];
-  r.push(blocoCartao('Por unidade', 'Envios da IA e taxa de resposta em cada unidade.',
+  r.push(blocoCartao('Envios da IA por unidade', 'Envios da IA e taxa de resposta em cada unidade.',
     barras(D.porUnidade.map(function (u) { return { rotulo: u.unidade, valor: u.enviadas, texto: nf0.format(u.enviadas), extra: ipPct(u.taxaResposta) + ' resp. · ' + u.agendamentos + ' agend.', cor: COR.contatos, dica: { titulo: u.unidade, linhas: [{ valor: nf0.format(u.enviadas), rotulo: 'envios' }, { valor: ipPct(u.taxaResposta), rotulo: 'de resposta' }, { valor: String(u.agendamentos), rotulo: 'agendamentos' }, { valor: brl(u.receita), rotulo: 'em receita' }] } }; }), { vazio: 'Sem envios no período.' }), 6));
   r.push(blocoCartao('Por valor do orçamento', 'A IA funciona melhor em orçamentos maiores ou menores?',
     barras(D.porValor.map(function (x) { return { rotulo: x.rotulo, valor: x.taxaResposta || 0, texto: ipPct(x.taxaResposta), extra: x.enviadas + ' envios · ' + x.agendamentos + ' agend.', cor: COR.respostas }; }), { max: 100, vazio: 'Sem envios no período.' }), 6));
@@ -152,7 +152,7 @@ function ipNoShow(D) {
     kpi2({ rotulo: 'Compareceram', valor: nf0.format(n.compareceram), sub: 'e pagaram', cor: COR.convertidos }),
     kpi2({ rotulo: 'Receita recuperada', valor: brlCompacto(n.valorRecuperado), sub: n.recuperadosNoPipeline + ' ' + plural(n.recuperadosNoPipeline, 'paciente recuperado', 'pacientes recuperados'), cor: COR.convertidos })
   ]);
-  return blocoCartao('Recuperação de no-show', 'A IA convida quem faltou a reagendar, no dia seguinte à falta.', kp, 12);
+  return blocoCartao('Recuperação de no-show pela IA', 'A IA convida quem faltou a reagendar, no dia seguinte à falta.', kp, 12);
 }
 
 function ipEsperando(D) {
