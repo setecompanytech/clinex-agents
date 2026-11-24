@@ -7,6 +7,7 @@ import type { Rodada } from './disparo-auto-tipos.js';
 import { GATILHOS_AUTO, NOMES_DIA, configAuto, enviadosPelaIAHoje, fila, modoDisparoAuto, rodarDisparoAuto } from './ia-disparo.js';
 import { registrarResposta, ROTULO_INTENCAO, type RespostaRecebida } from './rastreio.js';
 import { alinharCardsELeads } from './sincroniaCardLead.js';
+import { leadsDosNoShow } from './leadsNoShow.js';
 import { chaveFone, ehEnvio, statusDisparo } from './whatsapp.js';
 
 /** Liga o motor da IA (puro) ao CRM de verdade: banco, trava entre instâncias e gravação a cada envio. */
@@ -23,6 +24,8 @@ export async function rodarAgora(): Promise<{ rodada?: Rodada; pulou?: string }>
   try {
     if (estadoAtivo() && !(await travaCurta('crm:disparo-auto:trava', 4 * 60_000))) return { pulou: 'Já há uma rodada em andamento.' };
     await atualizarLeadsDoBanco(); // parte do que o banco tem agora: outra instância pode ter enviado ou pausado
+    // quem faltou ontem ou hoje (cards do No-show) vira lead, para a IA convidar a reagendar no dia certo
+    if (leadsDosNoShow(estado, new Date()).criados) { salvar(); await gravarAntesDeResponder(); }
     const rodada = await rodarDisparoAuto(estado, new Date(), { gravar: async () => { salvar(); await gravarAntesDeResponder(); } });
     // o que a IA fez (contato enviado) já leva o card para a coluna certa, sem esperar alguém abrir a tela
     if (rodada.enviados > 0) { const s = alinharCardsELeads(estado, new Date()); if (s.leads + s.cards) { salvar(); await gravarAntesDeResponder(); } }

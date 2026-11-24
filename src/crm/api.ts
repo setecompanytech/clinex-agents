@@ -7,6 +7,7 @@ import { alinharCardsELeads, atribuirResponsaveis } from './sincroniaCardLead.js
 import { aplicar, automatizar, criarLead, hojeDe, RegraError, resumo, soDigitos, tarefasDoDia, vistaDoLead, type Acao, type Lead, type NovoLead } from './motor.js';
 import { gerarExemplos } from './exemplos.js';
 import { leadsDosOrcamentos } from './leadsOrcamento.js';
+import { leadsDosNoShow } from './leadsNoShow.js';
 import { DisparoError, enviarModelo, MODELOS as MODELOS_WA, modelosParaLead, statusDisparo } from './whatsapp.js';
 import { analisarHoje } from './analise.js';
 import { analisarTempo } from './tempo.js';
@@ -67,13 +68,13 @@ router.get('/banco/diagnostico', exigirAdmin, (_req, res, next) => {
 
 router.get('/estado', (_req, res) => {
   const agora = new Date();
-  if (leadsDosOrcamentos(estado, agora).criados) salvar(); // orçamentos do Clinilink ainda sem lead (inclusive os que já estavam nos funis)
+  if (leadsDosOrcamentos(estado, agora).criados + leadsDosNoShow(estado, agora).criados) salvar(); // orçamentos e faltas do Clinilink ainda sem lead (inclusive os que já estavam nos funis)
   automatizarTodos(agora);
   const leads = estado.leads.map((l) => resumoDoLead(l, agora));
   const tarefas = tarefasDoDia(estado.leads, agora);
   const vistas = new Map(leads.map((l) => [l.id, l.v]));
   const contagens: Record<string, number> = {};
-  for (const l of leads) contagens[l.v.item] = (contagens[l.v.item] ?? 0) + 1;
+  for (const l of leads) if (l.fonte !== 'noshow') contagens[l.v.item] = (contagens[l.v.item] ?? 0) + 1; // lead de no-show não entra nas contagens do Fluxo de Orçamentos
   res.json({
     agora: agora.toISOString(), hoje: hojeDe(agora), atendentes: responsaveis(estado.atendentes), armazenamento: infoArmazenamento(),
     leads, tarefas, contagens, resumo: resumo(estado.leads, agora), analise: analisarHoje(estado.leads, agora, tarefas, vistas),

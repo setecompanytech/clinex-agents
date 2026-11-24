@@ -11,6 +11,8 @@ import { estado as estadoCrm } from '../src/crm/banco.js';
 import { aplicar, criarLead, vistaDoLead, type Acao } from '../src/crm/motor.js';
 import { alinharCardsELeads } from '../src/crm/sincroniaCardLead.js';
 import { alinharCardsAoFluxo, conferir, itemDaEtapa } from '../src/crm/conferencia.js';
+import { leadsDosNoShow } from '../src/crm/leadsNoShow.js';
+import { avaliarLead } from '../src/crm/ia-disparo.js';
 
 let ok = 0;
 const teste = (nome: string, fn: () => void) => { try { fn(); ok++; console.log(`  ok  ${nome}`); } catch (e) { console.error(`FALHOU  ${nome}\n        ${(e as Error).message}`); process.exitCode = 1; } };
@@ -297,5 +299,24 @@ teste('Fluxo e Pipelines sempre iguais: o último a mudar vale, sozinho, sem bot
   for (const d of ['2026-11-03', '2026-11-05', '2026-11-06', '2026-11-09', '2026-11-12']) { const t = em(d, '10:00'); alinharCardsELeads(estado, t); igual(t, 'dia ' + d); }
   // 5) "Mudar status" para Em aberto: o card volta para a primeira coluna
   aplicar(l, { tipo: 'status', para: 'aberto' } as Acao, em('2026-11-12', '11:00')); alinharCardsELeads(estado, em('2026-11-12', '11:01')); assert.equal(col(), 'EM ABERTO'); igual(em('2026-11-12', '11:01'), 'depois de Mudar status');
+});
+teste('No-show: quem faltou ontem vira lead para a IA convidar a reagendar, sem entrar nas contas do Fluxo de Orçamentos', () => {
+  const est = novoEstado(); const f = funilDestino(est, 'agendamento', AGORA); const T = em('2026-11-02', '10:00');
+  const tel = { contato: '91981628017' };
+  ingerir(est, f, [snap('n1', '2026-11-01T14:00:00-03:00', 300, tel), snap('n2', '2026-10-28T14:00:00-03:00', 300, tel), snap('n3', '2026-11-01T14:00:00-03:00', 300), snap('n4', '2026-11-01T15:00:00-03:00', 300, tel)], AGORA);
+  moverCard(est.atribuicoes.find((a) => a.cardId === 'n4')!, f, etapa(est, 'No-show', 'Retomada 1'), T, { por: 'Vanuza', manual: true });
+  const estado = { pipelines: est, leads: [] as never[] } as never as { pipelines: EstadoFunis; leads: ReturnType<typeof criarLead>[] };
+  const r = leadsDosNoShow(estado as never, T);
+  assert.equal(r.criados, 1, 'só n1: n2 faltou há dias, n3 sem telefone, n4 já trabalhado pela equipe'); assert.equal(r.ignorados, 1);
+  assert.equal(leadsDosNoShow(estado as never, T).criados, 0, 'idempotente');
+  const l = estado.leads[0]; assert.equal(l.cardId, 'n1'); assert.equal(l.fonte, 'noshow'); assert.equal(l.status, 'negociacao'); assert.ok(l.noShow);
+  const px = vistaDoLead(l, T).proximo!; assert.equal(px.passo.id, 'noshow'); assert.equal(px.situacao, 'hoje', 'a mensagem vale no dia seguinte à falta');
+  // não mexe nas contas do Fluxo × Pipelines de Orçamentos nem move o card do No-show
+  const cf = conferir(estado as never, T); assert.equal(cf.totais.fluxo, 0); assert.deepEqual(cf.semPar, []);
+  alinharCardsELeads(estado as never, T); assert.equal(est.atribuicoes.find((a) => a.cardId === 'n1')!.stageId, f.stages[0].id);
+  // a IA enxerga o lead e está pronta para enviar a Msg 10
+  const av = avaliarLead(estado as never, l, T, { ignorarLista: true }); assert.ok(av, 'tem passo automático'); assert.equal(av!.tipo, 'pronto', JSON.stringify(av)); assert.equal((av as { msg: number }).msg, 10);
+  // no dia anterior à falta+1 ele só espera; depois do dia certo passa a atrasado e a IA não age
+  assert.equal(vistaDoLead(l, em('2026-11-01', '10:00')).proximo!.situacao, 'futura'); assert.equal(vistaDoLead(l, em('2026-11-03', '10:00')).proximo!.situacao, 'atrasada');
 });
 console.log(`${ok} testes passaram.`);

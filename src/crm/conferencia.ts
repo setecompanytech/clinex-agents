@@ -45,7 +45,7 @@ export function conferir(estado: Estado, agora: Date) {
   if (!f) return { funil: null as string | null, linhas: [] as LinhaConferencia[], divergencias: [] as Divergencia[], semPar: [] as SemPar[], totais: { fluxo: 0, pipeline: 0, divergentes: 0, alinhaveis: 0 } };
   const cards = visiveis(f, estado.pipelines.atribuicoes).filter((a) => a.funilId === f.id);
   const porCard = new Map(cards.map((a) => [a.cardId, a]));
-  const leads = estado.leads.filter((l) => !l.demo);
+  const leads = estado.leads.filter((l) => !l.demo && l.fonte !== 'noshow'); // lead de no-show tem card do funil No-show, não deste
   const leadDoCard = new Map<string, Lead>(); for (const l of leads) if (l.cardId && porCard.has(l.cardId)) leadDoCard.set(l.cardId, l);
   const linhas = new Map(ETAPAS_COMPARADAS.map(([item, rotulo]) => [item, { item, rotulo, fluxo: 0, pipeline: 0, semCard: 0, semLead: 0, cardEmOutra: 0, leadEmOutro: 0 } as LinhaConferencia]));
   const divergencias: Divergencia[] = [];

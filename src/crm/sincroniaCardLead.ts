@@ -67,6 +67,7 @@ export function alinharCardsELeads(estado: Estado, agora: Date): { leads: number
   let leads = 0, cards = 0;
   const atribs = new Map(estado.pipelines.atribuicoes.map((a) => [a.cardId, a]));
   for (const l of estado.leads) {
+    if (l.fonte === 'noshow') continue; // o card deles é do funil No-show: ele não acompanha o Fluxo
     const a = l.cardId ? atribs.get(l.cardId) : undefined;
     if (!a || a.caseStatus === 'removido') continue;
     const f = estado.pipelines.funis.find((x) => x.id === a.funilId);

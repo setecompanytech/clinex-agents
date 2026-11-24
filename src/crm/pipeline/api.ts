@@ -5,6 +5,7 @@ import { clinilinkConfigurado } from '../clinilink.js';
 import { aplicarAutomacoes, atrasado, diaBRT, diasNaEtapa, diffDia, estrelas, funisPadrao, moverCard, recortar, somaDia, validarAutomacoes, validarConfig, valorExibido, visiveis, type FiltroPor, type Recorte } from './regras.js';
 import { sincronizar } from './ingestao.js';
 import { leadsDosOrcamentos } from '../leadsOrcamento.js';
+import { leadsDosNoShow } from '../leadsNoShow.js';
 import { alinharCardsELeads, atribuirResponsaveis } from '../sincroniaCardLead.js';
 import type { Lead } from '../motor.js';
 import { ehEnvio } from '../whatsapp.js';
@@ -29,7 +30,7 @@ let sincronizando = false;
 export async function rodarSincronizacao(pedido?: unknown) {
   if (sincronizando) throw new FunilError('ocupado', 'Já existe uma sincronização em andamento.');
   sincronizando = true;
-  try { const agora = new Date(); const r = await sincronizar(P(), agora, pedido); leadsDosOrcamentos(estado, agora); alinharCardsELeads(estado, agora); salvar(); return r; } finally { sincronizando = false; }
+  try { const agora = new Date(); const r = await sincronizar(P(), agora, pedido); leadsDosOrcamentos(estado, agora); leadsDosNoShow(estado, agora); alinharCardsELeads(estado, agora); salvar(); return r; } finally { sincronizando = false; }
 }
 export function rodarAutomacoesDosFunis(agora: Date) {
   let n = 0;
