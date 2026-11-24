@@ -35,7 +35,7 @@ function desenhar(manter) {
   var y = window.scrollY;
   limpar(raiz);
   raiz.classList.toggle('larga', S.aba === 'pipelines'); /* o quadro dos Pipelines usa a largura toda da tela (as demais telas ficam centralizadas) */
-  var tela = telaAtual(), barra = S.aba === 'iamanager' && MG.aba !== 'respostas' ? null : barraPeriodo(), cab = tela && tela.querySelector ? tela.querySelector(':scope > .tela-h') : null;
+  var tela = telaAtual(), barra = S.aba === 'iamanager' && MG.aba === 'controle' ? null : barraPeriodo(), cab = tela && tela.querySelector ? tela.querySelector(':scope > .tela-h') : null;
   if (!barra) { kids(raiz, [avisoArmazenamento(), tela]); }
   else if (cab) { /* a barra de período vai para o lado direito do cabeçalho da página, em vez de ocupar uma linha só para ela */
     var dir = h('div', { class: 'tela-dir' }), ac = cab.querySelector(':scope > .tela-ac');

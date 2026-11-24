@@ -8,6 +8,7 @@ import { aplicar, automatizar, criarLead, hojeDe, RegraError, resumo, soDigitos,
 import { gerarExemplos } from './exemplos.js';
 import { leadsDosOrcamentos } from './leadsOrcamento.js';
 import { leadsDosNoShow } from './leadsNoShow.js';
+import { analisarIAPerformance } from './ia-performance.js';
 import { DisparoError, enviarModelo, MODELOS as MODELOS_WA, modelosParaLead, statusDisparo } from './whatsapp.js';
 import { analisarHoje } from './analise.js';
 import { analisarTempo } from './tempo.js';
@@ -388,6 +389,8 @@ router.post('/leads/:id/whatsapp', (req, res, next) => {
 });
 
 /** IA de disparo: o que ela está fazendo, a fila de agora e o que os pacientes responderam. */
+/** IA Performance: resultados da IA de disparo (conversão, agendamentos, recuperações, por etapa, no tempo). Leitura apenas. */
+router.get('/disparo-auto/performance', (req, res) => { const agora = new Date(); res.json(analisarIAPerformance(estado.leads, estado.pipelines, agora, janelaDaQuery(req.query, agora))); });
 router.get('/disparo-auto', (req, res) => { const agora = new Date(); res.json(dadosDisparoAuto(agora, janelaDaQuery(req.query, agora))); });
 router.put('/disparo-auto', (req, res) => {
   const modo = String((req.body ?? {}).modo ?? '');

@@ -601,6 +601,17 @@ ${parte_abas}
 }
 /* ===== IA Manager (mg-) ===== */
 .mg{display:flex;flex-direction:column;gap:26px;padding-bottom:90px}
+/* IA Performance */
+.ip{display:flex;flex-direction:column;gap:18px}.ip>.g12{margin:0}
+.ip-ins{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+.ip-in{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border-radius:14px;border:1px solid var(--line);background:var(--card)}.ip-in i{flex:none;width:9px;height:9px;border-radius:50%;margin-top:6px;background:var(--mut)}
+.ip-in b{display:block;font-size:14px;line-height:1.3}.ip-in span{display:block;color:var(--mut);font-size:12.5px;line-height:1.45;margin-top:2px}
+.ip-bom i{background:var(--ok,#19d38c)}.ip-atencao{border-color:color-mix(in srgb,var(--warn,#ffb020) 45%,var(--line))}.ip-atencao i{background:var(--warn,#ffb020)}
+.ip-notas{display:flex;gap:18px;flex-wrap:wrap;margin-top:10px;color:var(--mut);font-size:12.5px}.ip-notas b{color:var(--ink,inherit);margin-right:3px}.ip-alerta b{color:var(--bad)}
+.ip-esp{display:flex;flex-direction:column;gap:8px}.ip-esp-i{display:flex;align-items:center;gap:14px;width:100%;text-align:left;padding:10px 14px;border-radius:12px;border:1px solid var(--line);background:var(--card);cursor:pointer;color:inherit;font:inherit}
+.ip-esp-i:hover{border-color:var(--g1)}.ip-esp-n{flex:1;min-width:0}.ip-esp-n b{display:block}.ip-esp-n small{display:block;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ip-esp-v{font-weight:700;white-space:nowrap}
+.ip-regras{max-width:880px;line-height:1.55}
+
 .mg-resp{display:flex;flex-direction:column;gap:22px}.mg-resp>.g12{margin:0}.mg-pend .mg-orbe,.mg-pend .mg-modo{pointer-events:none}.mg-pend .mg-anel{animation-duration:2.2s}.mg-pend .mg-nucleo b:after{content:"…"}.mg-sec{opacity:1}.mg-anim .mg-sec{animation:mgRise .6s cubic-bezier(.2,.8,.2,1) both;animation-delay:calc(var(--i,0)*70ms)}
 @keyframes mgRise{from{opacity:0;transform:translateY(18px) scale(.985)}to{opacity:1;transform:none}}
 .mg-hero{position:relative;overflow:hidden;display:grid;grid-template-columns:minmax(260px,330px) 1fr;gap:34px;align-items:center;padding:34px 38px;border-radius:26px;border:1px solid var(--line);background:radial-gradient(900px 380px at 12% 0%,var(--mgh,rgba(76,201,240,.16)),transparent 60%),linear-gradient(160deg,var(--card2),var(--card));box-shadow:var(--shadow);--mgc:#ff5d6c;--mgh:rgba(255,93,108,.16)}
