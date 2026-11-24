@@ -50,24 +50,34 @@ var TM_COLS = [
   { k: 'carteiraN', r: 'Carteira', f: function (e) { return e.carteira.n + ' · ' + brlCompacto(e.carteira.valor); }, t: 'Leads ativos agora e o valor deles', v: function (e) { return e.carteira.n; } },
   { k: 'atrasadas', r: 'Atrasados', f: function (e) { return e.carteira.atrasadas ? h('span', { class: 'pill pl-atrasada', text: String(e.carteira.atrasadas) }) : '0'; }, t: 'Passos da carteira com a data vencida', v: function (e) { return e.carteira.atrasadas; }, menor: true }
 ];
+/* a IA de disparo é mais uma linha do time, em vermelho; o que não se aplica a ela (carteira, movimentos de cards, ciclo) fica em traço */
+var TM_COR_IA = 'var(--acc)';
+var TM_SEM_IA = { primeiroContato: 1, ciclo: 1, pipeMov: 1, recup: 1, carteiraN: 1, atrasadas: 1 };
+function tmComIA(D) {
+  var x = D.ia; if (!x || !x.contatos) return D.equipe;
+  var ia = { nome: x.nome, ia: true, recebidos: x.recebidos, contatos: x.contatos, respostas: x.respostas, taxaResposta: x.taxaResposta, agendamentos: x.agendamentos, convertidos: x.convertidos, conversao: x.conversao, receita: x.receita, ticket: x.ticket, primeiroContato: null, ciclo: null,
+    anterior: { receita: 0, convertidos: 0, contatos: 0, conversao: null, recebidos: 0 }, pipeline: { movimentos: 0, noshowTrabalhados: 0, recuperados: 0, valorRecuperado: 0 }, carteira: { n: 0, valor: 0, atrasadas: 0 } };
+  return D.equipe.concat([ia]);
+}
 function tmValor(e, c) { return c.v ? c.v(e) : e[c.k]; }
 function tabelaTime(D) {
   var col = TM_COLS.filter(function (c) { return c.k === TM_ORD.k; })[0];
-  var lista = D.equipe.slice().sort(function (a, b) {
+  var lista = tmComIA(D).slice().sort(function (a, b) {
     var x = col ? tmValor(a, col) : a[TM_ORD.k], y = col ? tmValor(b, col) : b[TM_ORD.k];
     if (x === null || x === undefined) x = TM_ORD.d > 0 ? Infinity : -Infinity;
     if (y === null || y === undefined) y = TM_ORD.d > 0 ? Infinity : -Infinity;
     return (x < y ? -1 : x > y ? 1 : 0) * TM_ORD.d || a.nome.localeCompare(b.nome);
   });
-  var maxR = Math.max.apply(null, D.equipe.map(function (e) { return e.receita; }).concat([1]));
+  var maxR = Math.max.apply(null, tmComIA(D).map(function (e) { return e.receita; }).concat([1]));
   var cab = h('tr', null, [h('th', { scope: 'col', text: 'Vendedor' })].concat(TM_COLS.map(function (c) {
     var on = TM_ORD.k === c.k;
     return h('th', { scope: 'col', title: c.t, 'aria-sort': on ? (TM_ORD.d > 0 ? 'ascending' : 'descending') : 'none' }, h('button', { type: 'button', class: 'th-b', onclick: function () { TM_ORD = { k: c.k, d: on ? -TM_ORD.d : (c.menor ? 1 : -1) }; desenhar(true); } }, [c.r, on ? h('i', { class: 'th-seta', text: TM_ORD.d > 0 ? '▲' : '▼', 'aria-hidden': 'true' }) : null]));
   })));
   var linhas = lista.map(function (e, i) {
-    var tr = h('tr', { class: 'clic', tabindex: '0', title: 'Abrir o Meu Report de ' + e.nome }, [
-      h('td', null, h('div', { class: 'cel-quem' }, [avatar(e.nome), h('div', null, [h('b', { text: e.nome }), h('i', { class: 'tm-barra', style: 'width:' + Math.round(e.receita / maxR * 100) + '%', 'aria-hidden': 'true' })])]))
-    ].concat(TM_COLS.map(function (c) { return h('td', { class: 'num' }, c.f(e)); })));
+    var tr = h('tr', { class: e.ia ? 'tm-ia' : 'clic', tabindex: e.ia ? null : '0', title: e.ia ? null : 'Abrir o Meu Report de ' + e.nome }, [
+      h('td', null, h('div', { class: 'cel-quem' }, [e.ia ? h('span', { class: 'avatar tm-av-ia', text: 'IA', 'aria-hidden': 'true' }) : avatar(e.nome), h('div', null, [h('b', { text: e.nome }), h('i', { class: 'tm-barra', style: 'width:' + Math.round(e.receita / maxR * 100) + '%', 'aria-hidden': 'true' })])]))
+    ].concat(TM_COLS.map(function (c) { return h('td', { class: 'num' }, e.ia && TM_SEM_IA[c.k] ? '–' : c.f(e)); })));
+    if (e.ia) return tr;
     var abrir = function () { S.repNome = e.nome; S.anTab = 'report'; gravarLS('crm-antab', 'report'); desenhar(true); window.scrollTo(0, 0); };
     tr.addEventListener('click', abrir); tr.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') abrir(); });
     return tr;
@@ -87,19 +97,20 @@ function tabelaTime(D) {
 function tmCor(D, nome) { var i = D.series.principais.indexOf(nome); return TM_PAL[(i < 0 ? 0 : i) % TM_PAL.length]; }
 function tmSeries(D, campo) { return D.series.principais.map(function (n) { return { nome: n, cor: tmCor(D, n), valores: D.series.pessoas[n][campo] }; }); }
 function tmCartoes(D) {
-  var comReceita = D.equipe.filter(function (e) { return e.receita > 0; });
-  var maxR = Math.max.apply(null, D.equipe.map(function (e) { return e.receita; }).concat([1]));
+  var todos = tmComIA(D);
+  var comReceita = todos.filter(function (e) { return e.receita > 0; });
+  var maxR = Math.max.apply(null, todos.map(function (e) { return e.receita; }).concat([1]));
   var r = [];
-  r.push(blocoCartao('Receita por vendedor', 'Valor convertido por responsável no período.', comReceita.length ? barras(D.equipe.filter(function (e) { return e.receita > 0; }).map(function (e) {
-    return { rotulo: e.nome, valor: e.receita, texto: brl(e.receita), extra: e.convertidos + ' ' + plural(e.convertidos, 'conversão', 'conversões'), cor: tmCor(D, e.nome) };
+  r.push(blocoCartao('Receita por vendedor', 'Valor convertido por responsável no período.', comReceita.length ? barras(comReceita.map(function (e) {
+    return { rotulo: e.nome, valor: e.receita, texto: brl(e.receita), extra: e.convertidos + ' ' + plural(e.convertidos, 'conversão', 'conversões'), cor: e.ia ? TM_COR_IA : tmCor(D, e.nome) };
   }), { max: maxR }) : vazio('Nenhuma conversão no período.'), 5));
   r.push(blocoCartao('Evolução da receita', 'Receita convertida de cada vendedor ' + sufixo(D) + '.', soma(D.series.total.receita) ? linhasTempo({ rotulos: D.rotulos, titulos: D.titulos, altura: 260, fmt: brlCompacto, aria: 'Receita por vendedor ao longo do tempo', series: tmSeries(D, 'receita') }) : vazio('Nenhuma conversão no período.'), 7));
   var outrosC = D.series.total.contatos.map(function (v, i) { var ps = 0; D.series.principais.forEach(function (n) { ps += D.series.pessoas[n].contatos[i]; }); return Math.max(0, v - ps - D.series.ia.contatos[i]); });
-  var serCont = tmSeries(D, 'contatos').concat([{ nome: 'IA de disparo', cor: 'var(--cy)', valores: D.series.ia.contatos }]);
+  var serCont = tmSeries(D, 'contatos').concat([{ nome: 'IA de disparo', cor: TM_COR_IA, valores: D.series.ia.contatos }]);
   if (soma(outrosC)) serCont.push({ nome: 'Outros', cor: 'var(--g6)', valores: outrosC });
   r.push(blocoCartao('Atendimento ao longo do tempo', 'Contatos feitos ' + sufixo(D) + ', por quem fez. A IA de disparo aparece à parte.', soma(D.series.total.contatos) ? areaEmpilhada({ rotulos: D.rotulos, titulos: D.titulos, altura: 270, aria: 'Contatos por vendedor ao longo do tempo', series: serCont }) : vazio('Nenhum contato no período.'), 7));
-  r.push(blocoCartao('Conversão por vendedor', 'Dos leads que cada um recebeu no período, quantos converteram.', barras(D.equipe.filter(function (e) { return e.recebidos > 0; }).sort(function (a, b) { return (b.conversao || 0) - (a.conversao || 0); }).map(function (e) {
-    return { rotulo: e.nome, valor: e.conversao || 0, texto: tmPct(e.conversao), extra: e.recebidos + ' ' + plural(e.recebidos, 'lead', 'leads'), cor: tmCor(D, e.nome) };
+  r.push(blocoCartao('Conversão por vendedor', 'Dos leads que cada um recebeu no período, quantos converteram.', barras(todos.filter(function (e) { return e.recebidos > 0; }).sort(function (a, b) { return (b.conversao || 0) - (a.conversao || 0); }).map(function (e) {
+    return { rotulo: e.nome, valor: e.conversao || 0, texto: tmPct(e.conversao), extra: e.recebidos + ' ' + plural(e.recebidos, 'lead', 'leads'), cor: e.ia ? TM_COR_IA : tmCor(D, e.nome) };
   }), { max: 100, vazio: 'Nenhum lead recebido no período.' }), 5));
   r.push(blocoCartao('Leads recebidos e convertidos', 'Entradas (colunas) e conversões (linha) do time, ' + sufixo(D) + '.', composto({ rotulos: D.rotulos, titulos: D.titulos, altura: 240, aria: 'Leads recebidos e convertidos', colunas: [{ nome: 'Leads recebidos', cor: COR.novos, valores: D.series.total.recebidos }], linhas: [{ nome: 'Convertidos', cor: COR.convertidos, valores: D.series.total.convertidos }] }), 6));
   r.push(blocoCartao('Respostas e agendamentos', 'O que o atendimento do time gerou, ' + sufixo(D) + '.', linhasTempo({ rotulos: D.rotulos, titulos: D.titulos, altura: 240, aria: 'Respostas e agendamentos ao longo do tempo', series: [{ nome: 'Respostas', cor: COR.respostas, valores: D.series.total.respostas }, { nome: 'Agendamentos', cor: COR.agendamentos, valores: D.series.total.agendamentos }] }), 6));
@@ -136,33 +147,6 @@ function tmCartoes(D) {
   r.push(blocoCartao('Movimentos no Pipelines', 'Cards movidos por cada pessoa no período (No-show e Orçamentos).', barras(comRec.slice().sort(function (a, b) { return b.pipeline.movimentos - a.pipeline.movimentos; }).map(function (e) { return { rotulo: e.nome, valor: e.pipeline.movimentos, texto: String(e.pipeline.movimentos), cor: tmCor(D, e.nome) }; }), { max: maxPM, vazio: 'Nenhum movimento de cards no período.' }), 6));
   return r;
 }
-/* a IA de disparo ao lado de cada vendedor, no mesmo critério (só WhatsApp, resposta em 72 h, crédito de quem fez o último contato) */
-function tmIA(D) {
-  var C = D.comparativoIA; if (!C) return null;
-  var ia = C.linhas.filter(function (x) { return x.ia; })[0], gente = C.linhas.filter(function (x) { return !x.ia && x.nome.indexOf('Todo o time') !== 0; }), todo = C.linhas.filter(function (x) { return x.nome.indexOf('Todo o time') === 0; })[0];
-  var corDe = function (x) { return x.ia ? 'var(--acc)' : tmCor(D, x.nome); }; /* a IA tem cor própria, que nenhum vendedor usa */
-  var linha = function (x) {
-    return h('tr', { class: x.ia ? 'tm-ia' : '' }, [h('td', null, h('div', { class: 'cel-quem' }, [x.ia ? h('span', { class: 'pill pl-selo', text: 'IA' }) : avatar(x.nome), h('b', { text: x.nome })])),
-      h('td', { class: 'num', text: nf0.format(x.enviadas) }), h('td', { class: 'num' }, h('b', { text: tmPct(x.taxaResposta) })), h('td', { class: 'num', text: nf0.format(x.agendamentos) }),
-      h('td', { class: 'num', text: x.por100.agendamentos === null ? '–' : nf1.format(x.por100.agendamentos) }), h('td', { class: 'num', text: nf0.format(x.conversoes) }),
-      h('td', { class: 'num' }, h('b', { text: brl(x.receita) })), h('td', { class: 'num', text: x.por100.receita === null ? '–' : brlCompacto(x.por100.receita) }), h('td', { class: 'num', text: ipDur(x.tempoResposta) })]);
-  };
-  var cab = ['Quem', 'Mensagens', 'Resposta', 'Agend.', 'Agend. / 100 msgs', 'Conversões', 'Receita', 'Receita / 100 msgs', '1ª resposta'];
-  var tabela = blocoCartao('IA contra os vendedores', C.criterio + ' "A cada 100 mensagens" tira o efeito do volume: a IA envia muito mais que uma pessoa.',
-    h('div', { class: 'tbl-w' }, h('table', { class: 'tbl tm-tbl' }, [h('thead', null, h('tr', null, cab.map(function (c, i) { return h('th', { scope: 'col', class: i ? 'num' : '', text: c }); }))),
-      h('tbody', null, [ia].concat(gente).filter(Boolean).map(linha)), todo ? h('tfoot', null, linha(todo)) : null])), 12);
-  var barra = function (titulo, sub, campo, fmt, max) {
-    var linhas = [ia].concat(gente).filter(function (x) { return x && x.enviadas > 0; });
-    var m = max || Math.max.apply(null, linhas.map(function (x) { return campo(x) || 0; }).concat([1]));
-    return blocoCartao(titulo, sub, barras(linhas.slice().sort(function (a, b) { return (campo(b) || 0) - (campo(a) || 0); }).map(function (x) {
-      return { rotulo: x.nome, valor: campo(x) || 0, texto: fmt(campo(x)), extra: nf0.format(x.enviadas) + ' msgs', cor: corDe(x) };
-    }), { max: m, vazio: 'Nenhuma mensagem de WhatsApp no período.' }), 4);
-  };
-  return h('div', { class: 'g12' }, [tabela,
-    barra('Resposta: IA e vendedores', 'Dos WhatsApp enviados, quantos tiveram resposta em até 72 h.', function (x) { return x.taxaResposta; }, tmPct, 100),
-    barra('Agendamentos a cada 100 mensagens', 'Quantos agendamentos saem de cada 100 mensagens de WhatsApp.', function (x) { return x.por100.agendamentos; }, function (v) { return v === null ? '–' : nf1.format(v); }),
-    barra('Receita a cada 100 mensagens', 'Receita convertida a cada 100 mensagens de WhatsApp.', function (x) { return x.por100.receita; }, function (v) { return v === null ? '–' : brlCompacto(v); })]);
-}
 function corpoTime() {
   var D = pedirTime();
   if (!D) return esqueleto();
@@ -170,6 +154,6 @@ function corpoTime() {
   var pares = tmCartoes(D);
   var grade = [];
   for (var i = 0; i < pares.length; i += 2) grade.push(h('div', { class: 'g12' }, pares.slice(i, i + 2)));
-  return [destaques(D), kpisTime(D), tabelaTime(D), tmIA(D)].concat(grade);
+  return [destaques(D), kpisTime(D), tabelaTime(D)].concat(grade);
 }
 `;
