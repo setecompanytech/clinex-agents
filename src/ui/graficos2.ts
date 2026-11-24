@@ -64,7 +64,7 @@ function linhasTempo(o) {
     var max = 0; o.series.forEach(function (s) { s.valores.forEach(function (v) { if (v !== null && v !== undefined && v > max) max = v; }); });
     var bn = bonito(max); if (o.pct && bn.max > 100) bn = { max: 100, passo: 25 };
     var x = function (i) { return m.l + (n <= 1 ? iw / 2 : i * iw / (n - 1)); };
-    var y = function (v) { return m.t + ih - v / bn.max * ih; };
+    var y = function (v) { return m.t + ih - Math.min(v, bn.max) / bn.max * ih; }; /* taxa acima de 100% (mais respostas que contatos na janela) fica no teto do gráfico em vez de sair do cartão; o valor real continua na dica */
     var g = []; gradeY(g, bn, m, W, y, fmt); eixoX(g, o, m, W, H, x, n);
     o.series.forEach(function (s, k) {
       var d = '', abre = true, ult = -1;
