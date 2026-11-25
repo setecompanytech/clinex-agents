@@ -59,6 +59,19 @@ function tmComIA(D) {
     anterior: { receita: 0, convertidos: 0, contatos: 0, conversao: null, recebidos: 0 }, pipeline: { movimentos: x.cards ? x.cards.movimentos : 0, proxima: x.cards ? x.cards.proxima : 0, saltou: x.cards ? x.cards.saltou : 0, voltou: x.cards ? x.cards.voltou : 0, perdeu: x.cards ? x.cards.perdeu : 0, noshowTrabalhados: x.noshow ? x.noshow.convites : 0, recuperados: x.noshow ? x.noshow.recuperados : 0, valorRecuperado: x.noshow ? x.noshow.valor : 0 }, carteira: x.carteira || { n: 0, valor: 0, atrasadas: 0 } };
   return D.equipe.concat([ia]);
 }
+/* o que cada coluna mede, escrito embaixo do título (para ninguém comparar números de bases diferentes) */
+var TM_LEGENDA = { leads: 'em que trabalhou', contatos: 'registrados e por card', taxaResposta: 'em até 72 h', agendamentos: 'registrados e por card', convertidos: 'no nome da pessoa', conversaoLeads: 'dos que trabalhou', receita: 'no nome da pessoa', ticket: 'receita ÷ convertidos', pipeMov: 'movimentos de card', carteiraN: 'leads ativos agora', atrasadas: 'passo vencido' };
+function tmNota(e) { return e.ia ? 'a receita dela também conta no vendedor responsável' : e.nome === 'Sem responsável' ? 'não é uma pessoa: ninguém assumiu esses leads' : null; }
+function tmComoLer() {
+  var item = function (t, x) { return h('li', null, [h('b', { text: t + ' ' }), x]); };
+  return h('div', { class: 'tm-ler' }, [h('b', { text: 'Como ler esta tabela' }), h('ul', null, [
+    item('Convertidos e Receita', 'são dos leads que estão no nome da pessoa.'),
+    item('Leads e Conversão', 'são sobre os leads em que a pessoa trabalhou no período. Por isso a Conversão ("9 de 12") pode não bater com a coluna Convertidos.'),
+    item('Pipelines', 'conta movimentos: um mesmo card movido duas vezes conta duas.'),
+    item('Sem responsável', 'não é um vendedor: são leads que ninguém assumiu ainda.'),
+    item('IA CRM', 'a receita dela também aparece no vendedor responsável pelo lead, então não some as duas. O rodapé Time todo soma só as pessoas.')
+  ])]);
+}
 function tmValor(e, c) { return c.v ? c.v(e) : e[c.k]; }
 function tabelaTime(D) {
   var col = TM_COLS.filter(function (c) { return c.k === TM_ORD.k; })[0];
@@ -71,11 +84,11 @@ function tabelaTime(D) {
   var maxR = Math.max.apply(null, tmComIA(D).map(function (e) { return e.receita; }).concat([1]));
   var cab = h('tr', null, [h('th', { scope: 'col', text: 'Vendedor' })].concat(TM_COLS.map(function (c) {
     var on = TM_ORD.k === c.k;
-    return h('th', { scope: 'col', title: c.t, 'aria-sort': on ? (TM_ORD.d > 0 ? 'ascending' : 'descending') : 'none' }, h('button', { type: 'button', class: 'th-b', onclick: function () { TM_ORD = { k: c.k, d: on ? -TM_ORD.d : (c.menor ? 1 : -1) }; desenhar(true); } }, [c.r, on ? h('i', { class: 'th-seta', text: TM_ORD.d > 0 ? '▲' : '▼', 'aria-hidden': 'true' }) : null]));
+    return h('th', { scope: 'col', title: c.t, 'aria-sort': on ? (TM_ORD.d > 0 ? 'ascending' : 'descending') : 'none' }, [h('button', { type: 'button', class: 'th-b', onclick: function () { TM_ORD = { k: c.k, d: on ? -TM_ORD.d : (c.menor ? 1 : -1) }; desenhar(true); } }, [c.r, on ? h('i', { class: 'th-seta', text: TM_ORD.d > 0 ? '▲' : '▼', 'aria-hidden': 'true' }) : null]), TM_LEGENDA[c.k] ? h('small', { class: 'tm-leg', text: TM_LEGENDA[c.k] }) : null]);
   })));
   var linhas = lista.map(function (e, i) {
     var tr = h('tr', { class: e.ia ? 'tm-ia' : 'clic', tabindex: e.ia ? null : '0', title: e.ia ? null : 'Abrir o Meu Report de ' + e.nome }, [
-      h('td', null, h('div', { class: 'cel-quem' }, [e.ia ? h('span', { class: 'avatar tm-av-ia', text: 'IA', 'aria-hidden': 'true' }) : avatar(e.nome), h('div', null, [h('b', { text: e.nome }), h('i', { class: 'tm-barra', style: 'width:' + Math.round(e.receita / maxR * 100) + '%', 'aria-hidden': 'true' })])]))
+      h('td', null, h('div', { class: 'cel-quem' }, [e.ia ? h('span', { class: 'avatar tm-av-ia', text: 'IA', 'aria-hidden': 'true' }) : avatar(e.nome), h('div', null, [h('b', { text: e.nome }), tmNota(e) ? h('small', { class: 'tm-nota', text: tmNota(e) }) : null, h('i', { class: 'tm-barra', style: 'width:' + Math.round(e.receita / maxR * 100) + '%', 'aria-hidden': 'true' })])]))
     ].concat(TM_COLS.map(function (c) { return h('td', { class: 'num' }, e.ia && TM_SEM_IA[c.k] ? '–' : c.f(e)); })));
     if (e.ia) return tr;
     var abrir = function () { S.repNome = e.nome; S.anTab = 'report'; gravarLS('crm-antab', 'report'); desenhar(true); window.scrollTo(0, 0); };
@@ -91,7 +104,7 @@ function tabelaTime(D) {
     h('td', { class: 'num', text: soma(D.equipe.map(function (e) { return e.carteira.n; })) + ' · ' + brlCompacto(soma(D.equipe.map(function (e) { return e.carteira.valor; }))) }),
     h('td', { class: 'num', text: String(soma(D.equipe.map(function (e) { return e.carteira.atrasadas; }))) })]);
   return blocoCartao('Desempenho de cada vendedor', 'Clique no título de uma coluna para ordenar e na linha de uma pessoa para abrir o Meu Report dela. A barra mostra a fatia de receita.',
-    h('div', { class: 'tbl-w' }, h('table', { class: 'tbl tm-tbl' }, [h('thead', null, cab), h('tbody', null, linhas), h('tfoot', null, rodape)])), 12);
+    h('div', null, [h('div', { class: 'tbl-w' }, h('table', { class: 'tbl tm-tbl' }, [h('thead', null, cab), h('tbody', null, linhas), h('tfoot', null, rodape)])), tmComoLer()]), 12);
 }
 
 function tmCor(D, nome) { var i = D.series.principais.indexOf(nome); return TM_PAL[(i < 0 ? 0 : i) % TM_PAL.length]; }
