@@ -432,8 +432,26 @@ export function analisarTime(todos: Lead[], agora: Date, per: Periodo | Janela, 
     };
   };
 
+  // "Leads" = em quantos leads a pessoa TRABALHOU no período (contato, agendamento, mudança de etapa... ou card movido).
+  // A equipe não recebe lead distribuído: contar os que "entraram para ela" dava zero. A conversão é sobre esses mesmos leads.
+  const TRABALHOU = new Set(['contato', 'agendamento', 'resposta', 'retorno', 'descarte', 'comparecimento', 'recepcao', 'etapa']);
+  const porId = new Map(todos.map((l) => [l.id, l])), porCard = new Map(todos.filter((l) => l.cardId).map((l) => [l.cardId as string, l]));
+  const mexidos = new Map<string, Set<string>>();
+  const mexeu = (n: string, chave: string) => { const s = mexidos.get(n) ?? new Set<string>(); s.add(chave); mexidos.set(n, s); };
+  for (const l of todos) for (const e of l.eventos) {
+    if (e.auto || !TRABALHOU.has(e.tipo) || ehEspelho(e)) continue;
+    const d = diaDoInstante(e.quando); if (d < ini || d > hoje) continue;
+    mexeu(quem(e, l), l.id);
+  }
+  const cardsBons = new Set<string>(); // cards sem lead que terminaram em recuperado ou convertido
+  for (const m of cardsMov) { mexeu(m.por, porCard.get(m.cardId)?.id ?? 'card:' + m.cardId); if (m.classe === 'recuperado' || m.classe.startsWith('ganho')) cardsBons.add('card:' + m.cardId); }
+  const leadsDe = (chaves: Set<string>) => {
+    const bons = [...chaves].filter((k) => { const l = porId.get(k); return l ? ganhoAgora(l) : cardsBons.has(k); }).length;
+    return { leads: chaves.size, conversaoLeads: pc(bons, chaves.size) };
+  };
+
   const equipe = nomes.map((n) => {
-    const atual = metricas(n, ini, hoje), anterior = metricas(n, ini0, fim0);
+    const atual = { ...metricas(n, ini, hoje), ...leadsDe(mexidos.get(n) ?? new Set()) }, anterior = metricas(n, ini0, fim0);
     const meus = todos.filter((l) => dono(l) === n), cart = meus.filter(ativoSt), ids = new Set(cart.map((l) => l.id));
     const ns = casosNoShow(meus, ini, hoje), rc = ns.filter((c) => c.etapa === 'Recuperado');
     return {
@@ -443,7 +461,7 @@ export function analisarTime(todos: Lead[], agora: Date, per: Periodo | Janela, 
       pipeline: { proxima: cardsPor.get(n)?.proxima ?? 0, saltou: cardsPor.get(n)?.saltou ?? 0, voltou: cardsPor.get(n)?.voltou ?? 0, perdeu: cardsPor.get(n)?.perdeu ?? 0, movimentos: cardsPor.get(n)?.movimentos ?? 0, noshowTrabalhados: cardsPor.get(n)?.noshow ?? 0, recuperados: cardsPor.get(n)?.recuperados ?? 0, valorRecuperado: cardsPor.get(n)?.valorRecuperado ?? 0 },
     };
   }).sort((a, b) => b.receita - a.receita || b.contatos - a.contatos || a.nome.localeCompare(b.nome));
-  const totalAtual = metricas(null, ini, hoje), totalAnterior = metricas(null, ini0, fim0);
+  const totalAtual = { ...metricas(null, ini, hoje), ...leadsDe(new Set([...mexidos].filter(([n]) => n !== IA).flatMap(([, s]) => [...s]))) }, totalAnterior = metricas(null, ini0, fim0);
 
   // ---- evolução no tempo: o time todo, a IA e cada pessoa (as 8 que mais movimentam)
   const P = pontos(hoje, dias, ini);
