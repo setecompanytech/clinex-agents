@@ -6,7 +6,7 @@ import { cardsSemServicos, funilDestino, ingerir, reporServicos, janelaDoPedido,
 import { painelExecutivo, relatorio } from '../src/crm/pipeline/metricas.js';
 import { aplicarAutomacoes, atrasado, classeDaEtapa, diaBRT, estrelas, funisPadrao, moverCard, recortar, validarAutomacoes, validarConfig, valorExibido } from '../src/crm/pipeline/regras.js';
 import { FunilError, type CardSnap, type EstadoFunis } from '../src/crm/pipeline/tipos.js';
-import { contatosDoLead, mensagemDoLead } from '../src/crm/pipeline/api.js';
+import { contatosDoLead, mensagemDoLead, proximoDoCard } from '../src/crm/pipeline/api.js';
 import { estado as estadoCrm } from '../src/crm/banco.js';
 import { aplicar, criarLead, vistaDoLead, type Acao } from '../src/crm/motor.js';
 import { alinharCardsELeads } from '../src/crm/sincroniaCardLead.js';
@@ -387,5 +387,16 @@ teste('depois que a IA envia, o card anda: No-show sai da primeira coluna e orç
   assert.equal(col(ns, 'f1'), 'Retomada 1'); assert.equal(col(ns, 'f2'), 'No-show', 'quem não recebeu fica');
   assert.equal(movimentosPelaIA(est, [caro, f1, f2], '2026-11-02', '2026-11-02').length, 2, 'os dois movimentos são da IA CRM');
   const n = est.atribuicoes.map((a) => a.historico.length).join(); alinharCardsELeads(estado, em('2026-11-02', '09:02')); assert.equal(est.atribuicoes.map((a) => a.historico.length).join(), n, 'não fica movendo de novo');
+});
+teste('próximo contato no card: data do card, do retorno personalizado ou do follow-up, e pede data em Agendado e Retorno', () => {
+  const hoje = '2026-11-25';
+  const ag = criarLead({ nome: 'Luana', telefone: '91985048061', valor: 220, d0: '2026-11-04' }, AGORA); ag.status = 'agendado'; ag.agendamento = { data: '2026-11-30' };
+  let r = proximoDoCard('AGENDADO', ag, undefined, [], hoje);
+  assert.equal(r.proximo, null); assert.equal(r.pedeData, true); assert.equal(r.agendadoPara, '2026-11-30');
+  r = proximoDoCard('AGENDADO', ag, { proximoContato: '2026-11-26' }, [{ data: '2026-11-27' }], hoje); assert.deepEqual(r.proximo, { data: '2026-11-26', origem: 'contato' });
+  r = proximoDoCard('AGENDADO', ag, undefined, [{ data: '2026-11-20' }, { data: '2026-11-28', resultado: 'feito' }, { data: '2026-11-29' }], hoje); assert.deepEqual(r.proximo, { data: '2026-11-29', origem: 'followup' });
+  const rt = criarLead({ nome: 'Rita', telefone: '91985048062', valor: 100, d0: '2026-11-04' }, AGORA); rt.status = 'negociacao'; rt.retornoData = '2026-12-01';
+  r = proximoDoCard('RETORNO PERSONALIZADO', rt, { proximoContato: '2026-11-26' }, [], hoje); assert.deepEqual(r.proximo, { data: '2026-12-01', origem: 'retorno' }); assert.equal(r.pedeData, true);
+  r = proximoDoCard('EM ABERTO', undefined, undefined, [], hoje); assert.equal(r.proximo, null); assert.equal(r.pedeData, false);
 });
 console.log(`${ok} testes passaram.`);

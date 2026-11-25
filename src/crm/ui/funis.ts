@@ -186,6 +186,7 @@ function fvCartao(c) {
       s.unidade ? h('span', { class: 'fv-tag un', text: fvUnidadeCurta(s.unidade) }) : null,
       !permitido ? h('span', { class: 'fv-tag st', title: 'Status atual no Clinilink', text: s.status }) : null
     ]),
+    fvProximoUi(c),
     h('div', { class: 'fv-card-r' }, [
       h('span', { class: 'fv-desde', title: 'Entrou na coluna em ' + fvQuando(c.enteredAt), text: 'desde ' + fvQuando(c.enteredAt) }),
       c.responsavel ? h('span', { class: 'avatar peq', title: c.responsavel, text: iniciais(c.responsavel) }) : null
@@ -197,6 +198,31 @@ function fvCartao(c) {
   el.addEventListener('dragstart', function (ev) { FV.drag = { cardId: c.cardId, de: c.stageId }; el.classList.add('arrasta'); try { ev.dataTransfer.setData('text/plain', c.cardId); ev.dataTransfer.effectAllowed = 'move'; } catch (e) { /* segue */ } });
   el.addEventListener('dragend', function () { el.classList.remove('arrasta'); setTimeout(function () { FV.drag = null; }, 0); });
   return el;
+}
+
+/* quando falar de novo com o paciente: etiqueta no card (como no sistema antigo); clicar muda a data */
+function fvProximoUi(c) {
+  var p = c.proximo, ag = c.agendadoPara;
+  if (!p && !ag && !c.pedeData) return null;
+  var hj = fvHoje();
+  var abrir = function (ev) { ev.stopPropagation(); fvDefinirProximo(c); };
+  var tecla = function (ev) { ev.stopPropagation(); };
+  var ONDE = { contato: 'Próximo contato definido no card', retorno: 'Data do retorno personalizado', followup: 'Follow-up pendente' };
+  var botaoData = p
+    ? h('button', { type: 'button', class: 'fv-prox' + (p.data < hj ? ' vencido' : p.data === hj ? ' hoje' : ''), title: ONDE[p.origem] + ': ' + dBRfull(p.data) + (p.data < hj ? ' (passou)' : '') + '. Clique para mudar.', onclick: abrir, onkeydown: tecla }, [ico('calendar', 12), 'próximo · ' + dBR(p.data)])
+    : c.pedeData ? h('button', { type: 'button', class: 'fv-prox vazio-d', title: 'Definir quando falar de novo com o paciente', onclick: abrir, onkeydown: tecla }, [ico('calendar', 12), 'definir próximo contato']) : null;
+  return h('div', { class: 'fv-prox-l' }, [ag ? h('span', { class: 'fv-ag', title: 'Data do agendamento', text: 'agendado · ' + dBR(ag) }) : null, botaoData]);
+}
+function fvDefinirProximo(c) {
+  var inp = h('input', { class: 'in', type: 'date', value: c.proximo ? c.proximo.data : '', 'aria-label': 'Data do próximo contato' });
+  var erro = h('p', { class: 'callout aviso', style: 'display:none' });
+  var gravar = function (valor) {
+    api('PUT', '/pipelines/extras/' + c.cardId, { proximoContato: valor, por: S.eu || undefined }).then(function () {
+      m.fechar(); aviso(valor ? 'Próximo contato em ' + dBRfull(valor) + '.' : 'Data do próximo contato removida.', 'ok'); fvRecarregarCards();
+    }).catch(function (e) { erro.textContent = e.message; erro.style.display = 'block'; });
+  };
+  var m = modal({ titulo: 'Próximo contato', sub: c.snap.paciente, largura: 420, corpo: h('div', null, [h('p', { class: 'mut peq', text: 'Quando a equipe deve falar de novo com este paciente? A data aparece no card.' }), inp, erro]),
+    rodape: [c.proximo && c.proximo.origem === 'contato' ? botao('Remover data', '', function () { gravar(''); }) : null, botao('Cancelar', '', function () { m.fechar(); }), botao('Salvar', 'pri', function () { if (!inp.value) { erro.textContent = 'Escolha a data.'; erro.style.display = 'block'; return; } gravar(inp.value); }, 'check')] });
 }
 
 /* ---- mover (atualização otimista) */

@@ -7,7 +7,9 @@ import { sincronizar } from './ingestao.js';
 import { leadsDosOrcamentos } from '../leadsOrcamento.js';
 import { leadsDosNoShow } from '../leadsNoShow.js';
 import { alinharCardsELeads, atribuirResponsaveis } from '../sincroniaCardLead.js';
-import type { Lead } from '../motor.js';
+import { aplicar, hojeDe, type Lead } from '../motor.js';
+import { etapaDe } from './regras.js';
+import { itemDaEtapa } from '../conferencia.js';
 import { ehEnvio } from '../whatsapp.js';
 import { logMovimentacoes, painelExecutivo, relatorio } from './metricas.js';
 import { janelaDaQuery } from '../periodo.js';
@@ -121,6 +123,21 @@ export function mensagemDoLead(l: Lead | undefined): MensagemDoCard | null {
   const u = c[c.length - 1];
   return { n: c.length, ultima: u.quando, msg: u.msg, porIA: u.auto === true, peloCrm: ehEnvio(u.texto) };
 }
+/**
+ * A data que aparece no card ("próximo · 26/11"): quando falar de novo com o paciente. Em Retorno personalizado vale a data do retorno do
+ * lead; nas outras, a data de "Próximo contato" do card; sem ela, o follow-up pendente mais próximo. A data do agendamento vai à parte.
+ * Nas colunas Agendado e Retorno personalizado o card sem data pede para preencher.
+ */
+export function proximoDoCard(rotulo: string, lead: Lead | undefined, extras: { proximoContato?: string } | undefined, followups: { data: string; resultado?: string }[], hoje: string) {
+  const item = itemDaEtapa(rotulo);
+  const retorno = lead?.status === 'negociacao' ? lead.retornoData : undefined;
+  const fu = followups.filter((x) => !x.resultado && x.data >= hoje).map((x) => x.data).sort()[0];
+  const proximo = item === 'retorno' && retorno ? { data: retorno, origem: 'retorno' as const }
+    : extras?.proximoContato ? { data: extras.proximoContato, origem: 'contato' as const }
+    : retorno ? { data: retorno, origem: 'retorno' as const }
+    : fu ? { data: fu, origem: 'followup' as const } : null;
+  return { proximo, agendadoPara: lead?.status === 'agendado' ? lead.agendamento?.data ?? null : null, pedeData: item === 'agendado' || item === 'retorno' };
+}
 const dto = (a: Atribuicao, f: Funil, agora: Date, leads?: Map<string, Lead>) => {
   const x = P().extras[a.cardId];
   const v = valorExibido(a, x);
@@ -128,6 +145,7 @@ const dto = (a: Atribuicao, f: Funil, agora: Date, leads?: Map<string, Lead>) =>
     cardId: a.cardId, stageId: a.stageId, enteredAt: a.enteredAt, manual: a.manual, caseStatus: a.caseStatus, diasNaEtapa: diasNaEtapa(a, agora), atrasado: atrasado(a, f, agora),
     snap: a.ultimoSnapshot, valor: v, valorNegociado: x?.valorNegociado ?? null, estrelas: estrelas(v, f.valorEstrela), responsavel: x?.responsavel ?? null, proximoContato: x?.proximoContato ?? null, nMov: a.historico.length - 1,
     mensagem: mensagemDoLead(leads ? leads.get(a.cardId) : estado.leads.find((l) => l.cardId === a.cardId)),
+    ...proximoDoCard(etapaDe(f, a.stageId)?.label ?? '', leads ? leads.get(a.cardId) : estado.leads.find((l) => l.cardId === a.cardId), x, P().followups.filter((y) => y.cardId === a.cardId), hojeDe(agora)),
   };
 };
 
@@ -200,6 +218,13 @@ pipelines.put('/extras/:cardId', (req, res) => {
     if (v !== undefined && (!Number.isFinite(v) || v < 0)) throw new FunilError('dados', 'Valor negociado inválido.');
     // autor e data só mudam se o valor mudar (zero é válido)
     if (v !== x.valorNegociado) { x.valorNegociado = v; x.valorNegociadoPor = v === undefined ? undefined : por; x.valorNegociadoEm = v === undefined ? undefined : agora; }
+  }
+  // em Retorno personalizado a data do card é a data do retorno do lead: mudar uma muda a outra (e a tarefa aparece no Hoje no dia)
+  if (b.proximoContato) {
+    const l = estado.leads.find((y) => y.cardId === id);
+    if (l && l.status === 'negociacao' && l.retornoData && l.retornoData !== b.proximoContato) {
+      try { aplicar(l, { tipo: 'retorno', data: b.proximoContato, atendente: por }, new Date()); } catch { /* data fora das regras do guia: fica só no card */ }
+    }
   }
   P().extras[id] = x; salvar(); res.json(x);
 });

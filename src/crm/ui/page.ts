@@ -606,6 +606,8 @@ ${parte_abas}
 .inf-m .inf-s{margin:0 0 16px}.inf-m .inf-s:last-child{margin-bottom:0}.inf-m .inf-s h4{font:700 13px/1.3 "Segoe UI Variable Display","Segoe UI";color:var(--g1);letter-spacing:.01em;margin-bottom:4px;text-transform:none}.inf-m .inf-s p{font-size:14px;line-height:1.55;color:var(--ink,inherit)}
 /* a IA de disparo como mais uma linha do time (aba Time), em vermelho */
 .tm-ia td:first-child b{color:var(--acc)}.tm-ia .tm-barra{background:var(--acc)}.avatar.tm-av-ia{background:var(--acc);color:#fff;font-weight:800;letter-spacing:.02em}
+/* próximo contato no card dos Pipelines */
+.fv-prox-l{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;margin-top:8px}.fv-prox{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;border:1px solid color-mix(in srgb,var(--g1) 55%,transparent);background:color-mix(in srgb,var(--g1) 12%,transparent);color:inherit;font:700 11.5px/1.5 "Segoe UI",system-ui;cursor:pointer}.fv-prox .ico{width:12px;height:12px}.fv-prox.hoje{border-color:var(--warn,#ffb020);background:color-mix(in srgb,var(--warn,#ffb020) 18%,transparent)}.fv-prox.vencido{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 16%,transparent);color:var(--bad)}.fv-prox.vazio-d{border-style:dashed;background:transparent;color:var(--mut);font-weight:600}.fv-ag{padding:3px 9px;border-radius:999px;border:1px solid var(--line);color:var(--mut);font:600 11.5px/1.5 "Segoe UI",system-ui}
 /* IA Performance */
 .ip{display:flex;flex-direction:column;gap:18px}.ip>.g12{margin:0}
 .ip-ins{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
