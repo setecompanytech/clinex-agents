@@ -20,6 +20,10 @@ ok(campanhaDaMensagem('oi (ref: card)', [A, B])?.campanha.id === 'b', 'detecta c
 ok(campanhaDaMensagem('Quero o check-up completo por R$ 99', [A, B])?.por === 'frase', 'detecta pela frase do anúncio');
 ok(campanhaDaMensagem('ref: XYZ123 quero consulta', [A, B]) === null, 'código desconhecido não vira lead');
 ok(chaveTel('+55 (91) 8888-7777') === '91988887777' && chaveTel('5591988887777') === '91988887777', 'chave de telefone igual à do Clinilink');
+// o site da Clinex põe a marcação dele "(Ref.: meta / CAMPANHA)" quando abre o WhatsApp sozinho (formulário de agendamento)
+ok(campanhaDaMensagem('Olá! Vim pelo site da Clinex e quero agendar: Cardiologia.\n\n(Ref.: meta / CKNOV)', [A, B])?.origem === 'site', 'detecta a marcação do próprio site');
+ok(campanhaDaMensagem('Olá!\n\n(Ref.: google / Campanha Google Ads)', [A, B]) === null, 'marcação do site sem código nosso não vira lead');
+ok(textoWhats(A, true, 'Olá! Vim pelo site da Clinex.\n\n(Ref.: meta / CKNOV)') === 'Olá! Vim pelo site da Clinex. (ref: CKNOV-SITE)', 'redirecionamento não duplica a marcação');
 
 let id = 0;
 const ev = (campanha: string, etapa: EventoAq['etapa'], t: string, extra: Partial<EventoAq> = {}): EventoAq => ({ id: ++id, t, campanha, etapa, chave: null, telefone: null, atendimento: null, contato: null, dados: {}, ...extra });

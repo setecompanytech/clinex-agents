@@ -52,7 +52,11 @@ export function gerarCodigo(nome: string, existentes: string[]): string {
 export const codigoValido = (c: string) => /^[A-Z0-9]{3,12}$/.test(c);
 
 /** Texto que vai no WhatsApp (link rastreado): a mensagem e o código no fim; vindo do site, "-SITE" marca a origem. */
-export const textoWhats = (c: Campanha, viaSite = false, base?: string) => `${(base || c.mensagem || MENSAGEM_PADRAO).trim()} (ref: ${c.codigo}${viaSite ? '-SITE' : ''})`;
+export const textoWhats = (c: Campanha, viaSite = false, base?: string) => {
+  // o texto do site pode já trazer a marcação dele, "(Ref.: meta / CAMPANHA)": sai, para não ficarem duas
+  const doSite = (base ?? '').replace(/\s*\(Ref\.?:[^)]*\)\s*$/i, '').trim();
+  return `${doSite || (c.mensagem || MENSAGEM_PADRAO).trim()} (ref: ${c.codigo}${viaSite ? '-SITE' : ''})`;
+};
 
 // ------------------------------------------------------------------------------------------------ leitura e gravação
 let cache: { em: number; lista: Campanha[]; falhou?: boolean } | null = null;
@@ -98,6 +102,8 @@ export const visitante = (ip: string, ua: string) => createHash('sha256').update
 
 // ------------------------------------------------------------------------------------------------ lead no WhatsApp
 const REF = /\bref\s*[:.\-]?\s*([A-Z0-9]{3,12})(-SITE)?\b/i;
+/** O próprio site da Clinex acrescenta "(Ref.: meta / CAMPANHA)" (utm_source / utm_campaign) nos botões de WhatsApp que ele abre sozinho. */
+const REF_DO_SITE = /\(Ref\.?:\s*[^/()\n]*\/\s*([A-Z0-9]{3,12})\s*\)/i;
 
 /** Qual campanha a mensagem traz? Pelo código "(ref: CODIGO)" ou por uma frase da mensagem pronta do anúncio. */
 export function campanhaDaMensagem(texto: string, campanhas: Campanha[]): { campanha: Campanha; origem: 'site' | 'whatsapp'; por: 'codigo' | 'frase' } | null {
@@ -105,6 +111,11 @@ export function campanhaDaMensagem(texto: string, campanhas: Campanha[]): { camp
   if (m) {
     const c = campanhas.find((x) => x.codigo === m[1].toUpperCase());
     if (c) return { campanha: c, origem: m[2] ? 'site' : 'whatsapp', por: 'codigo' };
+  }
+  const ms = texto.match(REF_DO_SITE);
+  if (ms) {
+    const c = campanhas.find((x) => x.codigo === ms[1].toUpperCase());
+    if (c) return { campanha: c, origem: 'site', por: 'codigo' };
   }
   const t = semAcento(texto).replace(/\s+/g, ' ');
   for (const c of campanhas) {
@@ -141,7 +152,7 @@ async function etiquetar(contactId: string, campanha: Campanha): Promise<string>
  */
 export async function registrarLeadDeAnuncio(ev: MessageReceivedEvent): Promise<void> {
   if (!supabaseConfigurado() || ev.isGroup || !ev.text) return;
-  if (!REF.test(ev.text) && !(await listarCampanhas()).some((c) => c.frases?.length)) return; // caminho rápido: nada a procurar
+  if (!REF.test(ev.text) && !REF_DO_SITE.test(ev.text) && !(await listarCampanhas()).some((c) => c.frases?.length)) return; // caminho rápido: nada a procurar
   const achou = campanhaDaMensagem(ev.text, await listarCampanhas());
   if (!achou) return;
   const tel = soDigitos(ev.to);

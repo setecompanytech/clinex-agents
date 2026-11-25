@@ -76,10 +76,10 @@ function scriptDoSite(api: string): string {
   if (veio) { var i = new Image(); i.src = API + '/c/' + c + '/v?u=' + v + '&p=' + encodeURIComponent(location.pathname); }
   function marcar(a) {
     var h = a.getAttribute('href') || '';
-    if (a.getAttribute('data-clx') || !/^https?:\\/\\/(wa\\.me|api\\.whatsapp\\.com|web\\.whatsapp\\.com)\\//i.test(h)) return;
+    // sem trava de "já marcado": o site troca o href depois (formulário de agendamento) e o clique marca de novo
+    if (!/^https?:\\/\\/(wa\\.me|api\\.whatsapp\\.com|web\\.whatsapp\\.com)\\//i.test(h)) return;
     var t = '';
     try { t = new URL(h).searchParams.get('text') || ''; } catch (e) {}
-    a.setAttribute('data-clx', '1');
     a.setAttribute('href', API + '/c/' + c + '?d=wa&via=site' + (t ? '&t=' + encodeURIComponent(t) : ''));
   }
   function tudo() { var l = document.querySelectorAll('a[href]'); for (var k = 0; k < l.length; k++) marcar(l[k]); }
