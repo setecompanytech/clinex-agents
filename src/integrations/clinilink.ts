@@ -235,7 +235,7 @@ export async function listAgendaFresca(p: { unidadeId: string; dataInicial: stri
 }
 
 /** Funil de aquisição: o que aconteceu no Clinilink com os telefones dos leads desde `desde` (YYYY-MM-DD).
- *  Rota POST /v1/agendamento/funil (migration 20261125140000 do Clinilink). Só leitura: usa a chave de leitura. */
+ *  Rota POST /v1/agendamento/funil (migration 20261125140000 do Clinilink). Só leitura. */
 export type OsFunil = { id: string; numero: string; status: string; total: number; valorPago: number; pagaEm: string | null; formas: string[]; operadora: string | null };
 export type AgendamentoFunil = {
   telefone: string; agendamentoId: string; criadoEm: string; dataHora: string; status: string; checkinEm: string | null; pelaAmanda: boolean;
@@ -243,7 +243,8 @@ export type AgendamentoFunil = {
   procedimentos: string[]; valor: number; os: OsFunil[];
 };
 export async function funilPorTelefones(telefones: string[], desde: string): Promise<AgendamentoFunil[]> {
-  const chave = env.clinilinkKey || env.clinilinkWriteKey;
+  // é POST (a lista de telefones é longa) e o Clinilink só deixa a credencial de LEITURA fazer GET: usa a de escrita, a rota só lê
+  const chave = env.clinilinkWriteKey || env.clinilinkKey;
   if (!chave) throw new ClinilinkError('CLINILINK_API_KEY não configurada');
   const todos: AgendamentoFunil[] = [];
   for (let i = 0; i < telefones.length; i += 500) {
