@@ -88,6 +88,8 @@ function anel(o) {
 function barras(linhas, o) {
   o = o || {};
   if (!linhas.length) return vazio(o.vazio || 'Sem dados ainda.');
+  /* ranking do melhor para o pior (ligado no CRM por ORDENAR_BARRAS); 'menor' = menos é melhor; 'fixa' = sequência natural (funil, faixas) */
+  if (typeof ORDENAR_BARRAS !== 'undefined' && ORDENAR_BARRAS && o.ordem !== 'fixa') linhas = linhas.slice().sort(function (a, b) { return o.ordem === 'menor' ? a.valor - b.valor : b.valor - a.valor; });
   var max = o.max || Math.max.apply(null, linhas.map(function (l) { return l.valor; }).concat([1]));
   return h('div', { class: 'bars' + (o.alta ? ' alta' : '') }, linhas.map(function (l) {
     var p = l.valor > 0 ? Math.max(1.5, l.valor / max * 100) : 0;

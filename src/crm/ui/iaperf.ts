@@ -139,7 +139,7 @@ function ipSegmentos(D) {
   r.push(blocoCartao('Envios da IA por unidade', 'Envios da IA e taxa de resposta em cada unidade.',
     barras(D.porUnidade.map(function (u) { return { rotulo: u.unidade, valor: u.enviadas, texto: nf0.format(u.enviadas), extra: ipPct(u.taxaResposta) + ' resp. · ' + u.agendamentos + ' agend.', cor: COR.contatos, dica: { titulo: u.unidade, linhas: [{ valor: nf0.format(u.enviadas), rotulo: 'envios' }, { valor: ipPct(u.taxaResposta), rotulo: 'de resposta' }, { valor: String(u.agendamentos), rotulo: 'agendamentos' }, { valor: brl(u.receita), rotulo: 'em receita' }] } }; }), { vazio: 'Sem envios no período.' }), 6));
   r.push(blocoCartao('Por valor do orçamento', 'A IA funciona melhor em orçamentos maiores ou menores?',
-    barras(D.porValor.map(function (x) { return { rotulo: x.rotulo, valor: x.taxaResposta || 0, texto: ipPct(x.taxaResposta), extra: x.enviadas + ' envios · ' + x.agendamentos + ' agend.', cor: COR.respostas }; }), { max: 100, vazio: 'Sem envios no período.' }), 6));
+    barras(D.porValor.map(function (x) { return { rotulo: x.rotulo, valor: x.taxaResposta || 0, texto: ipPct(x.taxaResposta), extra: x.enviadas + ' envios · ' + x.agendamentos + ' agend.', cor: COR.respostas }; }), { ordem: 'fixa', max: 100, vazio: 'Sem envios no período.' }), 6));
   return r;
 }
 

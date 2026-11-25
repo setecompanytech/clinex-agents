@@ -94,7 +94,7 @@ function corpoPessoa(P, nome, m) {
   // ---- funil e horários
   var cor = ['var(--f0)', 'var(--f1)', 'var(--f2)', 'var(--f3)', 'var(--f4)'];
   out.push(h('div', { class: 'g12' }, [
-    blocoCartao('Funil dos leads recebidos', 'Até onde chegaram os leads que entraram para ' + nome.split(' ')[0] + ' no período.', barras(P.funil.map(function (f, i) { return { rotulo: f.etapa, valor: f.n, texto: nf0.format(f.n), cor: cor[i], extra: pct(f.pct) + (i && f.perda > 0 ? '  ·  −' + nf0.format(f.perda) + '%' : '') }; }), { max: P.funil[0].n || 1, alta: true, vazio: 'Sem leads recebidos no período.' }), 5),
+    blocoCartao('Funil dos leads recebidos', 'Até onde chegaram os leads que entraram para ' + nome.split(' ')[0] + ' no período.', barras(P.funil.map(function (f, i) { return { rotulo: f.etapa, valor: f.n, texto: nf0.format(f.n), cor: cor[i], extra: pct(f.pct) + (i && f.perda > 0 ? '  ·  −' + nf0.format(f.perda) + '%' : '') }; }), { ordem: 'fixa', max: P.funil[0].n || 1, alta: true, vazio: 'Sem leads recebidos no período.' }), 5),
     blocoCartao('Quando contata', 'Contatos por dia da semana e hora. Mais escuro, mais contatos.', soma(P.heat.map(soma)) ? mapaCalor(P.heat) : vazio('Nenhum contato no período.'), 7)
   ]));
 
@@ -103,7 +103,7 @@ function corpoPessoa(P, nome, m) {
   var maxEt = Math.max.apply(null, P.carteira.porEtapa.map(function (x) { return x.n; }).concat([1]));
   out.push(h('div', { class: 'g12' }, [
     blocoCartao('O que fez', P.movimentos.total + ' ' + plural(P.movimentos.total, 'movimentação', 'movimentações') + ' no período, por tipo.', barras(P.movimentos.porTipo.map(function (x) { return { rotulo: PS_TIPO[x.tipo] || x.tipo, valor: x.n, texto: String(x.n), cor: PS_COR_TIPO[x.tipo] || 'var(--g1)' }; }), { max: maxMov, vazio: 'Nenhuma movimentação no período.' }), 5),
-    blocoCartao('Carteira por etapa', 'Leads ativos de ' + nome.split(' ')[0] + ' agora, em cada etapa.', barras(P.carteira.porEtapa.map(function (x, i) { return { rotulo: x.etapa, valor: x.n, texto: x.n + ' · ' + brlCompacto(x.valor), cor: CORES_CAT[i % CORES_CAT.length] }; }), { max: maxEt, vazio: 'Nenhum lead ativo.' }), 7)
+    blocoCartao('Carteira por etapa', 'Leads ativos de ' + nome.split(' ')[0] + ' agora, em cada etapa.', barras(P.carteira.porEtapa.map(function (x, i) { return { rotulo: x.etapa, valor: x.n, texto: x.n + ' · ' + brlCompacto(x.valor), cor: CORES_CAT[i % CORES_CAT.length] }; }), { ordem: 'fixa', max: maxEt, vazio: 'Nenhum lead ativo.' }), 7)
   ]));
 
   // ---- o que moveu no Pipelines (card a card): inclui o No-show, que não tem lead

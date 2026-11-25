@@ -117,7 +117,7 @@ function tmCartoes(D) {
   var heatTotal = soma(D.heat.map(soma));
   r.push(blocoCartao('Quando o time contata', 'Contatos por dia da semana e hora. Mais escuro, mais contatos.', heatTotal ? mapaCalor(D.heat) : vazio('Nenhum contato no período.'), 7));
   var F = D.funil, cor = ['var(--f0)', 'var(--f1)', 'var(--f2)', 'var(--f3)', 'var(--f4)'];
-  r.push(blocoCartao('Funil do time', 'Leads que entraram no período e até onde chegaram.', barras(F.map(function (f, i) { return { rotulo: f.etapa, valor: f.n, texto: nf0.format(f.n), cor: cor[i], extra: pct(f.pct) + (i && f.perda > 0 ? '  ·  −' + nf0.format(f.perda) + '%' : '') }; }), { max: F[0].n || 1, alta: true, vazio: 'Sem leads no período.' }), 5));
+  r.push(blocoCartao('Funil do time', 'Leads que entraram no período e até onde chegaram.', barras(F.map(function (f, i) { return { rotulo: f.etapa, valor: f.n, texto: nf0.format(f.n), cor: cor[i], extra: pct(f.pct) + (i && f.perda > 0 ? '  ·  −' + nf0.format(f.perda) + '%' : '') }; }), { ordem: 'fixa', max: F[0].n || 1, alta: true, vazio: 'Sem leads no período.' }), 5));
   var maxCart = Math.max.apply(null, todos.map(function (e) { return e.carteira.n; }).concat([1]));
   r.push(blocoCartao('Carteira de agora', 'Leads ativos de cada vendedor e quantos têm passo atrasado.', barras(todos.filter(function (e) { return e.carteira.n > 0; }).map(function (e) {
     return { rotulo: e.nome, valor: e.carteira.n, texto: e.carteira.n + ' · ' + brlCompacto(e.carteira.valor), extra: e.carteira.atrasadas ? e.carteira.atrasadas + ' atrasados' : 'em dia', cor: e.ia ? TM_COR_IA : e.carteira.atrasadas ? 'var(--bad)' : tmCor(D, e.nome) };
@@ -126,7 +126,7 @@ function tmCartoes(D) {
   var maxPC = Math.max.apply(null, comPC.map(function (e) { return e.primeiroContato; }).concat([1]));
   r.push(blocoCartao('Dias até o primeiro contato', 'Mediana entre o lead entrar e o primeiro contato. Quanto menos, melhor.', barras(comPC.sort(function (a, b) { return a.primeiroContato - b.primeiroContato; }).map(function (e) {
     return { rotulo: e.nome, valor: e.primeiroContato, texto: tmDias(e.primeiroContato), extra: e.semContato ? e.semContato + ' sem contato' : '', cor: e.ia ? TM_COR_IA : e.primeiroContato > 2 ? 'var(--warn)' : tmCor(D, e.nome) };
-  }), { max: maxPC, vazio: 'Nenhum lead contatado no período.' }), 6));
+  }), { ordem: 'menor', max: maxPC, vazio: 'Nenhum lead contatado no período.' }), 6));
   var maxU = Math.max.apply(null, D.unidades.map(function (u) { return u.receita; }).concat([1]));
   r.push(blocoCartao('Por unidade', 'Receita convertida e conversão de cada unidade.', barras(D.unidades.map(function (u, i) { return { rotulo: u.nome, valor: u.receita, texto: brl(u.receita), extra: tmPct(u.conversao) + ' de conversão', cor: TM_PAL[i % TM_PAL.length] }; }), { max: maxU, vazio: 'Sem dados por unidade.' }), 6));
   var maxM = Math.max.apply(null, D.mensagens.map(function (m) { return m.enviadas; }).concat([1]));

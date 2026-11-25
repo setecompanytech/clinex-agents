@@ -137,6 +137,7 @@ function mapaCalor(grade, o) {
 /* ------------------------------------------------------------------ rosca (composição de um total) */
 function rosca(partes, o) {
   o = o || {};
+  if (typeof ORDENAR_BARRAS !== 'undefined' && ORDENAR_BARRAS) partes = partes.slice().sort(function (a, b) { return b.valor - a.valor; }); /* maior fatia primeiro */
   var total = soma(partes.map(function (p) { return p.valor; }));
   if (!total) return vazio(o.vazio || 'Sem dados no período.');
   var T = 150, esp = 26, r = (T - esp) / 2, c = 2 * Math.PI * r, acum = 0, arcos = [];

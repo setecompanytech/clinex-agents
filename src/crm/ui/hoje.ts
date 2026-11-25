@@ -5,6 +5,7 @@ var COR_STATUS = { aberto: 'var(--c-aberto)', sem_retorno: 'var(--c-sem)', negoc
 var GLIFO_N = { critico: '◆', atencao: '▲', info: '■', bom: '●' };
 var ROTULO_N = { critico: 'Crítico', atencao: 'Atenção', info: 'Informativo', bom: 'Positivo' };
 /* cor fixa de cada entidade em TODOS os gráficos do CRM */
+var ORDENAR_BARRAS = true; /* gráficos de ranking do CRM: melhor para pior */
 var COR = { novos: 'var(--g5)', contatos: 'var(--g6)', respostas: 'var(--g1)', agendamentos: 'var(--g2)', convertidos: 'var(--g3)', descartados: 'var(--bad)' };
 
 function saudacao() { var t = horaBelem(); return t.h < 12 ? 'Bom dia' : t.h < 18 ? 'Boa tarde' : 'Boa noite'; }
@@ -186,7 +187,7 @@ function cartaoPipelineHoje(A) {
     return { rotulo: ST[p.status], valor: p.n, texto: String(p.n), extra: brlCompacto(p.valor), cor: COR_STATUS[p.status],
       dica: { titulo: ST[p.status], linhas: [{ valor: String(p.n), rotulo: 'leads' }, { valor: brl(p.valor), rotulo: 'em orçamentos' }, { valor: String(p.atrasados), rotulo: 'com passo atrasado' }, { valor: String(p.excedidos), rotulo: 'fora do limite de dias' }] } };
   });
-  return blocoCartao('Pipeline agora', 'Leads ativos por etapa.', barras(linhas, { max: maxN, alta: true, vazio: 'Nenhum lead ativo.' }), 4, null, 'sec-pipeline');
+  return blocoCartao('Pipeline agora', 'Leads ativos por etapa.', barras(linhas, { ordem: 'fixa', max: maxN, alta: true, vazio: 'Nenhum lead ativo.' }), 4, null, 'sec-pipeline');
 }
 
 /* ------------------------------------------------------------------ montagem */

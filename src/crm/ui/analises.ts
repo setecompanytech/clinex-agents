@@ -95,7 +95,7 @@ function cartaoFunilPeriodo(T) {
   var F = T.funil, cor = ['var(--f0)', 'var(--f1)', 'var(--f2)', 'var(--f3)', 'var(--f4)'];
   return blocoCartao('Funil do período', 'Leads que entraram no período e até onde chegaram.', barras(F.map(function (f, i) {
     return { rotulo: f.etapa, valor: f.n, texto: nf0.format(f.n), cor: cor[i], extra: pct(f.pct) + (i && f.perda > 0 ? '  ·  −' + nf0.format(f.perda) + '%' : ''), dica: { titulo: f.etapa, linhas: [{ valor: nf0.format(f.n), rotulo: 'leads' }, { valor: pct(f.pct), rotulo: 'do total' }].concat(i ? [{ valor: '−' + nf0.format(f.perda) + '%', rotulo: 'perdidos desde a etapa anterior' }] : []) } };
-  }), { max: F[0].n || 1, alta: true, vazio: 'Sem leads no período.' }), 5);
+  }), { ordem: 'fixa', max: F[0].n || 1, alta: true, vazio: 'Sem leads no período.' }), 5);
 }
 
 /* ------------------------------------------------------------------ comportamento */
@@ -146,7 +146,7 @@ function cartaoAging(T) {
 function miniEquipe(titulo, sub, campo, cor, fmtv) {
   return function (T) {
     var E = T.equipe.slice().sort(function (a, b) { return (b[campo] || 0) - (a[campo] || 0); });
-    return blocoCartao(titulo, sub, barras(E.map(function (e) { var v = e[campo] === null ? 0 : e[campo]; return { rotulo: e.nome, valor: v, texto: fmtv ? fmtv(e[campo]) : nf0.format(v), cor: cor, dica: { titulo: e.nome, linhas: [{ valor: nf0.format(e.ativos), rotulo: 'leads ativos' }, { valor: nf0.format(e.atrasados), rotulo: 'com passo atrasado' }, { valor: nf0.format(e.convertidos), rotulo: 'convertidos no período' }, { valor: pct(e.taxa), rotulo: 'conversão' }] } }; }), { vazio: 'Sem leads.' }), 3);
+    return blocoCartao(titulo, sub, barras(E.slice().sort(function (a, b) { var x = a[campo] === null ? 0 : a[campo], y = b[campo] === null ? 0 : b[campo]; return campo === 'atrasados' ? x - y : y - x; }).map(function (e) { var v = e[campo] === null ? 0 : e[campo]; return { rotulo: e.nome, valor: v, texto: fmtv ? fmtv(e[campo]) : nf0.format(v), cor: cor, dica: { titulo: e.nome, linhas: [{ valor: nf0.format(e.ativos), rotulo: 'leads ativos' }, { valor: nf0.format(e.atrasados), rotulo: 'com passo atrasado' }, { valor: nf0.format(e.convertidos), rotulo: 'convertidos no período' }, { valor: pct(e.taxa), rotulo: 'conversão' }] } }; }), { ordem: 'fixa', vazio: 'Sem leads.' }), 3);
   };
 }
 var cartaoEqAtivos = miniEquipe('Leads ativos', 'Carga por responsável.', 'ativos', 'var(--g5)');
