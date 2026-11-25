@@ -233,3 +233,26 @@ export const criarOrdemServico = (agendamentoId: string) =>
 export async function listAgendaFresca(p: { unidadeId: string; dataInicial: string; dataFinal: string; procedimentoId?: string; profissionalId?: string }) {
   return (await get<{ horarios: Horario[] }>('/v1/agendamento/agenda', p)).horarios;
 }
+
+/** Funil de aquisição: o que aconteceu no Clinilink com os telefones dos leads desde `desde` (YYYY-MM-DD).
+ *  Rota POST /v1/agendamento/funil (migration 20261125140000 do Clinilink). Só leitura: usa a chave de leitura. */
+export type OsFunil = { id: string; numero: string; status: string; total: number; valorPago: number; pagaEm: string | null; formas: string[]; operadora: string | null };
+export type AgendamentoFunil = {
+  telefone: string; agendamentoId: string; criadoEm: string; dataHora: string; status: string; checkinEm: string | null; pelaAmanda: boolean;
+  paciente: { id: string | null; nome: string }; unidade: string | null; profissional: { id: string | null; nome: string; especialidade: string | null } | null;
+  procedimentos: string[]; valor: number; os: OsFunil[];
+};
+export async function funilPorTelefones(telefones: string[], desde: string): Promise<AgendamentoFunil[]> {
+  const chave = env.clinilinkKey || env.clinilinkWriteKey;
+  if (!chave) throw new ClinilinkError('CLINILINK_API_KEY não configurada');
+  const todos: AgendamentoFunil[] = [];
+  for (let i = 0; i < telefones.length; i += 500) {
+    const t0 = Date.now();
+    const res = await fetch(`${env.clinilinkBase}/v1/agendamento/funil`, { method: 'POST', headers: { 'x-api-key': chave, 'content-type': 'application/json' }, body: JSON.stringify({ telefones: telefones.slice(i, i + 500), desde }), signal: AbortSignal.timeout(40000) });
+    const body: any = await res.json().catch(() => null);
+    evt('clinilink', { metodo: 'POST', caminho: '/v1/agendamento/funil', status: res.status, ms: Date.now() - t0, ok: Boolean(res.ok && body?.ok), total: body?.total });
+    if (!res.ok || !body?.ok) throw new ClinilinkError(`funil: ${body?.erro ?? `HTTP ${res.status}`}${body?.mensagem ? ` — ${body.mensagem}` : ''}`);
+    todos.push(...(body.agendamentos ?? []));
+  }
+  return todos;
+}

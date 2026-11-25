@@ -109,6 +109,12 @@ export async function sbInserir(tabela: string, linhas: Record<string, unknown>[
   for (let i = 0; i < linhas.length; i += lote) await pedir<void>('POST', tabela, {}, linhas.slice(i, i + lote), { Prefer: 'return=minimal' });
 }
 
+/** Insere ignorando o que já existe pela chave única (`onConflict`) e devolve SÓ as linhas que entraram agora. */
+export async function sbInserirNovos<T = Record<string, unknown>>(tabela: string, linhas: Record<string, unknown>[], onConflict: string): Promise<T[]> {
+  if (!linhas.length) return [];
+  return (await pedir<T[]>('POST', tabela, { on_conflict: onConflict }, linhas, { Prefer: 'resolution=ignore-duplicates,return=representation' })) ?? [];
+}
+
 /** Apaga por filtro PostgREST (ex.: { id: 'in.(a,b)' } ou { t: 'lt.2026-01-01' }). Sem filtro, recusa. */
 export async function sbApagar(tabela: string, filtro: Record<string, string>) {
   if (!Object.keys(filtro).length) throw new SupabaseError('filtro', 'Recusei apagar a tabela inteira sem filtro.');

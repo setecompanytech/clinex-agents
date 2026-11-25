@@ -37,6 +37,8 @@ export type MessageReceivedEvent = {
   isGroup: boolean;
   attendanceInfo: string;
   contactName?: string;
+  /** id do contato na Inovstar (etiquetas do funil de aquisição) */
+  contactId?: string;
   /** reprocessamento manual (só com a chave do webhook): a Amanda responde mesmo depois da própria mensagem de falha (ex.: falta de crédito da OpenAI) */
   recuperar?: boolean;
 };
@@ -72,6 +74,7 @@ export function parseMessageReceived(body: any): MessageReceivedEvent | null {
     attendanceInfo: JSON.stringify({ status: d.attendance.status, isAssigned: d.attendance.isAssigned, user: d.attendance.user?.name, sector: d.attendance.sector?.name }),
     isGroup: Boolean(d.author),
     contactName: d.contact?.name,
+    contactId: d.contact?.id ? String(d.contact.id) : d.contact?._id ? String(d.contact._id) : undefined,
     recuperar: body?.recuperar === true,
   };
 }
@@ -237,4 +240,32 @@ export async function sendTemplate(p: { to: string; nome: string; idioma: string
     template: { name: p.nome, language: p.idioma, components: p.parametros.length ? [{ type: 'BODY', parameters: p.parametros.map((t) => ({ type: 'text', text: String(t).slice(0, 200) })) }] : [] },
   });
   return { messageId: r.data?.whatsappMessageId ?? r.data?.messageId ?? r.whatsappMessageId ?? r.messageId, bruto: r };
+}
+
+// ------------------------------------------------------------------------------------------------ etiquetas (labels)
+// Rotas conferidas em 25/11/2026 (sem documentação pública): GET /labels?companyId=, POST /labels { name, color, companyId },
+// POST /contacts/:id/labels { labelIds } (acrescenta; o PUT substitui todas, não usar), GET /contacts/:id (traz companies e labels).
+export type Etiqueta = { _id: string; name: string; color?: string };
+
+/** Empresa (companyId) do contato: a etiqueta é criada nela. */
+export async function empresaDoContato(contactId: string): Promise<string | undefined> {
+  const r = await request<{ data?: { companies?: { _id: string }[] } }>('GET', `/contacts/${contactId}`);
+  return r.data?.companies?.[0]?._id;
+}
+export async function listarEtiquetas(companyId: string): Promise<Etiqueta[]> {
+  const r = await request<{ data?: Etiqueta[] }>('GET', `/labels?companyId=${encodeURIComponent(companyId)}`);
+  return r.data ?? [];
+}
+export async function criarEtiqueta(companyId: string, nome: string, cor = '#7C3AED'): Promise<Etiqueta> {
+  const r = await request<{ data?: Etiqueta } & Etiqueta>('POST', '/labels', { name: nome, color: cor, companyId });
+  return (r.data ?? r) as Etiqueta;
+}
+/** Acrescenta etiquetas ao contato (mantém as que ele já tem). */
+export function etiquetarContato(contactId: string, labelIds: string[]) {
+  return request('POST', `/contacts/${contactId}/labels`, { labelIds });
+}
+/** id do contato a partir do atendimento (quando o webhook não trouxe). */
+export async function contatoDoAtendimento(attendanceId: string): Promise<string | undefined> {
+  const r = await request<{ data?: { attendance?: { contact?: { id?: string } } } }>('GET', `/attendance/${attendanceId}/history?limit=1&lightweight=true`);
+  return r.data?.attendance?.contact?.id;
 }
