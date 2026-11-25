@@ -41,7 +41,7 @@ export function etapaDoStatus(f: Funil, s: Status): Etapa | undefined {
 }
 
 /** Nomes que não são uma pessoa do time: o sistema, a IA, o WhatsApp, o acesso mestre compartilhado. */
-const NAO_PESSOA = new Set(['', 'ia', 'whatsapp', 'crm', 'crm (lead)', 'painel', 'sistema', 'acesso mestre', 'painel (api)']);
+const NAO_PESSOA = new Set(['', 'ia', 'whatsapp', 'crm', 'crm (lead)', 'painel', 'sistema', 'acesso mestre', 'painel (api)', 'conferência (fluxo)', 'disjuntor']);
 export const ehPessoa = (nome?: string) => !NAO_PESSOA.has((nome ?? '').trim().toLowerCase());
 /** O que conta como "movimentar o lead": contato, resposta, mudança de etapa, agendamento, retorno, descarte, comparecimento e recepção. */
 const MOVIMENTOS = new Set(['contato', 'resposta', 'etapa', 'agendamento', 'retorno', 'descarte', 'comparecimento', 'recepcao']);

@@ -4,6 +4,7 @@ import { diaDoInstante, diffDias, ehConversaoAtiva, ehEspelho, hojeDe, horaDe, s
 import { LIMITES, MENSAGENS, type Status } from './modelo.js';
 import { marcosDe, type Marcos } from './analise.js';
 import { desempenhoPorAutor } from './ia-performance.js';
+import { ehPessoa } from './sincroniaCardLead.js';
 import { transicoes, type Periodo } from './tempo.js';
 import { fraseJanela, janela, type Janela } from './periodo.js';
 
@@ -447,11 +448,28 @@ export function analisarTime(todos: Lead[], agora: Date, per: Periodo | Janela, 
   for (const m of cardsMov) { mexeu(m.por, porCard.get(m.cardId)?.id ?? 'card:' + m.cardId); if (m.classe === 'recuperado' || m.classe.startsWith('ganho')) cardsBons.add('card:' + m.cardId); }
   const leadsDe = (chaves: Set<string>) => {
     const bons = [...chaves].filter((k) => { const l = porId.get(k); return l ? ganhoAgora(l) : cardsBons.has(k); }).length;
-    return { leads: chaves.size, conversaoLeads: pc(bons, chaves.size) };
+    return { leads: chaves.size, leadsConvertidos: bons, conversaoLeads: pc(bons, chaves.size) };
   };
 
+  // taxa de resposta = dos contatos registrados no período, quantos tiveram resposta do paciente em até 72 h (e antes do próximo contato).
+  // Respostas ÷ contatos passava de 100% (as respostas do WhatsApp chegam sem contato registrado no mesmo período).
+  const taxa72 = (autor: (e: EventoLead, l: Lead) => boolean, a: string, b: string) => {
+    let env = 0, resp = 0;
+    for (const l of todos) {
+      const evs = l.eventos.filter((e) => e.tipo === 'contato' || e.tipo === 'resposta').sort((x, y) => x.quando.localeCompare(y.quando));
+      evs.forEach((e, k) => {
+        if (e.tipo !== 'contato' || !autor(e, l)) return;
+        const d = diaDoInstante(e.quando); if (d < a || d > b) return;
+        env++;
+        const prox = evs[k + 1]; if (prox && prox.tipo === 'resposta' && Date.parse(prox.quando) - Date.parse(e.quando) <= 72 * 3_600_000) resp++;
+      });
+    }
+    return pc(resp, env);
+  };
+  const humano = (e: EventoLead, l: Lead) => !e.auto && ehPessoa(quem(e, l));
+
   const equipe = nomes.map((n) => {
-    const atual = { ...metricas(n, ini, hoje), ...leadsDe(mexidos.get(n) ?? new Set()) }, anterior = metricas(n, ini0, fim0);
+    const atual = { ...metricas(n, ini, hoje), ...leadsDe(mexidos.get(n) ?? new Set()), taxaResposta: taxa72((e, l) => !e.auto && quem(e, l) === n, ini, hoje) }, anterior = metricas(n, ini0, fim0);
     const meus = todos.filter((l) => dono(l) === n), cart = meus.filter(ativoSt), ids = new Set(cart.map((l) => l.id));
     const ns = casosNoShow(meus, ini, hoje), rc = ns.filter((c) => c.etapa === 'Recuperado');
     return {
@@ -461,7 +479,13 @@ export function analisarTime(todos: Lead[], agora: Date, per: Periodo | Janela, 
       pipeline: { proxima: cardsPor.get(n)?.proxima ?? 0, saltou: cardsPor.get(n)?.saltou ?? 0, voltou: cardsPor.get(n)?.voltou ?? 0, perdeu: cardsPor.get(n)?.perdeu ?? 0, movimentos: cardsPor.get(n)?.movimentos ?? 0, noshowTrabalhados: cardsPor.get(n)?.noshow ?? 0, recuperados: cardsPor.get(n)?.recuperados ?? 0, valorRecuperado: cardsPor.get(n)?.valorRecuperado ?? 0 },
     };
   }).sort((a, b) => b.receita - a.receita || b.contatos - a.contatos || a.nome.localeCompare(b.nome));
-  const totalAtual = { ...metricas(null, ini, hoje), ...leadsDe(new Set([...mexidos].filter(([n]) => n !== IA).flatMap(([, s]) => [...s]))) }, totalAnterior = metricas(null, ini0, fim0);
+  const todoContato = () => true;
+  const totalAtual = { ...metricas(null, ini, hoje), taxaResposta: taxa72(todoContato, ini, hoje) }, totalAnterior = { ...metricas(null, ini0, fim0), taxaResposta: taxa72(todoContato, ini0, fim0) };
+  // rodapé "Time todo": só as pessoas (a IA tem a linha dela)
+  const totalPessoas = {
+    ...leadsDe(new Set([...mexidos].filter(([n]) => ehPessoa(n)).flatMap(([, s]) => [...s]))), taxaResposta: taxa72(humano, ini, hoje),
+    contatos: soma(equipe.map((e) => e.contatos)), agendamentos: soma(equipe.map((e) => e.agendamentos)),
+  };
 
   // ---- evolução no tempo: o time todo, a IA e cada pessoa (as 8 que mais movimentam)
   const P = pontos(hoje, dias, ini);
@@ -546,7 +570,7 @@ export function analisarTime(todos: Lead[], agora: Date, per: Periodo | Janela, 
       const cardsIA = pl ? resumoPorPessoa(movimentosPelaIA(pl, todos, ini, hoje)).get('IA CRM') : undefined;
       return { carteira: { n: carteiraIA.length, valor: soma(carteiraIA.map((l) => l.valor)), atrasadas: tarefas.filter((t) => t.situacao === 'atrasada' && idsIA.has(t.leadId)).length }, cards: { movimentos: cardsIA?.movimentos ?? 0, proxima: cardsIA?.proxima ?? 0, saltou: cardsIA?.saltou ?? 0, voltou: cardsIA?.voltou ?? 0, perdeu: cardsIA?.perdeu ?? 0 }, noshow: x.noshow, primeiroContato: x.primeiroContato, nome: x.nome, ia: true, recebidos: x.leads, contatos: x.enviadas, respostas: x.respostas, taxaResposta: x.taxaResposta, agendamentos: x.agendamentos, convertidos: x.conversoes, conversao: pc(x.conversoes, x.leads), receita: x.receita, ticket: x.ticket, tempoResposta: x.tempoResposta };
     })(),
-    equipe, totais: { atual: totalAtual, anterior: totalAnterior, pipeline: { proxima: soma([...cardsPor.values()].map((x) => x.proxima)), saltou: soma([...cardsPor.values()].map((x) => x.saltou)), voltou: soma([...cardsPor.values()].map((x) => x.voltou)), perdeu: soma([...cardsPor.values()].map((x) => x.perdeu)), movimentos: cardsMov.length, noshowTrabalhados: soma([...cardsPor.values()].map((x) => x.noshow)), recuperados: soma([...cardsPor.values()].map((x) => x.recuperados)), valorRecuperado: soma([...cardsPor.values()].map((x) => x.valorRecuperado)) } },
+    equipe, totais: { pessoas: totalPessoas, atual: totalAtual, anterior: totalAnterior, pipeline: { proxima: soma([...cardsPor.values()].map((x) => x.proxima)), saltou: soma([...cardsPor.values()].map((x) => x.saltou)), voltou: soma([...cardsPor.values()].map((x) => x.voltou)), perdeu: soma([...cardsPor.values()].map((x) => x.perdeu)), movimentos: cardsMov.length, noshowTrabalhados: soma([...cardsPor.values()].map((x) => x.noshow)), recuperados: soma([...cardsPor.values()].map((x) => x.recuperados)), valorRecuperado: soma([...cardsPor.values()].map((x) => x.valorRecuperado)) } },
     series: { total, ia, pessoas, principais }, heat, funil, unidades, mensagens, destaques,
     semResponsavel: { n: semDono.length, valor: soma(semDono.map((l) => l.valor)) },
   };

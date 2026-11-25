@@ -40,7 +40,7 @@ var TM_COLS = [
   { k: 'taxaResposta', r: 'Resposta', f: function (e) { return tmPct(e.taxaResposta); }, t: 'Respostas ÷ contatos' },
   { k: 'agendamentos', r: 'Agend.', f: function (e) { return nf0.format(e.agendamentos); }, t: 'Agendamentos feitos' },
   { k: 'convertidos', r: 'Convertidos', f: function (e) { return nf0.format(e.convertidos); }, t: 'Compareceu e pagou, ou já foi à recepção' },
-  { k: 'conversaoLeads', r: 'Conversão', f: function (e) { return tmPct(e.conversaoLeads); }, t: 'Dos leads em que trabalhou, quantos estão convertidos' },
+  { k: 'conversaoLeads', r: 'Conversão', f: function (e) { return e.leads ? [h('b', { text: tmPct(e.conversaoLeads) }), h('small', { class: 'mut', text: ' ' + e.leadsConvertidos + ' de ' + e.leads })] : '–'; }, t: 'Dos leads em que trabalhou, quantos estão convertidos' },
   { k: 'receita', r: 'Receita', f: function (e) { return [h('b', { text: brl(e.receita) }), tmMini(e.receita, e.anterior.receita)]; }, t: 'Valor convertido no período' },
   { k: 'ticket', r: 'Ticket', f: function (e) { return e.ticket === null ? '–' : brl(e.ticket); }, t: 'Receita ÷ convertidos' },
   { k: 'primeiroContato', r: '1º contato', f: function (e) { return tmDias(e.primeiroContato); }, t: 'Mediana de dias entre o lead entrar e o primeiro contato (menos é melhor)', menor: true },
@@ -55,7 +55,7 @@ var TM_COR_IA = 'var(--acc)';
 var TM_SEM_IA = { ciclo: 1 };
 function tmComIA(D) {
   var x = D.ia; if (!x || !x.contatos) return D.equipe;
-  var ia = { nome: x.nome, ia: true, leads: x.recebidos, conversaoLeads: x.conversao, recebidos: x.recebidos, contatos: x.contatos, respostas: x.respostas, taxaResposta: x.taxaResposta, agendamentos: x.agendamentos, convertidos: x.convertidos, conversao: x.conversao, receita: x.receita, ticket: x.ticket, primeiroContato: x.primeiroContato === undefined ? null : x.primeiroContato, ciclo: null,
+  var ia = { nome: x.nome, ia: true, leadsConvertidos: x.convertidos, leads: x.recebidos, conversaoLeads: x.conversao, recebidos: x.recebidos, contatos: x.contatos, respostas: x.respostas, taxaResposta: x.taxaResposta, agendamentos: x.agendamentos, convertidos: x.convertidos, conversao: x.conversao, receita: x.receita, ticket: x.ticket, primeiroContato: x.primeiroContato === undefined ? null : x.primeiroContato, ciclo: null,
     anterior: { receita: 0, convertidos: 0, contatos: 0, conversao: null, recebidos: 0 }, pipeline: { movimentos: x.cards ? x.cards.movimentos : 0, proxima: x.cards ? x.cards.proxima : 0, saltou: x.cards ? x.cards.saltou : 0, voltou: x.cards ? x.cards.voltou : 0, perdeu: x.cards ? x.cards.perdeu : 0, noshowTrabalhados: x.noshow ? x.noshow.convites : 0, recuperados: x.noshow ? x.noshow.recuperados : 0, valorRecuperado: x.noshow ? x.noshow.valor : 0 }, carteira: x.carteira || { n: 0, valor: 0, atrasadas: 0 } };
   return D.equipe.concat([ia]);
 }
@@ -84,8 +84,8 @@ function tabelaTime(D) {
   });
   var t = D.totais.atual;
   var rodape = h('tr', { class: 'tm-total' }, [h('td', null, h('b', { text: 'Time todo' })),
-    h('td', { class: 'num', text: nf0.format(t.leads) }), h('td', { class: 'num', text: nf0.format(t.contatos) }), h('td', { class: 'num', text: tmPct(t.taxaResposta) }), h('td', { class: 'num', text: nf0.format(t.agendamentos) }),
-    h('td', { class: 'num', text: nf0.format(t.convertidos) }), h('td', { class: 'num', text: tmPct(t.conversaoLeads) }), h('td', { class: 'num' }, [h('b', { text: brl(t.receita) }), tmMini(t.receita, D.totais.anterior.receita)]),
+    h('td', { class: 'num', text: nf0.format(D.totais.pessoas.leads) }), h('td', { class: 'num', text: nf0.format(D.totais.pessoas.contatos) }), h('td', { class: 'num', text: tmPct(D.totais.pessoas.taxaResposta) }), h('td', { class: 'num', text: nf0.format(D.totais.pessoas.agendamentos) }),
+    h('td', { class: 'num', text: nf0.format(t.convertidos) }), h('td', { class: 'num', text: tmPct(D.totais.pessoas.conversaoLeads) }), h('td', { class: 'num' }, [h('b', { text: brl(t.receita) }), tmMini(t.receita, D.totais.anterior.receita)]),
     h('td', { class: 'num', text: t.ticket === null ? '–' : brl(t.ticket) }), h('td', { class: 'num', text: tmDias(t.primeiroContato) }), h('td', { class: 'num', text: tmDias(t.ciclo) }),
     h('td', { class: 'num', text: nf0.format(D.totais.pipeline.movimentos) }), h('td', { class: 'num', text: D.totais.pipeline.recuperados + ' · ' + brlCompacto(D.totais.pipeline.valorRecuperado) }),
     h('td', { class: 'num', text: soma(D.equipe.map(function (e) { return e.carteira.n; })) + ' · ' + brlCompacto(soma(D.equipe.map(function (e) { return e.carteira.valor; }))) }),
