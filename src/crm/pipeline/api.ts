@@ -10,7 +10,8 @@ import { alinharCardsELeads, atribuirResponsaveis } from '../sincroniaCardLead.j
 import { aplicar, hojeDe, type Lead } from '../motor.js';
 import { etapaDe } from './regras.js';
 import { itemDaEtapa } from '../conferencia.js';
-import { ehEnvio } from '../whatsapp.js';
+import { ehEnvio, MODELOS } from '../whatsapp.js';
+import { PASSOS } from '../modelo.js';
 import { logMovimentacoes, painelExecutivo, relatorio } from './metricas.js';
 import { janelaDaQuery } from '../periodo.js';
 import { FunilError, type Atribuicao, type Dimensao, type Funil } from './tipos.js';
@@ -96,7 +97,14 @@ pipelines.put('/:id', (req, res) => {
 // ------------------------------------------------------------------------------------------------ cards
 
 /** Já foi mandada mensagem de WhatsApp para o lead deste card? (pela IA, pelo CRM ou registrada pela equipe). Aparece como a etiqueta "Mensagem enviada" no card. */
-export type MensagemDoCard = { n: number; ultima: string; msg?: number; porIA: boolean; peloCrm: boolean };
+export type MensagemDoCard = { n: number; ultima: string; msg?: number; porIA: boolean; peloCrm: boolean; regra: { id: string; rotulo: string } | null };
+/** Qual regra da cadência foi a última mensagem: pelo passo registrado, pelo número da mensagem ou pelo modelo enviado. */
+function regraDaMensagem(e: { passo?: string; msg?: number; texto: string }): MensagemDoCard['regra'] {
+  const modelo = /modelo (\S+)/.exec(e.texto ?? '')?.[1];
+  const msg = e.msg ?? MODELOS.find((m) => m.id === modelo)?.msg;
+  const p = PASSOS.find((x) => x.id === e.passo) ?? (msg ? PASSOS.find((x) => x.msg === msg) : undefined);
+  return p ? { id: p.id, rotulo: p.rotulo } : null;
+}
 /** Os contatos registrados no LEAD desse card (WhatsApp enviado por modelo, pela IA ou registrado, ligação) também são contatos do card: aparecem no histórico dele. */
 export type ContatoCard = { id: string; cardId: string; data: string; tipo: string; observacao?: string; msg?: number; porIA?: boolean; modelo?: string; para?: string; campos?: { rotulo: string; valor: string }[] };
 export function contatosDoLead(cardId: string): ContatoCard[] {
@@ -121,7 +129,7 @@ export function mensagemDoLead(l: Lead | undefined): MensagemDoCard | null {
   const c = l.eventos.filter((e) => e.tipo === 'contato' && e.canal === 'whatsapp');
   if (!c.length) return null;
   const u = c[c.length - 1];
-  return { n: c.length, ultima: u.quando, msg: u.msg, porIA: u.auto === true, peloCrm: ehEnvio(u.texto) };
+  return { n: c.length, ultima: u.quando, msg: u.msg, porIA: u.auto === true, peloCrm: ehEnvio(u.texto), regra: regraDaMensagem(u) };
 }
 /**
  * A data que aparece no card ("próximo · 26/11"): quando falar de novo com o paciente. Em Retorno personalizado vale a data do retorno do

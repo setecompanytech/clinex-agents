@@ -181,7 +181,7 @@ function fvCartao(c) {
     s.subtitulo ? h('p', { class: 'fv-sub', text: s.subtitulo }) : null,
     h('div', { class: 'fv-card-v' }, [h('b', { text: brl(c.valor) }), c.valorNegociado !== null ? h('span', { class: 'fv-neg', title: 'Valor negociado (substitui o do Clinilink)', text: 'negociado' }) : null]),
     h('div', { class: 'fv-tags' }, [
-      c.mensagem ? h('span', { class: 'fv-tag msg', title: fvMsgTitulo(c.mensagem), text: '✓ Mensagem enviada' }) : null,
+      c.mensagem ? h('span', { class: 'fv-tag msg' + (c.mensagem.regra ? ' r-msg-' + c.mensagem.regra.id : ''), title: fvMsgTitulo(c.mensagem), text: '✓ Mensagem enviada' + (c.mensagem.regra ? ' - ' + c.mensagem.regra.rotulo : '') }) : null,
       s.codigo ? h('span', { class: 'fv-tag', text: '#' + s.codigo }) : null,
       s.unidade ? h('span', { class: 'fv-tag un', text: fvUnidadeCurta(s.unidade) }) : null,
       !permitido ? h('span', { class: 'fv-tag st', title: 'Status atual no Clinilink', text: s.status }) : null
