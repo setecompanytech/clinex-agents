@@ -5,6 +5,7 @@ import { parseMessageReceived, verifySignature } from '../integrations/inovstar.
 import { handleIncoming } from '../agents/receptivo/agent.js';
 import { rodarLembretes } from '../agents/receptivo/lembretes.js';
 import { registrarRespostaWhatsApp } from '../crm/disparo-auto-servico.js';
+import { registrarLeadDeAnuncio } from '../aquisicao/campanhas.js';
 
 const router = Router();
 
@@ -29,6 +30,8 @@ router.post('/inovstar', (req: Request & { rawBody?: Buffer }, res) => {
   waitUntil(handleIncoming(ev).catch((e) => console.error('agente falhou', e)));
   // rastreio do CRM: se o telefone recebeu um disparo nosso, a resposta vira evento no lead (só registra, não responde)
   if (!ev.isGroup) waitUntil(registrarRespostaWhatsApp({ telefone: ev.to, texto: ev.text, tipo: ev.type, messageId: ev.messageId, contato: ev.contactName }).catch((e) => console.error('rastreio de resposta falhou', e)));
+  // funil de aquisição: mensagem com o código de uma campanha de anúncio vira lead e ganha a etiqueta "ADS - CAMPANHA" (só registra)
+  if (!ev.isGroup && ev.text) waitUntil(registrarLeadDeAnuncio(ev).catch((e) => console.error('funil de aquisição falhou', e)));
   // de carona: envia os lembretes de inatividade que já venceram (uma execução por vez, trava no Redis)
   waitUntil(rodarLembretes().catch((e) => console.error('lembretes falharam', e)));
   res.json({ ok: true });

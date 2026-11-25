@@ -9,6 +9,8 @@ import { cron } from './crm/cron.js';
 import { lembretes } from './agents/receptivo/lembretes.js';
 import { bancoFora, gravarAntesDeResponder, pronto, tentarVoltarAoBanco } from './crm/banco.js';
 import bi from './bi/router.js';
+import funil from './aquisicao/router.js';
+import linksDeCampanha from './aquisicao/publico.js';
 
 const app = express();
 // guarda o corpo cru: a assinatura HMAC da Inovstar é calculada sobre ele
@@ -29,11 +31,13 @@ function gravarNaResposta(res: express.Response) {
   res.end = ((...a: unknown[]) => { gravarAntesDeResponder().catch(() => undefined).finally(() => fim(...a)); return res; }) as typeof res.end;
 }
 app.use('/webhooks', webhooks);
+app.use('/c', linksDeCampanha); // links PÚBLICOS das campanhas de anúncio (funil de aquisição): clique, visita do site e o site.js
 app.use('/cron', lembretes); // lembrete de inatividade da Amanda IA (a cada 5 min)
 app.use('/cron', cron);
 // módulos independentes: o mais específico vem primeiro; a tela inicial (/painel) por último
 app.use('/painel/receptivo/logs', logsRouter); // antes do /painel/receptivo para ter prioridade
 app.use('/painel/receptivo/bi', bi);
+app.use('/painel/receptivo/funil', funil); // funil de aquisição das campanhas
 app.use('/painel/receptivo', painel);
 app.use('/painel/crm', crm);
 app.use('/painel', geral); // login, visão geral e usuários (cada rota se protege)
