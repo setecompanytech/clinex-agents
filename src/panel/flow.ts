@@ -771,7 +771,7 @@ export const flow = {
       subtitle: 'Mensagem com título de identificação no topo',
       detail: {
         oQueFaz: 'Entrega a mensagem pelo WhatsApp e, nos ramos de transferência, move a conversa para a equipe.',
-        regra: 'Toda mensagem sai com um título de identificação na primeira linha (configurável por AGENT_TITLE; o padrão no código é "Amanda S. (Clinex):"). Quando há transferência e o setor Principal está configurado, o atendimento é movido para esse setor levando a mensagem ao paciente e o resumo para a equipe. Sem setor configurado, só avisa o paciente. Em modo sombra (AUTO_REPLY desligado), nada é enviado: só vai para o log.',
+        regra: 'Toda mensagem sai com um título de identificação na primeira linha (configurável por AGENT_TITLE; o padrão no código é "Amanda:"). Quando há transferência e o setor Principal está configurado, o atendimento é movido para esse setor levando a mensagem ao paciente e o resumo para a equipe. Sem setor configurado, só avisa o paciente. Em modo sombra (AUTO_REPLY desligado), nada é enviado: só vai para o log.',
         exemplo: 'Amanda S. (Clinex):\nOi, bom dia! Aqui é a Amanda, da Clinex. Me conta o que você precisa?',
         seFalhar: 'Se a Inovstar recusar o envio, o erro fica no log e o paciente fica sem resposta automática; a conversa continua visível para a equipe.',
         tecnico: 'withTitle(), sendText() e transferToSector() em src/agents/receptivo/agent.ts e src/integrations/inovstar.ts. Variáveis AGENT_TITLE, HUMAN_SECTOR_ID, AUTO_REPLY.',
