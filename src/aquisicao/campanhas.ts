@@ -13,7 +13,7 @@ import { evt } from '../lib/log.js';
 export const T_CAMPANHAS = 'aquisicao_campanhas';
 export const T_EVENTOS = 'aquisicao_eventos';
 export const NUMERO_WHATSAPP = process.env.CLINIC_WHATSAPP_NUMERO ?? '5591991434370'; // o mesmo dos botões do site
-export const SITE_PADRAO = process.env.CLINIC_SITE_URL ?? 'https://www.clinex.com.br';
+export const SITE_PADRAO = process.env.CLINIC_SITE_URL ?? 'https://clinex-novo-site.vercel.app'; // o site novo (www.clinex.com.br ainda é o antigo, sem o site.js)
 
 export type Canal = 'meta' | 'google' | 'tiktok' | 'outro';
 export type StatusCampanha = 'ativa' | 'pausada' | 'encerrada';
