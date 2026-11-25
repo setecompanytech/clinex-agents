@@ -60,13 +60,13 @@ function tmComIA(D) {
   return D.equipe.concat([ia]);
 }
 /* o que cada coluna mede, escrito embaixo do título (para ninguém comparar números de bases diferentes) */
-var TM_LEGENDA = { leads: 'em que trabalhou', contatos: 'registrados e por card', taxaResposta: 'em até 72 h', agendamentos: 'registrados e por card', convertidos: 'no nome da pessoa', conversaoLeads: 'dos que trabalhou', receita: 'no nome da pessoa', ticket: 'receita ÷ convertidos', pipeMov: 'movimentos de card', carteiraN: 'leads ativos agora', atrasadas: 'passo vencido' };
+var TM_LEGENDA = { leads: 'trabalhados no período', contatos: 'registros e cards', taxaResposta: 'em até 72 h', agendamentos: 'registros e cards', convertidos: 'sob sua responsabilidade', conversaoLeads: 'sobre os leads trabalhados', receita: 'sob sua responsabilidade', ticket: 'média por convertido', pipeMov: 'movimentações de cards', carteiraN: 'leads ativos hoje', atrasadas: 'com prazo vencido' };
 function tmNota(e) { return e.ia ? 'a receita dela também conta no vendedor responsável' : e.nome === 'Sem responsável' ? 'não é uma pessoa: ninguém assumiu esses leads' : null; }
 function tmComoLer() {
   var item = function (t, x) { return h('li', null, [h('b', { text: t + ' ' }), x]); };
   return h('div', { class: 'tm-ler' }, [h('b', { text: 'Como ler esta tabela' }), h('ul', null, [
-    item('Convertidos e Receita', 'são dos leads que estão no nome da pessoa.'),
-    item('Leads e Conversão', 'são sobre os leads em que a pessoa trabalhou no período. Por isso a Conversão ("9 de 12") pode não bater com a coluna Convertidos.'),
+    item('Convertidos e Receita', 'consideram os leads sob responsabilidade da pessoa.'),
+    item('Leads e Conversão', 'consideram os leads trabalhados pela pessoa no período. Por isso a Conversão ("9 de 12") pode ser diferente da coluna Convertidos.'),
     item('Pipelines', 'conta movimentos: um mesmo card movido duas vezes conta duas.'),
     item('Sem responsável', 'não é um vendedor: são leads que ninguém assumiu ainda.'),
     item('IA CRM', 'a receita dela também aparece no vendedor responsável pelo lead, então não some as duas. O rodapé Time todo soma só as pessoas.')
