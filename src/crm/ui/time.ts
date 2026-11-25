@@ -52,7 +52,7 @@ var TM_COLS = [
 ];
 /* a IA de disparo é mais uma linha do time, em vermelho; o que não se aplica a ela (carteira, movimentos de cards, ciclo) fica em traço */
 var TM_COR_IA = 'var(--acc)';
-var TM_SEM_IA = { ciclo: 1 };
+var TM_SEM_IA = { ciclo: 1, recebidos: 1 }; /* recebidos de pessoa = leads novos; a IA não recebe lead, então não se compara */
 function tmComIA(D) {
   var x = D.ia; if (!x || !x.contatos) return D.equipe;
   var ia = { nome: x.nome, ia: true, recebidos: x.recebidos, contatos: x.contatos, respostas: x.respostas, taxaResposta: x.taxaResposta, agendamentos: x.agendamentos, convertidos: x.convertidos, conversao: x.conversao, receita: x.receita, ticket: x.ticket, primeiroContato: x.primeiroContato === undefined ? null : x.primeiroContato, ciclo: null,

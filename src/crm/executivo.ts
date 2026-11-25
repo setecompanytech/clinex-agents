@@ -1,4 +1,4 @@
-import { movimentosDeCards, movimentosPelaIA, resumoPorPessoa } from './pipeline/atividade.js';
+import { acoesNosCards, movimentosDeCards, movimentosPelaIA, resumoPorPessoa } from './pipeline/atividade.js';
 import type { EstadoFunis } from './pipeline/tipos.js';
 import { diaDoInstante, diffDias, ehConversaoAtiva, ehEspelho, hojeDe, horaDe, somaDias, type EventoLead, type Lead, type Tarefa, type Vista } from './motor.js';
 import { LIMITES, MENSAGENS, type Status } from './modelo.js';
@@ -271,7 +271,7 @@ export function analisarExecutivo(todos: Lead[], agora: Date, per: Periodo | Jan
 export type AnaliseExecutiva = ReturnType<typeof analisarExecutivo>;
 
 // ------------------------------------------------------------------------------------------------ meu report (individual)
-export function meuReport(todos: Lead[], agora: Date, per: Periodo | Janela, nome: string, tarefas: Tarefa[], vistas: Map<string, Vista>) {
+export function meuReport(todos: Lead[], agora: Date, per: Periodo | Janela, nome: string, tarefas: Tarefa[], vistas: Map<string, Vista>, pl?: EstadoFunis) {
   const J = janela(per, agora), dias = J.dias, hoje = J.ate, ini = J.de, ini0 = somaDias(ini, -dias), fim0 = somaDias(ini, -1), hojeReal = hojeDe(agora);
   const marcos = new Map<string, Marcos>(todos.map((l) => [l.id, marcosDe(l)]));
   const mk = (l: Lead) => marcos.get(l.id)!;
@@ -281,6 +281,7 @@ export function meuReport(todos: Lead[], agora: Date, per: Periodo | Janela, nom
   const diaGanho = (l: Lead) => mk(l).compareceu ?? mk(l).organico;
 
   // métricas de uma pessoa em uma janela (atividade = o que a pessoa FEZ; resultado = leads sob a responsabilidade dela)
+  const nosCards = pl ? acoesNosCards(pl, todos, ini0, hoje) : [];
   const metricas = (n: string, a: string, b: string) => {
     const meus = todos.filter((l) => dono(l) === n);
     let contatos = 0, respostas = 0, agend = 0;
@@ -288,8 +289,11 @@ export function meuReport(todos: Lead[], agora: Date, per: Periodo | Janela, nom
     const ganhos = meus.filter((l) => dentro(diaGanho(l), a, b));
     const recebidos = meus.filter((l) => l.d0 >= a && l.d0 <= b);
     const ciclos = ganhos.map((l) => diffDias(l.d0, diaGanho(l)!));
+    // a taxa de resposta usa só contatos registrados; o contato feito arrastando card entra no volume
+    const taxa = pc(respostas, contatos);
+    for (const x of nosCards) if (x.por === n && x.dia >= a && x.dia <= b) { if (x.tipo === 'contato') contatos++; else agend++; }
     return {
-      contatos, respostas, agendamentos: agend, taxaResposta: pc(respostas, contatos), convertidos: ganhos.length, receita: soma(ganhos.map((l) => l.valor)), recebidos: recebidos.length,
+      contatos, respostas, agendamentos: agend, taxaResposta: taxa, convertidos: ganhos.length, receita: soma(ganhos.map((l) => l.valor)), recebidos: recebidos.length,
       conversao: pc(recebidos.filter(ganhoAgora).length, recebidos.length), velocidade: mediana(ciclos), descartes: meus.filter((l) => l.status === 'descarte' && dentro(mk(l).descartou, a, b)).length,
     };
   };
@@ -403,6 +407,7 @@ export function analisarTime(todos: Lead[], agora: Date, per: Periodo | Janela, 
   const IA = 'IA';
 
   // atividade por quem fez; resultado por dono. nome === null = todo o time (qualquer autor, qualquer dono)
+  const nosCards = pl ? acoesNosCards(pl, todos, ini0, hoje) : [];
   const metricas = (nome: string | null, a: string, b: string) => {
     const meus = nome === null ? todos : todos.filter((l) => dono(l) === nome);
     let contatos = 0, respostas = 0, agend = 0;
@@ -416,8 +421,10 @@ export function analisarTime(todos: Lead[], agora: Date, per: Periodo | Janela, 
     const comContato = recebidos.filter((l) => !!mk(l).contatado);
     const ciclos = ganhos.map((l) => diffDias(l.d0, diaGanho(l)!));
     const receita = soma(ganhos.map((l) => l.valor));
+    const taxa = pc(respostas, contatos);
+    for (const x of nosCards) if ((nome === null || x.por === nome) && x.dia >= a && x.dia <= b) { if (x.tipo === 'contato') contatos++; else agend++; }
     return {
-      recebidos: recebidos.length, contatos, respostas, agendamentos: agend, taxaResposta: pc(respostas, contatos),
+      recebidos: recebidos.length, contatos, respostas, agendamentos: agend, taxaResposta: taxa,
       convertidos: ganhos.length, receita, ticket: ganhos.length ? Math.round(receita / ganhos.length) : null,
       conversao: pc(recebidos.filter(ganhoAgora).length, recebidos.length), ciclo: mediana(ciclos),
       primeiroContato: mediana(comContato.map((l) => Math.max(0, diffDias(l.d0, mk(l).contatado!)))), semContato: recebidos.length - comContato.length,
@@ -445,6 +452,13 @@ export function analisarTime(todos: Lead[], agora: Date, per: Periodo | Janela, 
   const total = nova(), ia = nova(), porPessoa = new Map<string, ReturnType<typeof nova>>(nomes.map((n) => [n, nova()]));
   const heat = Array.from({ length: 7 }, () => Array<number>(24).fill(0));
   const msgs = new Map<number, { env: number; resp: number; ia: number }>();
+  // contatos e agendamentos feitos arrastando cards entram na evolução e no mapa de horários
+  for (const x of nosCards) {
+    const i = P.idx(x.dia); if (i < 0) continue;
+    const campo = x.tipo === 'contato' ? 'contatos' : 'agendamentos';
+    total[campo][i]++; const s = porPessoa.get(x.por); if (s) s[campo][i]++;
+    if (x.tipo === 'contato') heat[new Date(`${x.dia}T12:00:00Z`).getUTCDay()][horaDe(new Date(x.quando)).h]++;
+  }
   for (const l of todos) {
     const meu = porPessoa.get(dono(l))!;
     const i0 = P.idx(l.d0); if (i0 >= 0) { total.recebidos[i0]++; meu.recebidos[i0]++; }
@@ -528,7 +542,7 @@ export type AnaliseTime = ReturnType<typeof analisarTime>;
  * explicam: quem ela converteu, a carteira de agora (lead a lead) e o que ela fez, movimento a movimento.
  */
 export function detalhePessoa(todos: Lead[], agora: Date, per: Periodo | Janela, nome: string, tarefas: Tarefa[], vistas: Map<string, Vista>, pl?: EstadoFunis) {
-  const rep = meuReport(todos, agora, per, nome, tarefas, vistas);
+  const rep = meuReport(todos, agora, per, nome, tarefas, vistas, pl);
   const J = janela(per, agora), ini = J.de, hoje = J.ate, hojeReal = hojeDe(agora);
   const meus = todos.filter((l) => dono(l) === nome);
   const mk = (l: Lead) => marcosDe(l);

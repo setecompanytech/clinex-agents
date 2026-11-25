@@ -133,7 +133,7 @@ router.get('/meu-report', (req, res) => {
   automatizarTodos(agora);
   const tarefas = tarefasDoDia(estado.leads, agora);
   const vistas = new Map(estado.leads.map((l) => [l.id, vistaDoLead(l, agora)]));
-  res.json(meuReport(estado.leads, agora, periodo, nome, tarefas, vistas));
+  res.json(meuReport(estado.leads, agora, periodo, nome, tarefas, vistas, estado.pipelines));
 });
 
 /** Automações do pipeline: ver, criar, editar, simular e executar */

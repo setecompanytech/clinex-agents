@@ -76,6 +76,28 @@ export function movimentosDeCards(est: EstadoFunis, de: string, ate: string, uni
   return out.sort((x, y) => y.quando.localeCompare(x.quando));
 }
 
+/**
+ * O que a equipe FEZ arrastando cards, que não vira registro no lead: levar o card para Agendado é um agendamento; levar para
+ * Primeiro contato, Nova tentativa, Desconto ou Retomada é um contato. Vale uma vez por card, pessoa e dia, e não soma de novo se a
+ * pessoa já registrou o mesmo no lead naquele dia.
+ */
+export type AcaoCard = { quando: string; dia: string; por: string; tipo: 'contato' | 'agendamento'; cardId: string };
+const tipoDaColuna = (rotulo: string): AcaoCard['tipo'] | null => {
+  const n = rotulo.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  return /agendad/.test(n) ? 'agendamento' : /primeiro contato|nova tentativa|desconto|retomada/.test(n) ? 'contato' : null;
+};
+export function acoesNosCards(est: EstadoFunis, leads: Lead[], de: string, ate: string): AcaoCard[] {
+  const porCard = new Map<string, Lead>(); for (const l of leads) if (l.cardId) porCard.set(l.cardId, l);
+  const vistos = new Set<string>(), out: AcaoCard[] = [];
+  for (const m of [...movimentosDeCards(est, de, ate)].reverse()) {
+    const tipo = tipoDaColuna(m.para); if (!tipo || m.sentido === 'voltou') continue;
+    const chave = `${m.cardId}|${m.por}|${m.dia}|${tipo}`; if (vistos.has(chave)) continue; vistos.add(chave);
+    const jaNoLead = porCard.get(m.cardId)?.eventos.some((e) => e.tipo === tipo && !e.auto && (e.atendente ?? '').trim() === m.por && diaBRT(e.quando) === m.dia);
+    if (!jaNoLead) out.push({ quando: m.quando, dia: m.dia, por: m.por, tipo, cardId: m.cardId });
+  }
+  return out;
+}
+
 /** Resumo por pessoa: quantos movimentos, no-shows trabalhados/recuperados e o valor recuperado. */
 export function resumoPorPessoa(movs: MovCard[]) {
   const por = new Map<string, { movimentos: number; noshow: number; recuperados: number; valorRecuperado: number; proxima: number; saltou: number; voltou: number; perdeu: number; destinos: Map<string, number> }>();

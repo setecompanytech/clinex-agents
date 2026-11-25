@@ -12,7 +12,7 @@ import { aplicar, criarLead, vistaDoLead, type Acao } from '../src/crm/motor.js'
 import { alinharCardsELeads } from '../src/crm/sincroniaCardLead.js';
 import { alinharCardsAoFluxo, conferir, itemDaEtapa } from '../src/crm/conferencia.js';
 import { leadsDosNoShow } from '../src/crm/leadsNoShow.js';
-import { movimentosDeCards, movimentosPelaIA, resumoPorPessoa } from '../src/crm/pipeline/atividade.js';
+import { acoesNosCards, movimentosDeCards, movimentosPelaIA, resumoPorPessoa } from '../src/crm/pipeline/atividade.js';
 import { avaliarLead } from '../src/crm/ia-disparo.js';
 
 let ok = 0;
@@ -398,5 +398,17 @@ teste('próximo contato no card: data do card, do retorno personalizado ou do fo
   const rt = criarLead({ nome: 'Rita', telefone: '91985048062', valor: 100, d0: '2026-11-04' }, AGORA); rt.status = 'negociacao'; rt.retornoData = '2026-12-01';
   r = proximoDoCard('RETORNO PERSONALIZADO', rt, { proximoContato: '2026-11-26' }, [], hoje); assert.deepEqual(r.proximo, { data: '2026-12-01', origem: 'retorno' }); assert.equal(r.pedeData, true);
   r = proximoDoCard('EM ABERTO', undefined, undefined, [], hoje); assert.equal(r.proximo, null); assert.equal(r.pedeData, false);
+});
+teste('trabalho nos cards: levar para Agendado é agendamento, para Primeiro contato é contato, sem somar duas vezes', () => {
+  const est = novoEstado(); const f = funilDestino(est, 'orcamento', AGORA); ingerir(est, f, [snap('a'), snap('b')], AGORA);
+  const t = (h: string) => em('2026-11-02', h); const card = (id: string) => est.atribuicoes.find((x) => x.cardId === id)!;
+  const mover = (id: string, col: string, h: string) => moverCard(card(id), f, etapa(est, 'Orçamentos em aberto', col), t(h), { por: 'Vanuza', manual: true });
+  mover('a', 'PRIMEIRO CONTATO', '09:00'); mover('a', 'AGENDADO', '10:00'); mover('a', 'EM NEGOCIAÇÃO', '10:30'); mover('a', 'AGENDADO', '11:00');
+  mover('b', 'PRIMEIRO CONTATO', '09:10');
+  const lb = criarLead({ nome: 'Bia', telefone: '91981628040', valor: 100, d0: '2026-11-01' }, AGORA); lb.cardId = 'b';
+  aplicar(lb, { tipo: 'contato', canal: 'whatsapp', naoFoiRecepcao: true, atendente: 'Vanuza' } as Acao, t('09:12'));
+  const r = acoesNosCards(est, [lb], '2026-11-02', '2026-11-02');
+  assert.deepEqual(r.map((x) => x.cardId + ':' + x.tipo).sort(), ['a:agendamento', 'a:contato'], 'agendado conta uma vez; o contato da Bia já estava registrado no lead');
+  assert.ok(r.every((x) => x.por === 'Vanuza'));
 });
 console.log(`${ok} testes passaram.`);
