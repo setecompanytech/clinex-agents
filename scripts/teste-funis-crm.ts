@@ -372,4 +372,20 @@ teste('Card que avança porque o paciente respondeu a uma mensagem da IA também
   assert.deepEqual(ia.filter((m) => m.cardId === 'c').map((m) => m.para).sort(), ['EM NEGOCIAÇÃO', 'PRIMEIRO CONTATO'], 'Cris: o card andou duas vezes por causa da IA (mensagem e resposta a ela)');
   assert.deepEqual(ia.filter((m) => m.cardId === 'd').map((m) => m.para), [], 'Dani: contato e resposta da equipe, nada é da IA');
 });
+teste('depois que a IA envia, o card anda: No-show sai da primeira coluna e orçamento acima de R$ 500 vai para Primeiro contato', () => {
+  const est = novoEstado(); const orc = funilDestino(est, 'orcamento', AGORA), ns = funilDestino(est, 'agendamento', AGORA);
+  ingerir(est, orc, [snap('caro', undefined, 900)], AGORA); ingerir(est, ns, [snap('f1'), snap('f2')], AGORA);
+  const caro = criarLead({ nome: 'Caro', telefone: '91981628031', valor: 900, d0: '2026-11-01' }, AGORA); caro.cardId = 'caro';
+  const falta = (id: string, fone: string) => { const l = criarLead({ nome: id, telefone: fone, valor: 100, d0: '2026-11-01' }, AGORA); l.cardId = id; l.fonte = 'noshow'; l.status = 'negociacao'; l.noShow = true; l.statusDesde = '2026-11-02'; l.faseId = 'negociacao:2026-11-02:1'; l.pulados = ['orcamento']; return l; };
+  const f1 = falta('f1', '91981628032'), f2 = falta('f2', '91981628033');
+  const estado = { pipelines: est, leads: [caro, f1, f2] } as never; const t = em('2026-11-02', '09:00');
+  const col = (f: typeof orc, id: string) => f.stages.find((e) => e.id === est.atribuicoes.find((x) => x.cardId === id)!.stageId)!.label;
+  aplicar(caro, { tipo: 'contato', canal: 'whatsapp', naoFoiRecepcao: true, passo: 'primeiro', auto: true, atendente: 'IA' } as Acao, t);
+  aplicar(f1, { tipo: 'contato', canal: 'whatsapp', naoFoiRecepcao: true, passo: 'noshow', auto: true, atendente: 'IA' } as Acao, t);
+  alinharCardsELeads(estado, em('2026-11-02', '09:01'));
+  assert.equal(col(orc, 'caro'), 'PRIMEIRO CONTATO', 'a mensagem saiu: não fica em Em aberto'); assert.equal(vistaDoLead(caro, t).proximo!.faltaLigacao, true, 'a ligação continua pendente');
+  assert.equal(col(ns, 'f1'), 'Retomada 1'); assert.equal(col(ns, 'f2'), 'No-show', 'quem não recebeu fica');
+  assert.equal(movimentosPelaIA(est, [caro, f1, f2], '2026-11-02', '2026-11-02').length, 2, 'os dois movimentos são da IA CRM');
+  const n = est.atribuicoes.map((a) => a.historico.length).join(); alinharCardsELeads(estado, em('2026-11-02', '09:02')); assert.equal(est.atribuicoes.map((a) => a.historico.length).join(), n, 'não fica movendo de novo');
+});
 console.log(`${ok} testes passaram.`);

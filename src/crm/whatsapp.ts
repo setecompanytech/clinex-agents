@@ -123,6 +123,9 @@ export function checarEnvio(estado: Estado, l: Lead, modeloId: string, agora: Da
   if (!vista.ok) return new DisparoError('regra', vista.motivo ?? 'Fora das regras de contato.', 409);
   const marca = `${MARCA}${modeloId}`;
   if (l.eventos.some((e) => e.tipo === 'contato' && e.texto.startsWith(marca) && agora.getTime() - Date.parse(e.quando) < 24 * 3_600_000)) return new DisparoError('duplicado', 'Este modelo já foi enviado a este lead nas últimas 24 horas.', 409);
+  // o mesmo paciente com dois orçamentos/agendamentos é uma pessoa só: não recebe a mesma mensagem duas vezes no dia
+  const fone = chaveFone(l.telefone), fim = l.telefone.slice(-4);
+  if (estado.leads.some((o) => o.id !== l.id && o.telefone.slice(-4) === fim && chaveFone(o.telefone) === fone && o.eventos.some((e) => e.tipo === 'contato' && e.texto.startsWith(marca) && agora.getTime() - Date.parse(e.quando) < 24 * 3_600_000))) return new DisparoError('duplicado', 'Este número já recebeu este modelo nas últimas 24 horas (outro orçamento ou agendamento do mesmo paciente).', 409);
   if (enviadosHoje(estado, agora) >= limiteDia()) return new DisparoError('limite', `Limite de ${limiteDia()} envios por dia atingido.`, 429);
   return null;
 }

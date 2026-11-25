@@ -67,7 +67,14 @@ export function alinharCardsELeads(estado: Estado, agora: Date): { leads: number
   let leads = 0, cards = 0;
   const atribs = new Map(estado.pipelines.atribuicoes.map((a) => [a.cardId, a]));
   for (const l of estado.leads) {
-    if (l.fonte === 'noshow') continue; // o card deles é do funil No-show: ele não acompanha o Fluxo
+    if (l.fonte === 'noshow') {
+      // o card deles é do funil No-show e não acompanha o Fluxo; só sai da primeira coluna quando o convite de reagendar foi enviado
+      const c = l.cardId ? atribs.get(l.cardId) : undefined, fn = c && estado.pipelines.funis.find((x) => x.id === c.funilId);
+      if (c && fn && c.caseStatus === 'aberto' && fn.stages[1] && c.stageId === fn.stages[0].id && l.eventos.some((e) => e.tipo === 'contato' && e.passo === 'noshow')) {
+        try { if (moverCard(c, fn, fn.stages[1].id, agora, { por: 'CRM (lead)', manual: false })) cards++; } catch { /* o card fica onde está */ }
+      }
+      continue;
+    }
     const a = l.cardId ? atribs.get(l.cardId) : undefined;
     if (!a || a.caseStatus === 'removido') continue;
     const f = estado.pipelines.funis.find((x) => x.id === a.funilId);

@@ -184,7 +184,8 @@ export function itemDoLead(lead: Lead, hoje: string): string {
   const f = lead.itemForcado;
   if (f && FORCAVEIS.has(f.item) && (lead.status === 'aberto' || lead.status === 'sem_retorno') && (Date.parse(f.em) || 0) >= ultimoMovimentoDoLead(lead)) return f.item;
   switch (lead.status) {
-    case 'aberto': return passoFeito(lead, passoPorId('primeiro')) ? 'primeiro' : 'aberto';
+    // a mensagem do primeiro contato já saiu: o lead está em Primeiro contato (acima de R$ 500 a ligação continua pendente, como tarefa)
+    case 'aberto': return passoFeito(lead, passoPorId('primeiro')) || contatosDoPasso(lead, 'primeiro').some((e) => e.canal === 'whatsapp') ? 'primeiro' : 'aberto';
     case 'sem_retorno': {
       const p = proximoPasso(lead, hoje);
       return p ? passoPorId(p.passo.id).item : 'semretorno';

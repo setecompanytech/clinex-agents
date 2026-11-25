@@ -393,6 +393,14 @@ void hojeDe;
   await teste('envio por modelo: paciente Agendado pode receber mensagem avulsa (sem passo do guia)', () => {
     assert.equal(checarEnvio(est, ag, 'primeiro_contato', agora), null);
   });
+  await teste('envio por modelo: o mesmo telefone não recebe o mesmo modelo duas vezes no dia, mesmo em outro orçamento', () => {
+    const outro = criarLead({ nome: 'Andrea', telefone: '91982797488', valor: 90, d0: '2026-11-10' }, em('2026-11-10', '09:00'));
+    const jaFoi = criarLead({ nome: 'Andrea', telefone: '(91) 98279-7488', valor: 70, d0: '2026-11-10' }, em('2026-11-10', '09:00'));
+    jaFoi.eventos.push({ id: 'x1', quando: em(dia, '09:00').toISOString(), tipo: 'contato', canal: 'whatsapp', texto: 'WhatsApp · modelo primeiro_contato (pt_BR)' });
+    const e2 = { leads: [outro, jaFoi] } as never as Estado;
+    assert.equal(checarEnvio(e2, outro, 'primeiro_contato', agora)?.codigo, 'duplicado');
+    assert.equal(checarEnvio(e2, outro, 'nova_tentativa', agora), null, 'outro modelo pode');
+  });
   await teste('envio por modelo: convertido continua bloqueado', () => {
     const conv = criarLead({ nome: 'Caio', telefone: '91982797489', valor: 100, d0: '2026-11-10' }, em('2026-11-10', '09:00'));
     conv.status = 'convertido_ativo';
