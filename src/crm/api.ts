@@ -53,7 +53,9 @@ function automatizarTodos(agora: Date) {
   if (mudou) salvar();
   return mudou;
 }
-setInterval(() => { try { automatizarTodos(new Date()); } catch (e) { console.error('[crm] automação falhou:', (e as Error).message); } }, 10 * 60_000).unref();
+// Na Vercel não há relógio por instância: a instância parada guarda uma cópia velha e, ao mexer nela, gravava por cima do que a equipe fez.
+// Lá a automação roda nas chamadas (que releem o banco antes) e no cron.
+if (!process.env.VERCEL) setInterval(() => { try { automatizarTodos(new Date()); } catch (e) { console.error('[crm] automação falhou:', (e as Error).message); } }, 10 * 60_000).unref();
 
 const resumoDoLead = (l: Lead, agora: Date) => {
   const { eventos, ...resto } = l;

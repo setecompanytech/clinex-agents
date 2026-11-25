@@ -28,7 +28,8 @@ export async function rodarAgora(): Promise<{ rodada?: Rodada; pulou?: string }>
     if (leadsDosNoShow(estado, new Date()).criados) { salvar(); await gravarAntesDeResponder(); }
     const rodada = await rodarDisparoAuto(estado, new Date(), { gravar: async () => { salvar(); await gravarAntesDeResponder(); } });
     // o que a IA fez (contato enviado) já leva o card para a coluna certa, sem esperar alguém abrir a tela
-    if (rodada.enviados > 0) { const s = alinharCardsELeads(estado, new Date()); if (s.leads + s.cards) { salvar(); await gravarAntesDeResponder(); } }
+    // a rodada demora (um envio por vez): antes de mover cards, relê o banco, para não trabalhar sobre o que a equipe já mudou
+    if (rodada.enviados > 0) { await atualizarLeadsDoBanco(); const s = alinharCardsELeads(estado, new Date()); if (s.leads + s.cards) { salvar(); await gravarAntesDeResponder(); } }
     return { rodada };
   } finally { emAndamento = false; }
 }

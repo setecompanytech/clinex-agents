@@ -151,6 +151,46 @@ export async function carregarDoBanco(estado: Estado): Promise<number> {
 }
 
 let fila: Promise<unknown> = Promise.resolve();
+/** Quantas gravações já foram feitas: a releitura que começou antes de uma delas é descartada (traria a versão antiga por cima). */
+let escritas = 0;
+
+/**
+ * Trava contra "o card voltou para onde estava": o histórico de um card e os eventos de um lead só CRESCEM. Se o banco tem um movimento
+ * ou um evento que a memória desta instância não tem, a memória está velha (outra instância da Vercel mexeu depois): a linha NÃO é
+ * gravada por cima; a memória passa a ser a do banco.
+ */
+async function semSobrescreverNovidade(c: ColAny, mudadas: [string, { l: Linha; s: string }][], estado: Estado, antes: Map<string, string>): Promise<[string, { l: Linha; s: string }][]> {
+  const card = c.tabela === 'pipeline_card_assignments', col = card ? 'card_id' : 'id';
+  const ids = [...new Set(mudadas.map(([, v]) => String(v.l[col])))];
+  const noDb = new Map<string, Linha>();
+  for (let i = 0; i < ids.length; i += 100) {
+    const linhas = await sbLer<Linha>(c.tabela, { filtro: { [col]: `in.(${ids.slice(i, i + 100).map((x) => `"${x}"`).join(',')})` } });
+    for (const r of linhas) noDb.set(chaveDe(c, r), r);
+  }
+  const velha = (banco: Linha, memoria: Linha): boolean => {
+    if (card) {
+      const tem = new Set(((memoria.historico as { em: string }[]) ?? []).map((m) => Date.parse(m.em)));
+      return ((banco.historico as { em: string }[]) ?? []).some((m) => !tem.has(Date.parse(m.em)));
+    }
+    const ev = (r: Linha) => ((r.dados as { eventos?: { id: string }[] } | undefined)?.eventos ?? []);
+    const tem = new Set(ev(memoria).map((e) => e.id));
+    return ev(banco).some((e) => !tem.has(e.id));
+  };
+  const lista = (c.lista as (e: Estado) => Record<string, unknown>[])(estado);
+  const boas: [string, { l: Linha; s: string }][] = [];
+  let barradas = 0;
+  for (const par of mudadas) {
+    const [k, v] = par, b = noDb.get(k);
+    if (!b || !velha(b, v.l)) { boas.push(par); continue; }
+    barradas++;
+    const doBanco = c.deLinha(b) as Record<string, unknown>;
+    const obj = lista.find((x) => chaveDe(c, (c.paraLinha as (x: unknown) => Linha)(x)) === k);
+    if (obj) { for (const p of Object.keys(obj)) delete obj[p]; Object.assign(obj, doBanco); }
+    antes.set(k, JSON.stringify((c.paraLinha as (x: unknown) => Linha)(obj ?? doBanco)));
+  }
+  if (barradas) console.warn(`[crm] ${barradas} linha(s) de ${c.tabela} não gravadas: o banco tem uma versão mais nova (a memória foi atualizada).`);
+  return boas;
+}
 let timer: NodeJS.Timeout | null = null;
 let ultimoErro: string | null = null;
 export const erroDoBanco = () => ultimoErro;
@@ -165,9 +205,11 @@ export function gravarMudancas(estado: Estado): Promise<unknown> {
         const antes = noBanco.get(c.tabela) ?? new Map<string, string>();
         const agora = new Map<string, { l: Linha; s: string }>();
         for (const x of (c.lista as (e: Estado) => unknown[])(estado)) { const l = (c.paraLinha as (x: unknown) => Linha)(x); agora.set(chaveDe(c, l), { l, s: JSON.stringify(l) }); }
-        const mudadas = [...agora].filter(([k, v]) => antes.get(k) !== v.s);
+        let mudadas = [...agora].filter(([k, v]) => antes.get(k) !== v.s);
+        if (mudadas.length && (c.tabela === 'pipeline_card_assignments' || c.tabela === 'crm_leads')) mudadas = await semSobrescreverNovidade(c, mudadas, estado, antes);
         if (mudadas.length) {
           await sbGravar(c.tabela, mudadas.map(([, v]) => v.l), c.chave.join(','));
+          escritas++;
           for (const [k, v] of mudadas) antes.set(k, v.s);
         }
         const sumiram = [...antes.keys()].filter((k) => !agora.has(k));
@@ -238,7 +280,9 @@ export async function atualizarLeads(estado: Estado, ttlMs = 1500) {
     if (ultimoErro) return;
     try {
       const cols = FRESCAS().filter((c) => !ausentes.has(c.tabela));
+      const antesDeLer = escritas;
       const lidas = await Promise.all(cols.map((c) => sbLer<Linha>(c.tabela, { ordem: c.ordem })));
+      if (escritas !== antesDeLer) return; // gravamos enquanto líamos: o que veio pode ser anterior à gravação
       if (cols.some((c) => temPendencia(c, estado))) return; // alguém mexeu enquanto lia: tenta de novo na próxima
       cols.forEach((c, k) => {
         const novos = lidas[k].map((r) => c.deLinha(r));

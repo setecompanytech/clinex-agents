@@ -106,7 +106,8 @@ await teste('mudar 1 card grava só 1 linha', async () => {
   pedidos.length = 0;
   moverCard(est.pipelines.atribuicoes[0], f, f.stages[5].id, AGORA, { por: 'Ana' });
   await gravarMudancas(est);
-  assert.deepEqual(reqs().map((p) => `${p.metodo} ${p.tabela} ${p.linhas}`), ['POST pipeline_card_assignments 1']);
+  // uma leitura de conferência (não gravar por cima de versão mais nova) e uma gravação
+  assert.deepEqual(reqs().map((p) => `${p.metodo} ${p.tabela} ${p.linhas}`), ['GET pipeline_card_assignments 0', 'POST pipeline_card_assignments 1']);
   assert.equal(((tab('pipeline_card_assignments').get(`${f.id}|${uuid(1)}`)!.historico as unknown[]) ?? []).length, 2);
 });
 await teste('carregar do banco devolve o mesmo sistema (datas e jsonb normalizados)', async () => {
@@ -221,6 +222,30 @@ await teste('card movido por outra instância: a releitura mostra a coluna nova 
   assert.equal(tab('lead_extras').get(card.cardId)?.responsavel, 'Bruno', 'e foi para o banco');
   pedidos.length = 0; await gravarMudancas(c);
   assert.equal(reqs('POST').length + reqs('DELETE').length, 0, 'depois da releitura não há nada a regravar');
+});
+await teste('instância com cópia velha NÃO grava por cima: o card e o lead que a equipe mexeu não voltam para a origem', async () => {
+  const c = novo(); c.usuarios = []; await carregarDoBanco(c);
+  const card = c.pipelines.atribuicoes[1]; const chave = `${card.funilId}|${card.cardId}`;
+  const [e1, e2] = f.stages.filter((e) => e.id !== card.stageId).map((e) => e.id);
+  const linha = tab('pipeline_card_assignments').get(chave)!;
+  // a equipe move o card em OUTRA instância (direto no banco)
+  tab('pipeline_card_assignments').set(chave, { ...linha, stage_id: e1, entered_at: '2026-11-02T14:00:00+00:00', historico: [...(linha.historico as unknown[]), { stageId: e1, em: '2026-11-02T14:00:00.000Z', manual: true, por: 'Vanuza' }] });
+  // esta instância, sem reler, mexe no mesmo card (cópia velha) e grava
+  moverCard(card, f, e2, new Date('2026-11-02T15:00:00Z'), { por: 'CRM (lead)', manual: false, forcar: true });
+  await gravarMudancas(c);
+  const depois = tab('pipeline_card_assignments').get(chave)!;
+  assert.equal(depois.stage_id, e1, 'o movimento da equipe continua no banco');
+  assert.ok((depois.historico as { por?: string }[]).some((m) => m.por === 'Vanuza'), 'o histórico da equipe não foi apagado');
+  assert.equal(card.stageId, e1, 'a memória desta instância foi atualizada com a versão nova');
+  pedidos.length = 0; await gravarMudancas(c);
+  assert.equal(reqs('POST').length, 0, 'nada fica pendente para regravar');
+  // lead: o mesmo vale para os eventos (um envio da IA não pode sumir)
+  const lead = criarLead({ nome: 'Paciente Trava', telefone: '91981628017', valor: 100, d0: '2026-11-01' }, AGORA); c.leads.push(lead); await gravarMudancas(c);
+  const lv = tab('crm_leads').get(lead.id)!; const dados = lv.dados as { eventos: unknown[]; nome: string };
+  tab('crm_leads').set(lead.id, { ...lv, dados: { ...dados, eventos: [...dados.eventos, { id: 'envio-ia', quando: '2026-11-02T14:00:00.000Z', tipo: 'contato', canal: 'whatsapp', auto: true, texto: 'WhatsApp' }] } });
+  lead.obs = 'mudança feita numa cópia velha'; await gravarMudancas(c);
+  assert.ok((tab('crm_leads').get(lead.id)!.dados as { eventos: { id: string }[] }).eventos.some((e) => e.id === 'envio-ia'), 'o envio registrado pela outra instância continua');
+  assert.ok(lead.eventos.some((e) => e.id === 'envio-ia'), 'e agora esta instância também o vê');
 });
 console.log = log;
 console.log(`${ok} testes passaram.`);
