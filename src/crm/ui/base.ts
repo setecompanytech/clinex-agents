@@ -174,15 +174,21 @@ function lead(id) { var L = S.D ? S.D.leads : []; for (var i = 0; i < L.length; 
 var CARGA_ASSINATURA = '';
 function carregar(auto) {
   return api('GET', '/estado').then(function (d) {
-    var ass = ''; try { ass = JSON.stringify(d); } catch (e) { ass = ''; }
+    /* compara só o que é DADO: o relógio do servidor e os textos que mudam sozinhos com o tempo (ritmo por hora, "há X min")
+       faziam a atualização de fundo achar que tudo mudou e redesenhar a tela a cada 45 s (a página piscava) */
+    var ass = ''; try { ass = JSON.stringify({ l: d.leads, t: d.tarefas, c: d.contagens, a: d.atendentes, h: d.hoje, z: d.armazenamento && d.armazenamento.erro }); } catch (e) { ass = ''; }
     var igual = !!ass && ass === CARGA_ASSINATURA; CARGA_ASSINATURA = ass;
     if (auto === true && igual && S.D) return d;
     if (auto === true && S.aba === 'iamanager' && S.D) { S.D = d; return d; } /* o IA Manager tem os próprios dados e a própria atualização: não refaz a tela por causa dos leads */
-    S.D = d; S.AUstale = true; S.FVstale = true; S.ANfresh = {}; S.EXfresh = {}; S.RPfresh = {}; desenhar(); if (S.leadAberto && typeof atualizarGaveta === 'function') atualizarGaveta(); return d; })
+    S.D = d; S.AUstale = true; S.FVstale = true; S.ANfresh = {}; S.EXfresh = {}; S.RPfresh = {}; if (auto === true) semAnimar(); desenhar(auto === true); if (S.leadAberto && typeof atualizarGaveta === 'function') atualizarGaveta(); return d; })
     .catch(function (e) { aviso('Não consegui carregar o CRM: ' + e.message, 'erro'); throw e; });
 }
 /* última vez que a pessoa mexeu na tela (clique, tecla, toque ou rolagem): a atualização automática de fundo espera ela parar, para nunca fechar ou apagar o que está sendo feito */
 var TOQUE = 0;
+/* atualização de fundo não anima: sem entrada de cartões e gráficos, os dados só trocam no lugar */
+var SEM_ANIM_T = null;
+function semAnimar() { document.body.classList.add('sem-anim'); clearTimeout(SEM_ANIM_T); SEM_ANIM_T = setTimeout(function () { document.body.classList.remove('sem-anim'); }, 5000); }
+['pointerdown', 'keydown'].forEach(function (ev) { document.addEventListener(ev, function () { document.body.classList.remove('sem-anim'); }, { passive: true, capture: true }); });
 ['pointerdown', 'keydown', 'touchstart', 'wheel'].forEach(function (ev) { document.addEventListener(ev, function () { TOQUE = Date.now(); }, { passive: true, capture: true }); });
 function ocupado() { return Date.now() - TOQUE < 12000; }
 /* true enquanto alguém está com o cursor num campo de texto: a atualização automática espera, para não apagar o que está sendo digitado */
