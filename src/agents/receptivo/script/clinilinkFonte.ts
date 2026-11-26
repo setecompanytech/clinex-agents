@@ -180,7 +180,7 @@ async function servicoDaProfissional(p: ProfMerged): Promise<Descoberta> {
     if (!termos.length) termos = ['consulta'];
   }
   const cands = new Map<string, Procedimento>();
-  for (const c of p.clinicas) for (const termo of termos) for (const pr of await listProcedimentos(c.id, termo).catch(() => [])) cands.set(pr.id, pr);
+  for (const c of p.clinicas) for (const termo of termos) for (const pr of await listProcedimentos(c.id, termo).catch(() => [])) if (!soDeCombo(pr)) cands.set(pr.id, pr);
   const ordenados = [...cands.values()].sort((a, b) => pontuar(b) - pontuar(a)).slice(0, esp ? 4 : 12);
   for (const proc of ordenados) {
     // só conta o procedimento se a pessoa realmente atende ele em alguma unidade
@@ -251,11 +251,17 @@ function simPalavra(q: string, n: string): number {
 
 type ItemCatalogo = { cand: Cand; palavras: string[] };
 /** Catálogo inteiro que o chatbot pode agendar (todas as unidades). Fica em memória por 10 min (vazio, 20 s). */
+/** Procedimento que só existe para compor combo ("RAIO-X (COMBO)", "ULTRASSONOGRAFIA (COMBO)"...): nunca é oferecido nem agendado como
+ * serviço avulso. Caso real 25/11/2026: o paciente disse "somente raio x" e a Amanda agendou o RAIO-X (COMBO). Os combos usam os itens
+ * deles pela lista de combos, não por esta busca. */
+const soDeCombo = (p: { nome: string }) => /\(\s*combo\s*\)/i.test(p.nome);
+
 async function catalogo(): Promise<ItemCatalogo[]> {
   const clinicas = await listClinicas();
   const mapa = new Map<string, Cand>();
   await Promise.all(clinicas.map(async (c) => {
     for (const p of await listProcedimentos(c.id, '').catch(() => [])) {
+      if (soDeCombo(p)) continue;
       const k = mapa.get(p.id) ?? { proc: p, clinicas: [] };
       k.clinicas.push(c); mapa.set(p.id, k);
     }
@@ -868,7 +874,7 @@ async function examesDoCatalogo(): Promise<ExameCat[]> {
   const mapa = new Map<string, ExameCat>();
   for (const c of await listClinicas()) {
     for (const p of await listProcedimentos(c.id, '').catch(() => [] as Procedimento[])) {
-      if (!ehExameDoCatalogo(p)) continue;
+      if (!ehExameDoCatalogo(p) || soDeCombo(p)) continue;
       const x = mapa.get(p.id) ?? { id: p.id, nome: p.nome.replace(/\s+/g, ' ').trim(), categoria: p.categoria, precos: {} };
       const v = precoDe(p);
       if (v !== undefined) x.precos[nomeUnidade(c)] = v;
@@ -1026,6 +1032,15 @@ export const fonteClinilink: Fonte = {
       const itens = (await catalogo()).filter((i) => /^usg (transvaginal|pelvica)$/.test(norm(i.cand.proc.nome).replace(/\s+/g, ' ').trim()));
       if (itens.length) { for (const i of itens) conhecidos.set(i.cand.proc.id, i.cand); return { opcoes: itens.map((i) => ({ id: i.cand.proc.id, nome: titulo(i.cand.proc.nome) })), intro: 'O ultrassom ginecológico é um exame à parte (não é feito na consulta). Temos estas opções:', pergunta: 'Qual delas o pedido médico indica?' }; }
     }
+    // "raio x" sem dizer de quê (caso real 25/11: virou RAIO-X (COMBO); depois, RX de tórax por conta própria): são 70+ tipos, o paciente diz qual
+    if (buscando && !forte && /\b(raio ?-?x|rx|radiograf\w*)\b/.test(t)) {
+      const resto = t.replace(/\b(raio ?-?x|rx|radiograf\w*|somente|so|apenas|um|uma|o|a|os|as|de|do|da|quero|queria|gostaria|fazer|agendar|marcar|exame|exames|preciso|vcs|voces|tem|fazem|faz|e|pra|para|valor|quanto|custa|bom|dia|tarde|noite|oi|ola)\b/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
+      if (!resto) {
+        const dem = await demandaPorProcedimento();
+        const rxs = (await catalogo()).filter((i) => /^(rx|raio)/.test(norm(i.cand.proc.nome))).sort((a, b) => (dem.get(b.cand.proc.id) ?? 0) - (dem.get(a.cand.proc.id) ?? 0)).slice(0, 5);
+        if (rxs.length) { for (const i of rxs) conhecidos.set(i.cand.proc.id, i.cand); return { opcoes: rxs.map((i) => ({ id: i.cand.proc.id, nome: titulo(i.cand.proc.nome) })), intro: 'Temos vários tipos de raio-X (cada parte do corpo é um exame). Os mais pedidos:', pergunta: 'De qual parte do corpo é o raio-X (ex.: tórax, coluna, mão, joelho)? Se tiver o pedido médico, pode mandar a foto.' }; }
+      }
+    }
     // "tenho um pedido médico com exames": é o pedido de exames (antes de procurar uma pessoa pelo "com ...")
     if (buscando && !forte && /\b(pedido (medico|de exames?)|requisicao de exames?|solicitacao de exames?|orcamento de exames?|orcar (os )?exames?)\b/.test(t)) return { pedirPedido: true };
     // serviço EXTERNO pedido pelo nome ("tomografia de abdome", "ecocardiograma"): não vira ultrassom só porque cita o mesmo órgão. Se o catálogo do chatbot NÃO tem um
@@ -1078,6 +1093,7 @@ export const fonteClinilink: Fonte = {
       const listas = await Promise.all(clinicas.map(async (c) => ({ c, procs: await listProcedimentos(c.id, termo) })));
       const mapa = new Map<string, Cand>();
       for (const { c, procs } of listas) for (const p of procs) {
+        if (soDeCombo(p)) continue;
         const k = mapa.get(p.id) ?? { proc: p, clinicas: [] };
         k.clinicas.push(c); mapa.set(p.id, k);
       }
