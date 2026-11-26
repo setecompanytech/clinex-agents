@@ -51,7 +51,7 @@ export type Lead = {
   /** pediu para não receber mais mensagens: a IA de disparo nunca mais escreve para este lead */
   semDisparoAuto?: boolean;
   /** card do funil de Orçamentos (Clinilink) que originou este lead, quando veio de lá */
-  cardId?: string; fonte?: 'clinilink' | 'noshow';
+  cardId?: string; fonte?: 'clinilink' | 'noshow' | 'site'; // site: deixou nome e telefone no popup do WhatsApp do site (fora do disparo automático)
   /** a equipe arrastou o card para outra coluna de trabalho: o Fluxo passa a mostrar o lead nela, até o próximo movimento do lead (contato, resposta, mudança de status) */
   itemForcado?: { item: string; em: string };
   criadoEm: string;

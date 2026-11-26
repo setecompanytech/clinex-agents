@@ -198,6 +198,8 @@ export function checagens(estado: Estado, l: Lead, agora: Date, cfg: ConfigAuto,
   const hoje = hojeDe(agora), t = horaDe(agora);
   const sai = (extra: Partial<{ passo: PassoDef; modelo: string; parametros: string[]; msg: number; aplicavel: boolean }> = {}) => ({ checks, aplicavel: true, ...extra });
   if (l.demo) { add('lead', 'Lead real', false, 'Lead de exemplo: a IA nunca envia'); return { checks, aplicavel: false as const }; }
+  // contato que veio do popup do WhatsApp do site: a pessoa já está indo para o WhatsApp; o primeiro contato é da equipe, nunca da IA de disparo
+  if (l.fonte === 'site') { add('lead', 'Lead real', false, 'Lead do site (popup do WhatsApp): a equipe faz o primeiro contato, a IA não envia'); return { checks, aplicavel: false as const }; }
   add('lead', 'Lead real', true, 'Lead do CRM');
   const px = proximoPasso(l, hoje);
   if (!px) { add('passo', 'Tem um passo da cadência', false, 'Sem próximo passo (lead encerrado ou fora da cadência)'); return { checks, aplicavel: false as const }; }

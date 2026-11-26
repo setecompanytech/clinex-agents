@@ -1,4 +1,4 @@
-import { Router, type Request } from 'express';
+import express, { Router, type Request } from 'express';
 import { waitUntil } from '@vercel/functions';
 import { campanhaPorCodigo, gravarEvento, NUMERO_WHATSAPP, SITE_PADRAO, textoWhats, visitante } from './campanhas.js';
 
@@ -19,6 +19,61 @@ const ua = (req: Request) => String(req.headers['user-agent'] ?? '');
 const base = (req: Request) => `${String(req.headers['x-forwarded-proto'] ?? req.protocol).split(',')[0]}://${req.headers['x-forwarded-host'] ?? req.get('host')}`;
 const semCache = { 'Cache-Control': 'no-store, max-age=0', 'X-Robots-Tag': 'noindex, nofollow', 'Referrer-Policy': 'no-referrer-when-downgrade' };
 const registrar = (p: Promise<unknown>) => waitUntil(p.catch((e) => console.error('[aquisicao] não gravei o evento:', (e as Error).message)));
+
+// ------------------------------------------------------------------------------------------------ lead do popup do WhatsApp do site
+// Pedido do usuário (26/11/2026): o botão de WhatsApp do site abre um popup com primeiro nome e telefone antes de abrir o WhatsApp,
+// e o contato entra no CRM (lead com origem "Site", fonte 'site': fora da IA de disparo; a equipe faz o primeiro contato).
+const ORIGENS_SITE = /^https?:\/\/((www\.)?clinex\.com\.br|clinex-novo-site(-[a-z0-9-]+)?\.vercel\.app|localhost(:\d+)?)$/i;
+const tentativasLead = new Map<string, number[]>(); // anti-abuso simples por IP (memória da instância)
+function cors(req: Request, res: import('express').Response) {
+  const o = String(req.headers.origin ?? '');
+  if (ORIGENS_SITE.test(o)) { res.setHeader('Access-Control-Allow-Origin', o); res.setHeader('Vary', 'Origin'); }
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Max-Age', '86400');
+}
+router.options('/lead', (req, res) => { cors(req, res); res.status(204).end(); });
+// o site manda como text/plain (pedido simples: sem pré-verificação de CORS e confiável com keepalive, mesmo abrindo o WhatsApp logo em seguida)
+router.post('/lead', express.text({ type: 'text/plain', limit: '4kb' }), async (req, res) => {
+  cors(req, res);
+  res.set(semCache);
+  if (!ORIGENS_SITE.test(String(req.headers.origin ?? ''))) return res.status(403).json({ ok: false, erro: 'origem' });
+  let b: Record<string, unknown> = {};
+  try { b = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body ?? {}); } catch { return res.status(400).json({ ok: false, erro: 'corpo' }); }
+  if (b.site) return res.json({ ok: true }); // campo-isca: robô preencheu, finge que deu certo
+  const nome = String(b.nome ?? '').trim().replace(/\s+/g, ' ').split(' ')[0].slice(0, 40);
+  let tel = String(b.telefone ?? '').replace(/\D/g, '');
+  if ((tel.length === 12 || tel.length === 13) && tel.startsWith('55')) tel = tel.slice(2);
+  if (nome.length < 2 || !/^[\p{L}'’-]+$/u.test(nome)) return res.status(400).json({ ok: false, erro: 'nome', mensagem: 'Informe o seu primeiro nome.' });
+  if (!/^\d{2}9?\d{8}$/.test(tel)) return res.status(400).json({ ok: false, erro: 'telefone', mensagem: 'Informe o telefone com DDD.' });
+  const quem = visitante(ip(req), ua(req)), agora = Date.now();
+  const recentes = (tentativasLead.get(quem) ?? []).filter((t) => agora - t < 10 * 60_000);
+  if (recentes.length >= 5) return res.status(429).json({ ok: false, erro: 'limite', mensagem: 'Muitas tentativas. Tente de novo em alguns minutos.' });
+  tentativasLead.set(quem, [...recentes, agora]);
+  const txt = (v: unknown, n: number) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
+  const pagina = txt(b.pagina, 120), servico = txt(b.servico, 120), cmp = txt(b.cmp, 12).toUpperCase().replace(/[^A-Z0-9]/g, '');
+  try {
+    const { pronto, tentarVoltarAoBanco, bancoFora, atualizarLeadsDoBanco, estado, salvar, gravarAntesDeResponder } = await import('../crm/banco.js');
+    const { criarLead } = await import('../crm/motor.js');
+    await pronto(); await tentarVoltarAoBanco();
+    if (bancoFora()) return res.status(503).json({ ok: false, erro: 'banco' });
+    await atualizarLeadsDoBanco();
+    const titulo = nome.charAt(0).toLocaleUpperCase('pt-BR') + nome.slice(1).toLocaleLowerCase('pt-BR');
+    // o mesmo telefone que já deixou o contato nos últimos 3 dias não vira outro lead
+    const ja = estado.leads.find((l) => l.fonte === 'site' && l.telefone.replace(/^55/, '') === tel && agora - Date.parse(l.criadoEm) < 3 * 86_400_000);
+    if (!ja) {
+      const lead = criarLead({ nome: titulo, telefone: tel, valor: 0, exame: servico || 'Contato pelo WhatsApp do site', origem: 'Site', obs: ['Deixou nome e telefone no popup do WhatsApp do site', pagina && `página ${pagina}`, cmp && `campanha ${cmp}`].filter(Boolean).join(' · ') }, new Date());
+      lead.fonte = 'site';
+      estado.leads.unshift(lead);
+      salvar();
+      await gravarAntesDeResponder();
+    }
+    res.json({ ok: true, novo: !ja });
+  } catch (e) {
+    console.error('[aquisicao] lead do site falhou:', (e as Error).message);
+    res.status(500).json({ ok: false, erro: 'gravar' });
+  }
+});
 
 router.get('/site.js', (req, res) => {
   res.set({ 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'public, max-age=900', 'Access-Control-Allow-Origin': '*' });
