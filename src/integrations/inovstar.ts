@@ -96,7 +96,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
  * A resposta real difere da doc: `id` (não `_id`), `timestamp` (não `createdAt`) e `text` pode vir como `{ text }`. */
 export async function getHistory(attendanceId: string, limit = 30) {
   const q = new URLSearchParams({ limit: String(limit), lightweight: 'true' });
-  const r = await request<{ data: { messages: any[] } }>('GET', `/attendance/${attendanceId}/history?${q}`);
+  const r = await request<{ data: { messages: any[]; attendance?: { status?: string } } }>('GET', `/attendance/${attendanceId}/history?${q}`);
   const messages: InovstarMessage[] = r.data.messages.map((m) => ({
     ...m,
     _id: String(m.id ?? m._id),
@@ -106,7 +106,8 @@ export async function getHistory(attendanceId: string, limit = 30) {
     isWhisper: m.isWhisper ?? m.isPrivate,
   }));
   messages.sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt));
-  return { messages };
+  // status do atendimento: 'pending' = na fila (sem dono; é assim que a Amanda atende), 'open' = alguém da equipe assumiu, 'closed'/'survey' = finalizado
+  return { messages, status: r.data.attendance?.status as string | undefined };
 }
 
 /** Texto livre; clientMessageId garante idempotência do lado da Inovstar. */

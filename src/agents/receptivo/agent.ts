@@ -284,7 +284,7 @@ async function processar(ev: MessageReceivedEvent) {
   const trava = await travarAtendimento(ev.attendanceId);
   if (!trava) return skip('a resposta anterior deste atendimento demorou demais; a próxima mensagem dele retoma');
   try {
-  const { messages: history } = await getHistory(ev.attendanceId, 80); // a jornada inteira (o padrão de 30 mensagens cortava o começo das conversas longas)
+  const { messages: history, status: statusInicial } = await getHistory(ev.attendanceId, 80); // a jornada inteira (o padrão de 30 mensagens cortava o começo das conversas longas)
   if (history.some((m) => m._id === ev.messageId && ehReacao(m))) return skip('reação do paciente (emoji numa mensagem): não é mensagem, a Amanda não responde');
   const lastIn = [...history].reverse().find((m) => m.direction === 'in' && m.type !== 'system' && !ehReacao(m));
   if (lastIn && lastIn._id !== ev.messageId) return skip(`chegou mensagem mais nova (${lastIn._id} != ${ev.messageId}); o webhook dela responde`);
@@ -366,7 +366,7 @@ async function processar(ev: MessageReceivedEvent) {
   // contato do atendimento para o monitor de conversas (Redis, nunca nos logs)
   void guardarContato(ev.attendanceId, { contato: ev.contactName, telefone: soTelefone(ev.to) }).catch(() => {});
 
-  if (usaIA(ev.to)) return await responderComIA(ev, history, inicio, naFilaDaEquipe, nome, titulosAmanda);
+  if (usaIA(ev.to)) return await responderComIA(ev, history, inicio, naFilaDaEquipe, nome, titulosAmanda, statusInicial);
 
   // Roteiro fixo (sem IA): reprocessa as mensagens do paciente da jornada atual e responde a última.
   // A jornada recomeça depois da última mensagem de confirmação (MARCA_FIM) e é limitada a 12 horas.
@@ -553,7 +553,7 @@ async function processar(ev: MessageReceivedEvent) {
 /** A conversa deste telefone é atendida pela Amanda IA? (modo ia para todos, ou o número está no piloto) */
 export const usaIA = (phone: string) => Boolean(env.anthropicKey || env.openaiKey) && (env.mode === 'ia' || env.iaNumeros.some((n) => phoneKey(n) === phoneKey(phone)));
 
-async function responderComIA(ev: MessageReceivedEvent, history: InovstarMessage[], inicio: number, naFilaDaEquipe: boolean, nome: string, titulos: string[]) {
+async function responderComIA(ev: MessageReceivedEvent, history: InovstarMessage[], inicio: number, naFilaDaEquipe: boolean, nome: string, titulos: string[], statusInicial?: string) {
   const tag = `[${ev.attendanceId}]`;
   const mem = estadoAtivo() ? await lerMemoriaIA<MemoriaIA>(ev.attendanceId) : null;
   // a própria IA passou a conversa para a equipe: a equipe segue, a IA não retoma sozinha
@@ -606,7 +606,10 @@ async function responderComIA(ev: MessageReceivedEvent, history: InovstarMessage
   const urgente = Boolean(a.handoff?.urgente);
   const mensagemMaisNova = async (): Promise<string | undefined> => {
     try {
-      const { messages } = await getHistory(ev.attendanceId, 15);
+      const { messages, status } = await getHistory(ev.attendanceId, 15);
+      // alguém da equipe ASSUMIU (ou finalizou) enquanto ela preparava a resposta, mesmo sem escrever nada (caso real 26/11: a Alexya assumiu
+      // às 10h46 e a Amanda ainda mandou dois balões às 10h47). Só vale se a conversa estava na fila quando ela começou.
+      if (statusInicial === 'pending' && status && status !== 'pending') return `assumido:${status}`;
       const iMsg = messages.findIndex((m) => m._id === ev.messageId);
       const equipe = messages.slice(iMsg >= 0 ? iMsg + 1 : 0).find((m) => ehMensagemDaEquipe(m, usuarioDaIntegracao(messages)));
       if (equipe) return `equipe:${equipe._id}`; // alguém da equipe respondeu enquanto ela preparava a resposta
@@ -622,11 +625,12 @@ async function responderComIA(ev: MessageReceivedEvent, history: InovstarMessage
   if (naFilaDaEquipe && !a.handoff && env.agentSectorId) await transferir(env.agentSectorId, 'A Amanda retomou o atendimento porque o paciente voltou a escrever.');
   const baloes = dividirEmBaloes(texto);
   let enviouTudo = true;
+  let equipeEntrou = false; // alguém da equipe assumiu/escreveu no meio: nada de transferir nem finalizar (tiraria a conversa da mão dela)
   for (let i = 0; i < baloes.length; i++) {
     await pareceDigitando(inicio, urgente, baloes[i], i === 0);
     // o paciente escreveu de novo enquanto ela "digitava": essa resposta nasceu velha (a agendada já foi gravada e segue na memória)
     const nova = urgente || a.agendou ? undefined : await mensagemMaisNova();
-    if (nova) { enviouTudo = false; evt('ignorado', { motivo: `IA: chegou mensagem nova (${nova}) enquanto a resposta era enviada: ${i} de ${baloes.length} balões` }); break; }
+    if (nova) { enviouTudo = false; if (/^(assumido|equipe):/.test(nova)) equipeEntrou = true; evt('ignorado', { motivo: /^assumido:/.test(nova) ? `IA: alguém da equipe assumiu o atendimento enquanto a resposta era preparada (${i} de ${baloes.length} balões enviados): a Amanda sai` : `IA: chegou mensagem nova (${nova}) enquanto a resposta era enviada: ${i} de ${baloes.length} balões` }); break; }
     await sendText({ channelId: ev.channelId, to: ev.to, attendanceId: ev.attendanceId, text: i === 0 ? withTitle(baloes[i]) : baloes[i], clientMessageId: i === 0 ? `agente-receptivo-${ev.messageId}` : `agente-receptivo-${ev.messageId}-${i + 1}` });
   }
   // notas internas (horário comercial: a confirmação do agendamento, só para a equipe ver) — antes de passar para a equipe
@@ -634,7 +638,7 @@ async function responderComIA(ev: MessageReceivedEvent, history: InovstarMessage
     try { await sendNote({ channelId: ev.channelId, to: ev.to, attendanceId: ev.attendanceId, text: nota, clientMessageId: `agente-nota-${ev.messageId}-${i + 1}` }); }
     catch (e) { evt('erro', { mensagem: `IA: não consegui gravar a nota interna: ${(e as Error).message.slice(0, 160)}` }); }
   }
-  if (a.handoff && env.humanSectorId && !naFilaDaEquipe) await transferir(env.humanSectorId, a.handoff.motivo);
+  if (a.handoff && env.humanSectorId && !naFilaDaEquipe && !equipeEntrou) await transferir(env.humanSectorId, a.handoff.motivo);
   // o paciente encerrou ("só isso", "obrigado, tchau"): depois da despedida, o atendimento é finalizado na Inovstar (como o botão Finalizar)
   if (a.encerrar && !a.handoff && enviouTudo) {
     try { await closeAttendance(ev.attendanceId); evt('ignorado', { motivo: 'IA: paciente encerrou; atendimento finalizado na Inovstar' }); }

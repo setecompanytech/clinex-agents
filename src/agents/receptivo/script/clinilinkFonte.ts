@@ -255,6 +255,8 @@ type ItemCatalogo = { cand: Cand; palavras: string[] };
  * serviço avulso. Caso real 25/11/2026: o paciente disse "somente raio x" e a Amanda agendou o RAIO-X (COMBO). Os combos usam os itens
  * deles pela lista de combos, não por esta busca. */
 const soDeCombo = (p: { nome: string }) => /\(\s*combo\s*\)/i.test(p.nome);
+/** Exame que só vale quando o paciente cita o nome dele: "sangue" sozinho não é SANGUE OCULTO (é de fezes), plaqueta não é AGREGAÇÃO PLAQUETÁRIA. */
+const pedeEspecifico = (p: { nome: string }, t: string) => (/sangue oculto/i.test(p.nome) && !/oculto|fezes/.test(t)) || (/agrega/i.test(p.nome) && !/agrega/.test(t));
 
 async function catalogo(): Promise<ItemCatalogo[]> {
   const clinicas = await listClinicas();
@@ -372,7 +374,7 @@ async function decidir(pont: ReturnType<typeof ranquear>, viaSintoma: boolean, p
  */
 async function buscarSimilares(t: string, palavras: string[], viaSintoma: boolean, forte: boolean): Promise<Descoberta> {
   const itens = await catalogo();
-  const pont = ranquear(itens.map((x) => x.cand), palavras, t).filter((x) => x.hits > 0 && (!forte || x.forte >= 2.5));
+  const pont = ranquear(itens.map((x) => x.cand).filter((cd) => !pedeEspecifico(cd.proc, t)), palavras, t).filter((x) => x.hits > 0 && (!forte || x.forte >= 2.5));
   return pont.length ? decidir(pont, viaSintoma, t) : undefined;
 }
 
@@ -1024,6 +1026,9 @@ export const fonteClinilink: Fonte = {
   async nomesUnidades() { return (await listClinicas()).map(nomeUnidade); },
 
   async descobrir(t, buscando, forte = false) {
+    // nome leigo de exame de sangue (caso real 26/11: "o exame de sangue que informa as plaquetas" virou SANGUE OCULTO R$ 20 e AGREGAÇÃO
+    // PLAQUETÁRIA R$ 50; o certo é o HEMOGRAMA COMPLETO): plaquetas, hemácias, leucócitos e glóbulos são contados no hemograma
+    if (/plaquet|hemacia|leucocit|globulos? (vermelh|branc)|serie (vermelha|branca)/.test(t) && !/agrega|hemograma/.test(t)) t = 'hemograma completo';
     // combo ("tem combo feminino?"): lista os combos, mostra o que inclui e o preço; escolhido, segue o fluxo normal de unidade, dia e pagamento
     if (buscando && !forte) { const combo = await descobrirCombo(t); if (combo !== undefined) return combo; }
     // "ultrassom ginecológica/ginecológico" não é nome de serviço: são o USG transvaginal e o USG pélvico (caso real 20/11: virava CONSULTA
@@ -1093,7 +1098,7 @@ export const fonteClinilink: Fonte = {
       const listas = await Promise.all(clinicas.map(async (c) => ({ c, procs: await listProcedimentos(c.id, termo) })));
       const mapa = new Map<string, Cand>();
       for (const { c, procs } of listas) for (const p of procs) {
-        if (soDeCombo(p)) continue;
+        if (soDeCombo(p) || pedeEspecifico(p, t)) continue;
         const k = mapa.get(p.id) ?? { proc: p, clinicas: [] };
         k.clinicas.push(c); mapa.set(p.id, k);
       }
