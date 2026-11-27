@@ -115,6 +115,12 @@ export async function sbInserirNovos<T = Record<string, unknown>>(tabela: string
   return (await pedir<T[]>('POST', tabela, { on_conflict: onConflict }, linhas, { Prefer: 'resolution=ignore-duplicates,return=representation' })) ?? [];
 }
 
+/** Atualiza as linhas do filtro (ex.: { id: 'eq.12' }) com os campos dados. Sem filtro, recusa. */
+export async function sbAtualizar(tabela: string, filtro: Record<string, string>, campos: Record<string, unknown>) {
+  if (!Object.keys(filtro).length) throw new SupabaseError('filtro', 'Recusei atualizar a tabela inteira sem filtro.');
+  await pedir<void>('PATCH', tabela, filtro, campos, { Prefer: 'return=minimal' });
+}
+
 /** Apaga por filtro PostgREST (ex.: { id: 'in.(a,b)' } ou { t: 'lt.2026-01-01' }). Sem filtro, recusa. */
 export async function sbApagar(tabela: string, filtro: Record<string, string>) {
   if (!Object.keys(filtro).length) throw new SupabaseError('filtro', 'Recusei apagar a tabela inteira sem filtro.');

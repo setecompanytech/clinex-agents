@@ -54,7 +54,8 @@ export async function montarFunil(): Promise<Resultado> {
   const campanhas = await listarCampanhas(true);
   if (!campanhas.length) return { campanhas: [], clinilink: { ok: true, atualizadoEm: new Date().toISOString() } };
   const desdeCampanhas = campanhas.map((c) => c.inicio).sort()[0];
-  const eventos = await lerEventos({ t: `gte.${desdeCampanhas}T00:00:00-03:00` });
+  // as conversas de anúncio do funil GERAL (campanha 'ads:...') ficam fora das campanhas
+  const eventos = (await lerEventos({ t: `gte.${desdeCampanhas}T00:00:00-03:00` })).filter((e) => !e.campanha.startsWith('ads:'));
   const leadsEv = eventos.filter((e) => e.etapa === 'lead' && e.telefone);
 
   // Clinilink: um pedido só, com todos os telefones, desde o lead mais antigo
