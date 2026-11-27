@@ -35,12 +35,26 @@ const etiquetas = await listarEtiquetas('6a74bd8e844ff91efceb1c47');
 const ids = new Set(etiquetas.filter((e) => /^\s*ads?\s*[-–:]/i.test(e.name)).map((e) => e._id));
 
 type Ag = { dataHora: string; status: string; servico: string; unidade: string };
-type Linha = { quando: string; nome: string; origem: string; titulo: string; esperada: string; aplicada: string[]; semContato?: boolean; tel: string; ags: Ag[] };
+type Linha = { quando: string; nome: string; origem: string; titulo: string; esperada: string; aplicada: string[]; semContato?: boolean; tel: string; ags: Ag[]; contato: string; conf?: Conf };
+/** Mensagem de CONFIRMAÇÃO enviada ao paciente no WhatsApp (modelo da clínica: Paciente / Procedimento / Data) = agendou. Nota interna não conta. */
+type Conf = { quando: string; servico: string; data: string; quem: string };
+const ehConfirmacao = (t: string) => /Procedimento:/i.test(t) && /(Data:|📆)/.test(t) && /Paciente:/i.test(t) && !/Or[çc]amento N/i.test(t);
+const confsPorContato = new Map<string, Conf[]>();
+const texto = (m: any) => String(typeof m.text === 'object' && m.text ? (m.text.text ?? m.text.body ?? '') : (m.text ?? ''));
 const linhas: Linha[] = [];
 const vistos = new Set<string>();
 for (const x of (c.conversas || []).filter((x: any) => (x.inicio ?? 0) >= desde)) {
   const j: any = await pega(`${base}/attendance/${x.id}/history?limit=50`, { headers: H }); // acima de 50 a Inovstar não devolve o contato
-  const m = (j.data?.messages ?? []).find((m: any) => m.direction === 'in' && m.adReferral);
+  const msgs = j.data?.messages ?? [];
+  const idContato = String(j.data?.attendance?.contact?.id ?? '');
+  // confirmações deste atendimento (qualquer conversa da pessoa conta, não só a do anúncio)
+  for (const o of msgs) {
+    if (o.direction !== 'out' || o.isPrivate || o.isWhisper || !ehConfirmacao(texto(o))) continue;
+    const t = texto(o);
+    const conf = { quando: o.timestamp, servico: (t.match(/Procedimento:\s*([^\n]+)/i)?.[1] ?? '?').trim(), data: t.match(/Data:\s*(\d{2}\/\d{2})/i)?.[1] ?? '?', quem: /^\*?_?Amanda/i.test(t) ? 'Amanda' : (t.match(/^\*_?([^*:_\n]+)/)?.[1]?.trim() ?? 'equipe') };
+    if (idContato) confsPorContato.set(idContato, [...(confsPorContato.get(idContato) ?? []), conf]);
+  }
+  const m = msgs.find((m: any) => m.direction === 'in' && m.adReferral);
   if (!m) continue;
   const ad = m.adReferral;
   const contato: any = await pega(`${base}/contacts/${j.data.attendance?.contact?.id ?? m.contact?.id}`, { headers: H });
@@ -48,7 +62,7 @@ for (const x of (c.conversas || []).filter((x: any) => (x.inicio ?? 0) >= desde)
   if (vistos.has(`${tel}|${ad.headline}`)) continue; // a mesma pessoa voltou pelo mesmo anúncio: conta uma vez
   vistos.add(`${tel}|${ad.headline}`);
   const aplicada = (contato.data?.labels ?? []).filter((l: any) => ids.has(l._id) || /^\s*ads?\s*[-–:]/i.test(l.name)).map((l: any) => l.name);
-  linhas.push({ quando: m.timestamp, nome: String(contato.data?.name ?? m.contact?.name ?? '').split(' ')[0] || '—', origem: ad.source ?? '?', titulo: ad.headline ?? '(sem título)', esperada: etiquetaDoAnuncio(ad, etiquetas)?.name ?? 'AD - OUTROS', aplicada, semContato: !contato.data, tel, ags: [] });
+  linhas.push({ quando: m.timestamp, nome: String(contato.data?.name ?? m.contact?.name ?? '').split(' ')[0] || '—', origem: ad.source ?? '?', titulo: ad.headline ?? '(sem título)', esperada: etiquetaDoAnuncio(ad, etiquetas)?.name ?? 'AD - OUTROS', aplicada, semContato: !contato.data, tel, ags: [], contato: idContato || String(contato.data?._id ?? '') });
 }
 linhas.sort((a, b) => a.quando.localeCompare(b.quando));
 
@@ -76,15 +90,20 @@ if (CHAVE_CL && linhas.length) {
   for (const l of linhas) l.ags = (porTel.get(l.tel) ?? []).filter((g) => g.dataHora >= l.quando.slice(0, 10)).sort((a, b) => a.dataHora.localeCompare(b.dataHora));
 }
 
+// confirmação enviada depois que a pessoa chegou pelo anúncio
+for (const l of linhas) l.conf = (confsPorContato.get(l.contato) ?? []).filter((x) => x.quando >= l.quando).sort((a, b) => a.quando.localeCompare(b.quando))[0];
+
 // ---------------------------------------------------------------- saída
-const agendaram = linhas.filter((l) => l.ags.some((g) => g.status !== 'cancelado'));
+const noClini = (l: Linha) => l.ags.some((g) => g.status !== 'cancelado');
+const agendaram = linhas.filter((l) => l.conf || noClini(l));
 console.log(`PLACAR DE ANÚNCIOS — desde ${hora(new Date(desde).toISOString())} (${linhas.length} pessoa(s) vinda(s) de anúncio)\n`);
 const porEtq = new Map<string, { n: number; ag: number }>();
 for (const l of linhas) { const v = porEtq.get(l.esperada) ?? { n: 0, ag: 0 }; v.n++; if (agendaram.includes(l)) v.ag++; porEtq.set(l.esperada, v); }
-console.log('  etiqueta            pessoas  agendaram');
+console.log('  etiqueta            pessoas  agendaram (confirmação no WhatsApp ou agendamento no Clinilink)');
 for (const [e, v] of [...porEtq.entries()].sort((a, b) => b[1].n - a[1].n)) console.log(`  ${e.padEnd(18)}  ${String(v.n).padStart(7)}  ${String(v.ag).padStart(9)}`);
 const comEtiqueta = linhas.filter((l) => l.aplicada.length).length;
-console.log(`\n  com etiqueta AD: ${comEtiqueta} de ${linhas.length} · agendaram no Clinilink: ${agendaram.length} de ${linhas.length}${erroCl ? ` · ATENÇÃO Clinilink: ${erroCl}` : ''}\n`);
+console.log(`\n  com etiqueta AD: ${comEtiqueta} de ${linhas.length} · agendaram: ${agendaram.length} de ${linhas.length} (com confirmação no WhatsApp: ${linhas.filter((l) => l.conf).length} · achados no Clinilink pelo telefone: ${linhas.filter(noClini).length} · só no Clinilink: ${linhas.filter((l) => noClini(l) && !l.conf).length} · só confirmação: ${linhas.filter((l) => l.conf && !noClini(l)).length})${erroCl ? ` · ATENÇÃO Clinilink: ${erroCl}` : ''}\n`);
 const etq = (l: Linha) => (l.semContato ? '? contato' : l.aplicada.length ? (l.aplicada.includes(l.esperada) ? '✔ ' : '≠ ') + l.aplicada.join(', ') : '✘ sem etiqueta');
 const agTxt = (l: Linha) => { const g = l.ags.find((x) => x.status !== 'cancelado') ?? l.ags[0]; return g ? `${g.status === 'cancelado' ? '✘ cancelou ' : '✔ '}${hora(g.dataHora).slice(0, 5)} ${g.servico.slice(0, 34)} (${g.unidade})${l.ags.length > 1 ? ` +${l.ags.length - 1}` : ''}` : '—'; };
-for (const l of linhas) console.log(`  ${hora(l.quando)}  ${l.nome.slice(0, 11).padEnd(11)} ${l.origem.padEnd(9)} ${l.titulo.slice(0, 34).padEnd(34)} ${etq(l).padEnd(22)} ${agTxt(l)}`);
+const confTxt = (l: Linha) => (l.conf ? `✔ ${l.conf.data} ${l.conf.servico.slice(0, 32)} (${l.conf.quem})` : '—');
+for (const l of linhas) console.log(`  ${hora(l.quando)}  ${l.nome.slice(0, 11).padEnd(11)} ${l.origem.padEnd(9)} ${l.titulo.slice(0, 30).padEnd(30)} ${etq(l).padEnd(16)} CONF: ${confTxt(l).padEnd(48)} CLINI: ${agTxt(l)}`);
