@@ -106,7 +106,7 @@ function fvFiltros() {
   var por = h('div', { class: 'seg', role: 'group', 'aria-label': 'Filtrar período por' }, [['criacao', 'Criação'], ['agendamento', 'Agendamento'], ['conversao', 'Conversão']].map(function (p) {
     return h('button', { type: 'button', 'aria-pressed': String(f.por === p[0]), text: p[1], onclick: function () { f.por = p[0]; if (f.de || f.ate) fvRecarregarCards(); desenhar(true); } });
   }));
-  var modo = h('div', { class: 'seg', role: 'group', 'aria-label': 'Recorte', title: 'V2: o período recorta todas as colunas, exceto Em aberto e Em negociação, que sempre mostram tudo. V1: o período só recorta a 1ª coluna.' }, [['v2', 'V2'], ['v1', 'V1']].map(function (p) {
+  var modo = h('div', { class: 'seg', role: 'group', 'aria-label': 'Recorte', title: 'V2: por Criação, o período recorta só os resultados (convertido, descarte, sem retorno); o que está em andamento sempre aparece. Por Agendamento ou Conversão, recorta pela data escolhida. V1: o período só recorta a 1ª coluna. A busca ignora o período.' }, [['v2', 'V2'], ['v1', 'V1']].map(function (p) {
     return h('button', { type: 'button', 'aria-pressed': String(f.modo === p[0]), text: p[1], onclick: function () { f.modo = p[0]; if (f.de || f.ate) fvRecarregarCards(); desenhar(true); } });
   }));
   var ord = h('div', { class: 'seg', role: 'group', 'aria-label': 'Ordenar os cards' }, FV_ORDENS.map(function (p) {

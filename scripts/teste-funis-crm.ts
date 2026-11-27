@@ -124,7 +124,10 @@ teste('recortes V1 e V2 e filtros por criação, agendamento e conversão', () =
   moverCard(g('negFora'), f, etapa(est, f.nome, 'EM NEGOCIAÇÃO'), AGORA); moverCard(g('agFora'), f, etapa(est, f.nome, 'AGENDADO'), AGORA);
   const p = { de: '2026-10-25', ate: '2026-11-02', por: 'criacao' as const };
   assert.deepEqual(recortar(f, est.atribuicoes, p, 'v1').map((a) => a.cardId).sort(), ['agFora', 'negFora', 'topoDentro'], 'V1: só recorta o topo');
-  assert.deepEqual(recortar(f, est.atribuicoes, p, 'v2').map((a) => a.cardId).sort(), ['negFora', 'topoDentro', 'topoFora'], 'V2: recorta todas as colunas, EXCETO Em aberto (o topo) e Em negociação');
+  assert.deepEqual(recortar(f, est.atribuicoes, p, 'v2').map((a) => a.cardId).sort(), ['agFora', 'negFora', 'topoDentro', 'topoFora'], 'V2 por criação: quem está em andamento nunca some (inclusive Agendado)');
+  moverCard(g('agFora'), f, etapa(est, f.nome, 'Descarte'), AGORA);
+  assert.deepEqual(recortar(f, est.atribuicoes, p, 'v2').map((a) => a.cardId).sort(), ['negFora', 'topoDentro', 'topoFora'], 'V2 por criação: resultado (descarte) segue o período');
+  moverCard(g('agFora'), f, etapa(est, f.nome, 'AGENDADO'), AGORA);
   assert.deepEqual(recortar(f, est.atribuicoes, { de: '2026-11-02', ate: '2026-11-02', por: 'agendamento' }, 'v2').map((a) => a.cardId).sort(), ['agFora', 'negFora', 'topoDentro', 'topoFora'], 'agendamento = entrada em Agendado; Em aberto e Em negociação sempre aparecem');
 });
 teste('valor negociado substitui o valor; estrelas por faixa de valor; cadência estourada', () => {

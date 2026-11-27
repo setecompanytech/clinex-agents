@@ -163,7 +163,9 @@ pipelines.get('/:id/cards', (req, res) => {
   const q = req.query as Record<string, string | undefined>;
   const por = (['criacao', 'agendamento', 'conversao'].includes(q.por ?? '') ? q.por : 'criacao') as FiltroPor;
   const modo = (q.modo === 'v1' ? 'v1' : 'v2') as Recorte;
-  let lista = recortar(f, visiveis(f, P().atribuicoes), { de: /^\d{4}-\d{2}-\d{2}$/.test(q.de ?? '') ? q.de : undefined, ate: /^\d{4}-\d{2}-\d{2}$/.test(q.ate ?? '') ? q.ate : undefined, por }, modo);
+  // quem busca um paciente quer encontrá-lo: com texto na busca, o período não esconde ninguém
+  const periodo = q.q?.trim() ? {} : { de: /^\d{4}-\d{2}-\d{2}$/.test(q.de ?? '') ? q.de : undefined, ate: /^\d{4}-\d{2}-\d{2}$/.test(q.ate ?? '') ? q.ate : undefined, por };
+  let lista = recortar(f, visiveis(f, P().atribuicoes), periodo, modo);
   if (q.unidade) lista = lista.filter((a) => (a.ultimoSnapshot.unidade ?? '') === q.unidade);
   if (q.responsavel) lista = lista.filter((a) => (P().extras[a.cardId]?.responsavel ?? '') === q.responsavel);
   if (q.q) {

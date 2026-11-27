@@ -135,7 +135,9 @@ export function diaDoFiltro(a: Atribuicao, f: Funil, por: FiltroPor): string | u
 
 export type Recorte = 'v1' | 'v2';
 /** V1: o período só recorta o topo; as demais colunas mostram tudo em andamento.
- *  V2: recorta todas as colunas, EXCETO "Em aberto" e "Em negociação", que sempre mostram tudo. */
+ *  V2: recorta todas as colunas, EXCETO "Em aberto" e "Em negociação", que sempre mostram tudo. Filtrando por CRIAÇÃO, também não
+ *  esconde quem está em andamento (Primeiro contato ... Agendado): senão o card some da tela assim que a equipe o move (reclamação
+ *  da clínica em 27/11). Pela data de criação, o V2 recorta só os resultados (convertido, descarte, sem retorno, recuperado). */
 export function recortar(f: Funil, atribs: Atribuicao[], p: Periodo, modo: Recorte): Atribuicao[] {
   if (!p.de && !p.ate) return atribs;
   const por = p.por ?? 'criacao';
@@ -144,6 +146,7 @@ export function recortar(f: Funil, atribs: Atribuicao[], p: Periodo, modo: Recor
     const e = etapaDe(f, a.stageId);
     if (modo === 'v1') return a.stageId !== t.id || dentro(diaDoFiltro(a, f, por), p);
     if (e && ehSempreTudo(e.label)) return true;
+    if (e && por === 'criacao' && a.caseStatus === 'aberto' && ['aberto', 'agendado'].includes(classeDaEtapa(e.label))) return true;
     return dentro(diaDoFiltro(a, f, por), p);
   });
 }
