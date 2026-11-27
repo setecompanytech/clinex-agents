@@ -4,8 +4,13 @@ import { paginaModulo } from '../ui/ds.js';
 // REGRAS: dentro dos textos não usar crases nem "dollar-chave" (são template literals).
 
 const css = `
-#app{display:flex;flex-direction:column;gap:18px;transition:opacity .25s}
-#app.carregando{opacity:.55;pointer-events:none}
+#app,#app-geral{display:flex;flex-direction:column;gap:18px;transition:opacity .25s}
+#app.carregando,#app-geral.carregando{opacity:.55;pointer-events:none}
+.fn-visoes{align-self:flex-start}
+.fn-barra{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.c-azul{color:#1d4ed8}.c-verde{color:#15803d}.c-verm{color:#b91c1c}
+[data-theme="dark"] .c-azul{color:#60a5fa}[data-theme="dark"] .c-verde{color:#4ade80}[data-theme="dark"] .c-verm{color:#f87171}
+.fn-total td{border-top:2px solid var(--line2)}
 #avisos{display:flex;flex-direction:column;gap:8px}#avisos:empty{display:none}#avisos .faixa{margin:0}
 .meta{font-size:12.5px;color:var(--mut);margin-top:-8px}
 .fn-dot{display:inline-block;width:8px;height:8px;border-radius:50%;flex:none}
@@ -36,14 +41,19 @@ const refresh = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" str
 const main = `
 <main id="main"><div class="tela">
   <header class="tela-h">
-    <div><h1>Funil de aquisição</h1><p>Campanhas de anúncio acompanhadas do clique até o atendimento pelo médico: site, WhatsApp, Amanda, agendamento, pagamento e consulta.</p></div>
+    <div><h1>Funil de aquisição</h1><p>Quem veio dos anúncios até a consulta: mensagem, agendamento, pagamento e atendimento pelo médico. Visão geral de todos os anúncios ou por campanha.</p></div>
     <div class="tela-ac">
       <button class="btn" id="btn-atualizar" type="button" aria-label="Atualizar">${refresh}<span>Atualizar</span></button>
       <button class="btn pri" id="btn-nova" type="button">+ Nova campanha</button>
     </div>
   </header>
+  <div class="seg fn-visoes" role="group" aria-label="Visão">
+    <button type="button" data-visao="geral" aria-pressed="true">Visão geral (anúncios)</button>
+    <button type="button" data-visao="campanhas" aria-pressed="false">Por campanha</button>
+  </div>
   <div class="meta" id="meta" aria-live="polite">Carregando…</div>
   <div id="avisos"></div>
+  <div id="app-geral"></div>
   <div id="app"></div>
 </div></main>`;
 
@@ -282,8 +292,118 @@ function formCampanha(c) {
   });
 }
 
-document.getElementById('btn-atualizar').addEventListener('click', carregar);
+/* ------------------------------------------------------------------ VISÃO GERAL: todas as conversas que vieram de anúncio da Meta */
+var GER = { d: null, dias: 7 };
+try { GER.dias = Number(localStorage.getItem('fn-geral-dias')) || 7; } catch (e) {}
+function desdeDias(n) { var d = new Date(Date.now() - (n - 1) * 864e5); return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Belem' }).format(d); }
+var ORIGEM = { facebook: 'Facebook', instagram: 'Instagram', whatsapp: 'WhatsApp (Status)' };
+function cor(cls, txt) { return h('b', { class: cls, text: txt }); }
+
+function carregarGeral() {
+  var meta = document.getElementById('meta'), app = document.getElementById('app-geral');
+  meta.textContent = 'Carregando…'; app.classList.add('carregando');
+  return api('GET', '/painel/receptivo/funil/geral.json?desde=' + desdeDias(GER.dias))
+    .then(function (d) { GER.d = d; desenharGeral(); })
+    .catch(function (e) { meta.textContent = 'Não consegui carregar: ' + e.message; })
+    .then(function () { app.classList.remove('carregando'); });
+}
+function desenharGeral() {
+  var d = GER.d, app = limpar(document.getElementById('app-geral')), meta = document.getElementById('meta');
+  if (d.aviso) { app.appendChild(h('div', { class: 'faixa' }, [ico('alert', 16), h('span', { text: 'O painel está sem o Supabase configurado.' })])); meta.textContent = ''; return; }
+  meta.textContent = 'Desde ' + dBRfull(d.desde) + ' · atualizado às ' + qHora(d.geradoEm) + ' · conta como agendado quem recebeu a mensagem de confirmação no WhatsApp ou tem agendamento no Clinilink com o mesmo telefone';
+  var periodo = h('div', { class: 'seg', role: 'group', 'aria-label': 'Período' }, [7, 30, 90].map(function (n) {
+    return h('button', { type: 'button', 'aria-pressed': GER.dias === n ? 'true' : 'false', text: n + ' dias', onclick: function () { GER.dias = n; try { localStorage.setItem('fn-geral-dias', String(n)); } catch (e) {} carregarGeral(); } });
+  }));
+  app.appendChild(h('div', { class: 'fn-barra' }, [periodo]));
+  if (d.avisoClinilink) app.appendChild(h('div', { class: 'faixa' }, [ico('alert', 16), h('span', { text: d.avisoClinilink })]));
+  var t = d.total;
+  if (!t.pessoas) { app.appendChild(h('section', { class: 'cartao' }, vazio('Nenhuma conversa de anúncio neste período.', 'Toda conversa que chega pelo anúncio da Meta (Facebook, Instagram, Status) aparece aqui com a etiqueta AD da Inovstar.'))); return; }
+  app.appendChild(h('div', { class: 'kpis fn-kpis' }, [
+    kpi2({ rotulo: 'Vieram de anúncio e mandaram mensagem', valor: inteiro(t.pessoas), sub: d.anuncios.length + ' anúncio(s)' }),
+    kpi2({ rotulo: 'Agendaram', valor: inteiro(t.agendaram), sub: porc(t.agendaram, t.pessoas) + ' de conversão' }),
+    kpi2({ rotulo: 'Não agendaram', valor: inteiro(t.naoAgendaram), sub: porc(t.naoAgendaram, t.pessoas) + ' das conversas' }),
+    kpi2({ rotulo: 'Pagaram na clínica', valor: inteiro(t.pagaram), sub: porc(t.pagaram, t.agendaram) + ' de quem agendou' }),
+    kpi2({ rotulo: 'Atendidos pelo médico', valor: inteiro(t.atendidos), sub: porc(t.atendidos, t.agendaram) + ' de quem agendou' }),
+    kpi2({ rotulo: 'Receita', valor: reais(t.receita), sub: 'O.S. pagas no Clinilink' })
+  ]));
+  var passos = [
+    ['1. Vieram do anúncio e mandaram mensagem', t.pessoas, 'pessoas'],
+    ['2. Agendaram', t.agendaram, 'agendaram'],
+    ['3. Pagaram na clínica', t.pagaram, 'pagaram'],
+    ['4. Atendidos pelo médico', t.atendidos, 'atendidos']
+  ];
+  var linhasFunil = passos.map(function (p, i) {
+    var ant = i ? passos[i - 1][1] : null;
+    return { rotulo: p[0], valor: p[1], texto: inteiro(p[1]), extra: i ? porc(p[1], ant) : '', dica: { titulo: p[0], linhas: [{ valor: inteiro(p[1]), rotulo: p[2] }].concat(i ? [{ valor: porc(p[1], ant), rotulo: 'da etapa anterior' }] : []) } };
+  });
+  app.appendChild(h('div', { class: 'g12' }, blocoCartao('Funil geral dos anúncios', 'Quem veio do anúncio até a consulta. Não agendaram: ' + inteiro(t.naoAgendaram) + ' (' + porc(t.naoAgendaram, t.pessoas) + ').',
+    h('div', { class: 'fn-barras' }, barras(linhasFunil, { alta: true, cor: 'var(--g1)' })), 12)));
+
+  var linhas = d.anuncios.map(function (a) {
+    var origens = Object.keys(a.origens).map(function (o) { return (ORIGEM[o] || o) + ' ' + a.origens[o]; }).join(' · ');
+    return h('tr', { class: 'clic', tabindex: '0', onclick: function () { abrirAnuncio(a); }, onkeydown: function (e) { if (e.key === 'Enter') abrirAnuncio(a); } }, [
+      h('td', null, h('div', { class: 'fn-nome' }, [h('b', { text: a.titulo }), h('small', { text: (a.etiqueta || 'sem etiqueta') + (origens ? ' · ' + origens : '') })])),
+      h('td', { class: 'num' }, cor('c-azul', inteiro(a.pessoas))),
+      h('td', { class: 'num' }, cor('c-verde', inteiro(a.agendaram))),
+      h('td', { class: 'num' }, cor('c-verm', inteiro(a.naoAgendaram))),
+      h('td', { class: 'num' }, h('b', { text: a.conversao === null ? '–' : N0.format(a.conversao) + '%' })),
+      h('td', { class: 'num', text: inteiro(a.pagaram) }),
+      h('td', { class: 'num', text: inteiro(a.atendidos) }),
+      h('td', { class: 'num', text: a.receita ? reais(a.receita) : '–' })
+    ]);
+  });
+  linhas.push(h('tr', { class: 'fn-total' }, [
+    h('td', null, h('b', { text: 'Total' })),
+    h('td', { class: 'num' }, cor('c-azul', inteiro(t.pessoas))),
+    h('td', { class: 'num' }, cor('c-verde', inteiro(t.agendaram))),
+    h('td', { class: 'num' }, cor('c-verm', inteiro(t.naoAgendaram))),
+    h('td', { class: 'num' }, h('b', { text: porc(t.agendaram, t.pessoas) })),
+    h('td', { class: 'num', text: inteiro(t.pagaram) }),
+    h('td', { class: 'num', text: inteiro(t.atendidos) }),
+    h('td', { class: 'num', text: t.receita ? reais(t.receita) : '–' })
+  ]));
+  var tabela = h('div', { class: 'tbl-w' }, h('table', { class: 'tbl' }, [
+    h('thead', null, h('tr', null, ['Anúncio', 'Mandaram mensagem', 'Agendaram', 'Não agendaram', 'Conversão', 'Pagaram', 'Atendidos', 'Receita'].map(function (x) { return h('th', { scope: 'col', text: x }); }))),
+    h('tbody', null, linhas)
+  ]));
+  app.appendChild(h('div', { class: 'g12' }, blocoCartao('Por anúncio', 'Clique num anúncio para ver cada pessoa: quando chegou, se agendou, pagou e foi atendida.', tabela, 12)));
+}
+function abrirAnuncio(a) {
+  var leads = (GER.d.leads || []).filter(function (l) { return l.titulo === a.titulo; });
+  var corpo = h('div', { class: 'tbl-w' }, h('table', { class: 'tbl peq' }, [
+    h('thead', null, h('tr', null, ['Chegou', 'Contato', 'Telefone', 'Veio por', 'Agendou?', 'Pagou', 'Atendido'].map(function (x) { return h('th', { scope: 'col', text: x }); }))),
+    h('tbody', null, leads.map(function (l) {
+      var ag = l.confirmacao ? 'Sim · ' + (l.confirmacao.data || '') + ' ' + (l.confirmacao.servico || '').slice(0, 40) + ' (confirmado por ' + l.confirmacao.quem + ')'
+        : l.agendamento ? 'Sim · ' + qDia(l.agendamento.data) + ' ' + (l.agendamento.servico || '').slice(0, 40) + ' (Clinilink)' : 'Não';
+      return h('tr', null, [
+        h('td', { class: 'num', text: qDiaHora(l.quando) }),
+        h('td', { text: l.contato || '—' }),
+        h('td', { class: 'num', text: l.telefone }),
+        h('td', { text: ORIGEM[l.origem] || l.origem || '—' }),
+        h('td', null, cor(l.agendou ? 'c-verde' : 'c-verm', ag)),
+        h('td', { text: l.pagou ? 'Sim' + (l.valorPago ? ' · ' + reais(l.valorPago) : '') + (l.operadora ? ' · ' + l.operadora : '') : '—' }),
+        h('td', { text: l.atendido ? 'Sim' + (l.agendamento && l.agendamento.profissional ? ' · ' + l.agendamento.profissional + (l.agendamento.especialidade ? ' - ' + l.agendamento.especialidade : '') : '') : '—' })
+      ]);
+    }))
+  ]));
+  modal({ titulo: a.titulo, sub: inteiro(a.pessoas) + ' mandaram mensagem · ' + inteiro(a.agendaram) + ' agendaram (' + (a.conversao === null ? '–' : N0.format(a.conversao) + '%') + ') · ' + (a.etiqueta || 'sem etiqueta'), largura: 1100, gaveta: true, corpo: corpo });
+}
+
+/* ------------------------------------------------------------------ troca de visão */
+var VISAO = 'geral';
+try { VISAO = localStorage.getItem('fn-visao') || 'geral'; } catch (e) {}
+function mostrarVisao(v) {
+  VISAO = v; try { localStorage.setItem('fn-visao', v); } catch (e) {}
+  document.querySelectorAll('[data-visao]').forEach(function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-visao') === v ? 'true' : 'false'); });
+  document.getElementById('app-geral').style.display = v === 'geral' ? '' : 'none';
+  document.getElementById('app').style.display = v === 'geral' ? 'none' : '';
+  document.getElementById('avisos').style.display = v === 'geral' ? 'none' : '';
+  document.getElementById('btn-nova').style.display = v === 'geral' ? 'none' : '';
+  return v === 'geral' ? carregarGeral() : carregar();
+}
+document.querySelectorAll('[data-visao]').forEach(function (b) { b.addEventListener('click', function () { mostrarVisao(b.getAttribute('data-visao')); }); });
+document.getElementById('btn-atualizar').addEventListener('click', function () { return VISAO === 'geral' ? carregarGeral() : carregar(); });
 document.getElementById('btn-nova').addEventListener('click', function () { if (FN.d && FN.d.aviso) { aviso('Antes, crie as tabelas do funil no Supabase (veja o aviso).', 'erro'); return; } formCampanha(null); });
-carregar();
+mostrarVisao(VISAO);
 })();
 `;

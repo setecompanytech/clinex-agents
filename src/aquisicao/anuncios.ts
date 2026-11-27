@@ -1,6 +1,7 @@
 import { contatoDoAtendimento, criarEtiqueta, empresaDoContato, etiquetarContato, getHistory, listarEtiquetas, type Etiqueta, type MessageReceivedEvent } from '../integrations/inovstar.js';
 import { travaCurta } from '../lib/estado.js';
 import { evt } from '../lib/log.js';
+import { registrarConversaDeAnuncio } from './geral.js';
 
 /**
  * Conversas que vieram de ANÚNCIO (Click-to-WhatsApp do Facebook/Instagram), pedido do usuário em 27/11/2026: a Inovstar mostra
@@ -53,7 +54,7 @@ export async function etiquetarSeVeioDeAnuncio(ev: MessageReceivedEvent): Promis
   let ad = ev.adReferral as AdReferral | undefined;
   let contactId = ev.contactId;
   if (!ad) {
-    const { messages } = await getHistory(ev.attendanceId, 10);
+    const { messages } = await getHistory(ev.attendanceId, 10, true);
     const m = messages.find((x) => x.direction === 'in' && (x as { adReferral?: AdReferral }).adReferral);
     ad = (m as { adReferral?: AdReferral } | undefined)?.adReferral;
   } else if (!(await travaCurta(`anuncio:${ev.attendanceId}`, 3 * 86_400_000))) return; // já etiquetado por outra mensagem deste atendimento
@@ -68,5 +69,7 @@ export async function etiquetarSeVeioDeAnuncio(ev: MessageReceivedEvent): Promis
     await etiquetarContato(contactId, [e._id]);
     etiqueta = e.name;
   } catch (x) { erro = (x as Error).message.slice(0, 200); }
+  // funil geral de aquisição: a conversa de anúncio fica gravada (uma vez por telefone por anúncio)
+  await registrarConversaDeAnuncio({ ad, telefone: ev.to, atendimento: ev.attendanceId, contato: ev.contactName ?? null, etiqueta }).catch((x) => { erro = `${erro ? `${erro}; ` : ''}gravar: ${(x as Error).message.slice(0, 120)}`; });
   evt('anuncio', { origem: ad.source ?? null, anuncio: ad.sourceId ?? null, titulo: (ad.headline ?? '').slice(0, 80), etiqueta: etiqueta ?? null, erro: erro ?? null });
 }

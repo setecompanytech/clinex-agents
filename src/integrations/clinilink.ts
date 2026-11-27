@@ -234,6 +234,21 @@ export async function listAgendaFresca(p: { unidadeId: string; dataInicial: stri
   return (await get<{ horarios: Horario[] }>('/v1/agendamento/agenda', p)).horarios;
 }
 
+/** Agendamentos de uma unidade num período (por data do agendamento, até 60 dias), de qualquer status, em páginas de 500.
+ *  Usado pelo funil geral de anúncios quando a rota /v1/agendamento/funil não responde. */
+export type AgendamentoLista = { agendamentoId: string; status: string; dataHora: string; paciente?: { id?: string; nome?: string; telefone?: string }; profissional?: { nome?: string } | null; procedimentos?: { id: string; nome: string }[]; valorTotal?: number; unidade?: { nome?: string } };
+export async function listAgendamentosPeriodo(unidadeId: string, dataInicial: string, dataFinal: string): Promise<AgendamentoLista[]> {
+  const todos: AgendamentoLista[] = [];
+  for (const status of [undefined, 'cancelado']) {
+    for (let offset = 0; offset < 10_000; offset += 500) {
+      const r = await get<{ agendamentos: AgendamentoLista[] }>('/v1/agendamento/agendamentos', { unidadeId, dataInicial, dataFinal, limite: '500', offset: String(offset), status });
+      todos.push(...(r.agendamentos ?? []));
+      if ((r.agendamentos ?? []).length < 500) break;
+    }
+  }
+  return todos;
+}
+
 /** Funil de aquisição: o que aconteceu no Clinilink com os telefones dos leads desde `desde` (YYYY-MM-DD).
  *  Rota POST /v1/agendamento/funil (migration 20261125140000 do Clinilink). Só leitura. */
 export type OsFunil = { id: string; numero: string; status: string; total: number; valorPago: number; pagaEm: string | null; formas: string[]; operadora: string | null };

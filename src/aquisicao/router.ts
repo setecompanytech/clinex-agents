@@ -1,9 +1,10 @@
 import { Router, type Request } from 'express';
-import { exigirEscrita, exigirModulo, painelAuth } from '../lib/painel-auth.js';
+import { exigirAdmin, exigirEscrita, exigirModulo, painelAuth } from '../lib/painel-auth.js';
 import { sbFaltantes, supabaseConfigurado } from '../lib/supabase.js';
 import { DS_CSP } from '../ui/ds.js';
 import { codigoValido, gerarCodigo, listarCampanhas, MENSAGEM_PADRAO, novaId, NUMERO_WHATSAPP, salvarCampanha, SITE_PADRAO, T_CAMPANHAS, T_EVENTOS, textoWhats, type Campanha, type Canal, type StatusCampanha } from './campanhas.js';
 import { montarFunil } from './funil.js';
+import { importarConversasDeAnuncio, montarFunilGeral } from './geral.js';
 import { funilClienteJs, paginaFunil } from './ui.js';
 
 /**
@@ -41,6 +42,24 @@ router.get('/dados.json', async (req, res) => {
     console.error('[aquisicao] falha ao montar o funil:', (e as Error).message);
     res.status(500).json({ erro: 'funil', mensagem: `Não consegui montar o funil: ${(e as Error).message}` });
   }
+});
+
+// funil GERAL: todas as conversas que vieram de anúncio da Meta (etiquetas AD da Inovstar), separado das campanhas
+router.get('/geral.json', async (req, res) => {
+  const hoje = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Belem' }).format(new Date());
+  const q = String(req.query.desde ?? '');
+  const desde = /^\d{4}-\d{2}-\d{2}$/.test(q) && q <= hoje ? q : new Date(Date.now() - 6 * 86_400_000).toISOString().slice(0, 10);
+  if (!supabaseConfigurado()) return res.json({ aviso: 'semBanco' });
+  try { res.json(await montarFunilGeral(desde)); }
+  catch (e) { console.error('[aquisicao] funil geral falhou:', (e as Error).message); res.status(500).json({ erro: 'funil', mensagem: `Não consegui montar o funil geral: ${(e as Error).message}` }); }
+});
+
+// importação das conversas de anúncio antigas para o funil geral (só administrador; em lotes de até 30 atendimentos)
+router.post('/importar-anuncios', exigirAdmin, async (req, res) => {
+  const ids = (Array.isArray(req.body?.ids) ? req.body.ids : []).filter((x: unknown) => typeof x === 'string' && /^[0-9a-f]{24}$/.test(x)).slice(0, 30) as string[];
+  if (!ids.length) return res.status(400).json({ erro: 'ids', mensagem: 'Mande de 1 a 30 ids de atendimento.' });
+  try { res.json({ ok: true, ...(await importarConversasDeAnuncio(ids)) }); }
+  catch (e) { res.status(500).json({ erro: 'importar', mensagem: (e as Error).message }); }
 });
 
 const CANAIS: Canal[] = ['meta', 'google', 'tiktok', 'outro'];

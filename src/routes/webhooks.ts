@@ -7,6 +7,7 @@ import { rodarLembretes } from '../agents/receptivo/lembretes.js';
 import { registrarRespostaWhatsApp } from '../crm/disparo-auto-servico.js';
 import { registrarLeadDeAnuncio } from '../aquisicao/campanhas.js';
 import { etiquetarSeVeioDeAnuncio } from '../aquisicao/anuncios.js';
+import { sincronizarConfirmacoes } from '../aquisicao/geral.js';
 
 const router = Router();
 
@@ -35,6 +36,8 @@ router.post('/inovstar', (req: Request & { rawBody?: Buffer }, res) => {
   if (!ev.isGroup && ev.text) waitUntil(registrarLeadDeAnuncio(ev).catch((e) => console.error('funil de aquisição falhou', e)));
   // conversa que veio de ANÚNCIO do Facebook/Instagram: etiqueta "AD - ..." no contato (uma vez por atendimento; só registra)
   if (!ev.isGroup) waitUntil(etiquetarSeVeioDeAnuncio(ev).catch((e) => console.error('etiqueta de anúncio falhou', e)));
+  // de carona (no máximo a cada 10 min): procura a mensagem de confirmação das conversas de anúncio (funil geral de aquisição)
+  waitUntil(sincronizarConfirmacoes().catch((e) => console.error('confirmações do funil falharam', e)));
   // de carona: envia os lembretes de inatividade que já venceram (uma execução por vez, trava no Redis)
   waitUntil(rodarLembretes().catch((e) => console.error('lembretes falharam', e)));
   res.json({ ok: true });

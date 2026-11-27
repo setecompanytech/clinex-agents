@@ -449,10 +449,11 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
           horarios: lista.map((s) => {
             const id = `H${c.mem.proxSlot++}`;
             c.mem.slots[id] = { servicoId: String(args.servico_id), unidade: un.nome, slot: s };
-            return { horario_id: id, dia: dataFalada(s.ymd, hoje), data: s.ymd, periodo: s.turno, a_partir_das: horaFalada(s.inicio), ...(s.ymd === hoje ? { hoje_ainda_tem_vaga_ate: horaFalada([s.ultima ?? s.livre ?? s.inicio, limiteDoSetor(sv, un.nome, s.ymd) ?? '23:59'].sort()[0]) } : {}), profissional: s.profissional ? exibir(s.profissional) : undefined };
+            return { horario_id: id, dia: dataFalada(s.ymd, hoje), data: s.ymd, periodo: s.turno, a_partir_das: horaFalada(s.inicio), profissional: s.profissional ? exibir(s.profissional) : undefined };
           }),
           ...(sv.preparo ? { preparo_cadastrado: sv.preparo, orientacao_preparo: 'Este serviço tem preparo cadastrado: informe o preparo ao paciente (resumido, em linhas curtas) junto com os horários. Ele também vai completo na confirmação.' } : {}),
-          ...(lista.some((s) => s.ymd === hoje) ? { hoje: 'Horário de HOJE: o atendimento começou no horário da agenda e é por ordem de chegada; ainda há vaga até o horário em hoje_ainda_tem_vaga_ate. Diga: "hoje ele(a) atende a partir das Xh, por ordem de chegada, e ainda tem vaga até umas Yh".' } : {}),
+          // REGRA DA CLÍNICA (27/11/2026): não dizer "ainda tem vaga até umas Xh" (o paciente entende como horário marcado e a vaga muda a toda hora)
+          ...(lista.some((s) => s.ymd === hoje) ? { hoje: 'Horário de HOJE: o atendimento é por ordem de chegada, a partir do horário da agenda. Diga só "hoje, a partir das Xh, por ordem de chegada". NUNCA diga até que horas tem vaga ("ainda tem vaga até umas...").' } : {}),
           ...(limSetor || cortouTarde ? { regra_do_setor: `Este serviço nesta unidade é SÓ DE MANHÃ (começa até ${horaFalada(limSetor ?? '11:00')}): regra da clínica. Se o paciente pedir tarde, explique isso e ofereça a manhã. Nunca ofereça tarde.` } : {}),
           lembrete: 'Mostre só estes horários (no máximo 3). Atendimento por ordem de chegada: diga "a partir das Xh". Não invente horários fora desta lista. Se o paciente pedir outras datas ou outro dia, chame ver_horarios de novo com a_partir_de (ou data, se ele disser o dia).',
         };
