@@ -34,6 +34,9 @@ export type GatilhoCfg = {
   desconto?: '10%' | '5%'; prazo?: 'hoje' | 'esta semana' | 'este mês';
 };
 
+/** Orçamentos antigos parados em Em aberto sem contato: a IA manda só a primeira mensagem, com cota própria (seg. a sex.). */
+export type AntigosCfg = { ativo: boolean; porDia: number; dias: number; inicio: number; fim: number };
+
 export type PausaCfg = { id: string; de: string; ate: string; motivo: string };
 
 /** Configuração da IA. O guia continua mandando: janela de 8h às 19h e 2 contatos por dia por lead não dá para ampliar, só estreitar. */
@@ -43,6 +46,7 @@ export type ConfigAuto = {
   diasSemana: number[];
   limites: { porRodada: number; porDia: number };
   pausas: PausaCfg[];
+  antigos: AntigosCfg;
   /** disjuntor: se a Inovstar recusar N envios seguidos numa rodada, a IA se desliga sozinha */
   disjuntor: { ativo: boolean; erros: number };
   gatilhos: Record<string, GatilhoCfg>;

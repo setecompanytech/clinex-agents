@@ -5,6 +5,7 @@ import { MENSAGENS, PASSOS } from './modelo.js';
 import type { Janela } from './periodo.js';
 import type { Rodada } from './disparo-auto-tipos.js';
 import { GATILHOS_AUTO, NOMES_DIA, configAuto, enviadosPelaIAHoje, fila, modoDisparoAuto, rodarDisparoAuto } from './ia-disparo.js';
+import { conferidorDaBaseAntiga, enviadosAntigosHoje } from './base-antiga.js';
 import { registrarResposta, ROTULO_INTENCAO, type RespostaRecebida } from './rastreio.js';
 import { alinharCardsELeads } from './sincroniaCardLead.js';
 import { leadsDosNoShow } from './leadsNoShow.js';
@@ -26,7 +27,12 @@ export async function rodarAgora(): Promise<{ rodada?: Rodada; pulou?: string }>
     await atualizarLeadsDoBanco(); // parte do que o banco tem agora: outra instância pode ter enviado ou pausado
     // quem faltou ontem ou hoje (cards do No-show) vira lead, para a IA convidar a reagendar no dia certo
     if (leadsDosNoShow(estado, new Date()).criados) { salvar(); await gravarAntesDeResponder(); }
-    const rodada = await rodarDisparoAuto(estado, new Date(), { gravar: async () => { salvar(); await gravarAntesDeResponder(); } });
+    // base antiga: só consulta o Clinilink quando há alguém dela pronto para receber agora
+    const cfg = configAuto(estado), antes = new Date();
+    const temAntigo = cfg.antigos.ativo && modoDisparoAuto(estado) === 'ligado' && fila(estado, antes, {}, cfg).some((x) => x.av.antigo && x.av.tipo === 'pronto');
+    const conferirAntigo = temAntigo ? await conferidorDaBaseAntiga(cfg.antigos.dias, antes) : undefined;
+    if (temAntigo) await atualizarLeadsDoBanco(); // a conferência demora: decide sobre o que o banco tem agora
+    const rodada = await rodarDisparoAuto(estado, new Date(), { conferirAntigo, gravar: async () => { salvar(); await gravarAntesDeResponder(); } });
     // o que a IA fez (contato enviado) já leva o card para a coluna certa, sem esperar alguém abrir a tela
     // a rodada demora (um envio por vez): antes de mover cards, relê o banco, para não trabalhar sobre o que a equipe já mudou
     if (rodada.enviados > 0) { await atualizarLeadsDoBanco(); const s = alinharCardsELeads(estado, new Date()); if (s.leads + s.cards) { salvar(); await gravarAntesDeResponder(); } }
@@ -82,7 +88,8 @@ export function dadosManager(agora: Date) {
   const respostasHoje = gatilhos.reduce((s, g) => s + g.respostasHoje, 0);
   return {
     modo, forcadoPeloAmbiente: process.env.DISPARO_AUTO === 'desligado', alteradoPor: estado.disparoAuto?.alteradoPor, alteradoEm: estado.disparoAuto?.alteradoEm,
-    config: cfg, guia: { inicio: 8, fim: 19 }, disparo: statusDisparo(estado, agora), ultimaRodada: ultima,
+    config: cfg, guia: { inicio: 8, fim: 19 },
+    antigos: { naFila: itens.filter((x) => x.av.antigo && x.av.tipo !== 'pulado').length, enviadosHoje: enviadosAntigosHoje(estado, hoje) }, disparo: statusDisparo(estado, agora), ultimaRodada: ultima,
     agoraBrt: { hora: String(t.h).padStart(2, '0') + ':' + String(t.m).padStart(2, '0'), dia: NOMES_DIA[new Date(`${hoje}T12:00:00Z`).getUTCDay()], minutos: minAgora, hoje },
     hoje: { enviadosIA: enviadosPelaIAHoje(estado, agora), limiteDia: Math.min(cfg.limites.porDia, statusDisparo(estado, agora).limiteDia), simulados: gatilhos.reduce((s, g) => s + g.simuladosHoje, 0), respostas: respostasHoje, fila: itens.filter((x) => x.av.tipo === 'pronto').length },
     gatilhos, proximo, unidades: [...new Map(estado.leads.map((l) => (l.unidade ?? '').trim()).filter(Boolean).sort().map((u) => [u.toUpperCase(), u] as const)).values()],

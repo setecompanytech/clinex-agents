@@ -278,6 +278,17 @@ function mgGlobais(D) {
     h('div', { class: 'mg-linha-c mg-disj' }, [h('div', null, [h('label', { text: 'Disjuntor' }), h('small', { text: 'Desliga a IA sozinha se a Inovstar recusar envios em sequência.' })]), mgSwitch(C.disjuntor.ativo, function (v) { mgMudar(function () { C.disjuntor.ativo = v; }); }, 'Disjuntor')]),
     C.disjuntor.ativo ? h('div', { class: 'mg-linha-c' }, [h('label', { text: 'Desligar depois de' }), mgStepper(C.disjuntor.erros, 1, 20, 1, function (v) { mgMudar(function () { C.disjuntor.erros = v; }); }, 'erros seguidos', 'Erros seguidos')]) : null
   ]);
+  var A = C.antigos, N = D.antigos || { naFila: 0, enviadosHoje: 0 };
+  var cartaoAntigos = h('article', { class: 'mg-cx mg-cx-l mg-sec', style: '--i:9' }, [
+    h('header', { class: 'mg-cx-h' }, [h('div', null, [h('h4', { text: 'Base antiga (orçamentos parados em Em aberto)' }), h('p', { class: 'mut peq', text: 'Orçamentos sem nenhum contato, cujo dia já passou. A IA manda só a primeira mensagem, dos mais recentes para os mais antigos, de segunda a sexta. Antes de enviar, confere no Clinilink se o orçamento continua em aberto e se o paciente já não agendou. Os próximos contatos ficam com a equipe.' })]), mgSwitch(A.ativo, function (v) { mgMudar(function () { A.ativo = v; }); }, 'Disparar para a base antiga')]),
+    A.ativo ? h('div', null, [
+      h('div', { class: 'mg-linha-c' }, [h('label', { text: 'Máximo por dia' }), mgStepper(A.porDia, 1, 200, 5, function (v) { mgMudar(function () { A.porDia = v; }); }, 'envios', 'Base antiga: máximo por dia')]),
+      h('div', { class: 'mg-linha-c' }, [h('label', { text: 'Orçamentos de até' }), mgStepper(A.dias, 2, 60, 5, function (v) { mgMudar(function () { A.dias = v; }); }, 'dias atrás', 'Base antiga: até quantos dias')]),
+      h('div', { class: 'mg-linha-c' }, [h('label', { text: 'Começa às' }), mgStepper(A.inicio, 8, 18, 1, function (v) { mgMudar(function () { A.inicio = v; if (A.fim <= v) A.fim = v + 1; }); }, 'h', 'Base antiga: hora de início')]),
+      h('div', { class: 'mg-linha-c' }, [h('label', { text: 'Termina às' }), mgStepper(A.fim, 9, 19, 1, function (v) { mgMudar(function () { A.fim = v; if (A.inicio >= v) A.inicio = v - 1; }); }, 'h', 'Base antiga: hora de fim')]),
+      h('p', { class: 'mut peq', text: 'Agora: ' + N.naFila + ' na fila da base antiga · ' + N.enviadosHoje + ' enviadas hoje. Os números mudam depois de salvar. Saem até 5 por rodada.' })
+    ]) : h('p', { class: 'mut peq', text: 'Desligada: orçamento atrasado fica só com a equipe.' })
+  ]);
   var hojeIso = D.agoraBrt.hoje;
   var pausas = h('div', { class: 'mg-pausas' }, C.pausas.length ? C.pausas.map(function (p, k) {
     var de = h('input', { class: 'in mg-in', type: 'date', 'aria-label': 'Início da pausa' }); de.value = p.de; var ate = h('input', { class: 'in mg-in', type: 'date', 'aria-label': 'Fim da pausa' }); ate.value = p.ate;
@@ -293,11 +304,11 @@ function mgGlobais(D) {
   ]);
   var fixas = h('article', { class: 'mg-cx mg-cx-l mg-sec mg-fixas', style: '--i:10' }, [
     h('h4', { text: 'Regras do guia (fixas)' }), h('p', { class: 'mut peq', text: 'O IA Manager não consegue ampliar nem desligar estas regras: elas valem para todo envio, da IA e da equipe.' }),
-    h('div', { class: 'mg-chips' }, ['A IA só envia entre 8h e 19h', 'No máximo 2 contatos por dia por lead', 'Antes de cada contato: o paciente já foi à recepção?', 'O mesmo modelo não volta ao mesmo lead em 24 h', 'Orçamento acima de R$ 500: o 1º contato exige também a ligação', 'Passo atrasado: só uma pessoa decide'].map(function (t) { return h('span', { class: 'mg-regra' }, [ico('lock', 12), t]); }))
+    h('div', { class: 'mg-chips' }, ['A IA só envia entre 8h e 19h', 'No máximo 2 contatos por dia por lead', 'Antes de cada contato: o paciente já foi à recepção?', 'O mesmo modelo não volta ao mesmo lead em 24 h', 'Orçamento acima de R$ 500: o 1º contato exige também a ligação', 'Passo atrasado: só uma pessoa decide (menos a base antiga, se ligada)'].map(function (t) { return h('span', { class: 'mg-regra' }, [ico('lock', 12), t]); }))
   ]);
   return h('section', { class: 'mg-bloco' }, [
     h('header', { class: 'mg-sh mg-sec', style: '--i:6' }, [h('div', null, [h('h3', { text: 'Ajustes gerais' }), h('p', { text: 'Janela de envio, dias da semana, limites, pausas e o disjuntor de segurança.' })])]),
-    h('div', { class: 'mg-duas' }, [cartaoJanela, cartaoLimites]), cartaoPausas, fixas
+    h('div', { class: 'mg-duas' }, [cartaoJanela, cartaoLimites]), cartaoAntigos, cartaoPausas, fixas
   ]);
 }
 

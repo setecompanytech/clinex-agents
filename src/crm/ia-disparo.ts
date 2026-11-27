@@ -1,7 +1,8 @@
 import { paraE164Brasil } from '../integrations/inovstar.js';
-import { aplicar, diaDoInstante, hojeDe, horaDe, proximoPasso, type Lead } from './motor.js';
+import { aplicar, diaDoInstante, diffDias, hojeDe, horaDe, proximoPasso, type Lead } from './motor.js';
 import { LIMITES, PASSOS, type PassoDef } from './modelo.js';
 import type { Estado } from './banco.js';
+import { ANTIGOS_POR_RODADA, antigosPadrao, enviadosAntigosHoje, motivoForaDaBase, recebeuPelaBaseAntiga, type Conferidor } from './base-antiga.js';
 import type { ConfigAuto, DetalheRodada, DisparoAutoCfg, GatilhoCfg, ModoAuto, PausaCfg, Rodada } from './disparo-auto-tipos.js';
 import { DisparoError, MODELOS, checarEnvio, disparoAtivo, ehEnvio, enviarModelo, modelosParaLead } from './whatsapp.js';
 
@@ -11,7 +12,7 @@ import { DisparoError, MODELOS, checarEnvio, disparoAtivo, ehEnvio, enviarModelo
  *
  * O que ela envia: só passos com mensagem pronta e todas as variáveis conhecidas (1º contato, nova tentativa, desconto,
  * encerramento e no-show), no DIA em que vencem e a partir do horário do gatilho. Passo atrasado não é enviado sozinho: a
- * cadência já passou e a decisão é de uma pessoa. Cada envio passa pelas MESMAS travas do envio manual (checarEnvio:
+ * cadência já passou e a decisão é de uma pessoa (exceção, se ligada: a base antiga, ver base-antiga.ts). Cada envio passa pelas MESMAS travas do envio manual (checarEnvio:
  * janela 8h às 19h, 2 contatos por dia, já foi à recepção, mesmo modelo 24 h, limite do dia, lista de teste).
  *
  * Tudo que o gerente ajusta (IA Manager) fica em ConfigAuto: liga/desliga de cada gatilho, horário, condições (valor, unidades),
@@ -38,7 +39,7 @@ export function configPadrao(): ConfigAuto {
   return {
     janela: { inicio: LIMITES.janelaInicioH, fim: LIMITES.janelaFimH }, diasSemana: [0, 1, 2, 3, 4, 5, 6],
     limites: { porRodada: Number(process.env.DISPARO_AUTO_POR_RODADA) || 20, porDia: 1000 },
-    pausas: [], disjuntor: { ativo: true, erros: 3 }, gatilhos, historico: [],
+    pausas: [], antigos: antigosPadrao(), disjuntor: { ativo: true, erros: 3 }, gatilhos, historico: [],
   };
 }
 
@@ -60,7 +61,10 @@ export function configAuto(estado: Estado): ConfigAuto {
     };
   }
   const j = g.janela;
+  const a = (g.antigos ?? {}) as Partial<ConfigAuto['antigos']>, inicio = num(a.inicio, 8, 18) ?? p.antigos.inicio, fim = num(a.fim, 9, 19) ?? p.antigos.fim;
+  const antigos = { ativo: a.ativo === true, porDia: num(a.porDia, 1, 200) ?? p.antigos.porDia, dias: num(a.dias, 2, 60) ?? p.antigos.dias, ...(inicio < fim ? { inicio, fim } : { inicio: p.antigos.inicio, fim: p.antigos.fim }) };
   return {
+    antigos,
     janela: j && num(j.inicio, p.janela.inicio, 18) !== undefined && num(j.fim, 9, p.janela.fim) !== undefined && j.inicio < j.fim ? { inicio: j.inicio, fim: j.fim } : p.janela,
     diasSemana: Array.isArray(g.diasSemana) ? [...new Set(g.diasSemana.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))].sort() : p.diasSemana,
     limites: { porRodada: num(g.limites?.porRodada, 1, 200) ?? p.limites.porRodada, porDia: num(g.limites?.porDia, 1, 5000) ?? p.limites.porDia },
@@ -98,6 +102,15 @@ export function validarConfigAuto(entrada: unknown, atual: ConfigAuto): ConfigAu
       if (x.de > x.ate) throw erroConfig(`Pausa ${i + 1}: o início é depois do fim.`);
       return { id: String(x.id || `${x.de}-${i}`), de: x.de, ate: x.ate, motivo: String(x.motivo ?? '').trim().slice(0, 80) };
     });
+  }
+  if (e.antigos) {
+    const x = e.antigos, o = out.antigos;
+    if (x.ativo !== undefined) o.ativo = !!x.ativo;
+    if (x.porDia !== undefined) { const v = num(x.porDia, 1, 200); if (v === undefined) throw erroConfig('Base antiga: de 1 a 200 envios por dia.'); o.porDia = v; }
+    if (x.dias !== undefined) { const v = num(x.dias, 2, 60); if (v === undefined) throw erroConfig('Base antiga: orçamentos de 2 a 60 dias atrás.'); o.dias = v; }
+    if (x.inicio !== undefined) o.inicio = x.inicio;
+    if (x.fim !== undefined) o.fim = x.fim;
+    if (!Number.isInteger(o.inicio) || !Number.isInteger(o.fim) || o.inicio < LIMITES.janelaInicioH || o.fim > LIMITES.janelaFimH || o.inicio >= o.fim) throw erroConfig(`Base antiga: o horário precisa ficar entre ${LIMITES.janelaInicioH}h e ${LIMITES.janelaFimH}h, com o início antes do fim.`);
   }
   if (e.disjuntor) {
     if (e.disjuntor.ativo !== undefined) out.disjuntor.ativo = !!e.disjuntor.ativo;
@@ -143,6 +156,7 @@ export function resumoDaMudanca(antes: ConfigAuto, depois: ConfigAuto): string {
   if (JSON.stringify(antes.diasSemana) !== JSON.stringify(depois.diasSemana)) m.push('dias da semana alterados');
   if (antes.limites.porRodada !== depois.limites.porRodada || antes.limites.porDia !== depois.limites.porDia) m.push(`limites: ${depois.limites.porRodada} por rodada, ${depois.limites.porDia} por dia`);
   if (JSON.stringify(antes.pausas) !== JSON.stringify(depois.pausas)) m.push(`pausas: ${depois.pausas.length}`);
+  if (JSON.stringify(antes.antigos) !== JSON.stringify(depois.antigos)) m.push(depois.antigos.ativo ? `base antiga ligada: ${depois.antigos.porDia} por dia, orçamentos de até ${depois.antigos.dias} dias, ${depois.antigos.inicio}h–${depois.antigos.fim}h` : 'base antiga desligada');
   if (JSON.stringify(antes.disjuntor) !== JSON.stringify(depois.disjuntor)) m.push(`disjuntor ${depois.disjuntor.ativo ? `em ${depois.disjuntor.erros} erros` : 'desligado'}`);
   return m.join(' · ');
 }
@@ -178,9 +192,9 @@ export function definirModoDisparoAuto(estado: Estado, modo: ModoAuto, quem: str
 
 export type Check = { id: string; rotulo: string; ok: boolean; detalhe: string; falha?: 'espera' | 'pulado' };
 export type Avaliacao =
-  | { tipo: 'pronto'; passo: PassoDef; modelo: string; parametros: string[]; msg: number }
-  | { tipo: 'espera'; motivo: string; passo: PassoDef }
-  | { tipo: 'pulado'; motivo: string; passo: PassoDef };
+  | { tipo: 'pronto'; passo: PassoDef; modelo: string; parametros: string[]; msg: number; antigo?: boolean }
+  | { tipo: 'espera'; motivo: string; passo: PassoDef; antigo?: boolean }
+  | { tipo: 'pulado'; motivo: string; passo: PassoDef; antigo?: boolean };
 
 const minutos = (hhmm: string) => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m; };
 const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
@@ -196,7 +210,7 @@ export function checagens(estado: Estado, l: Lead, agora: Date, cfg: ConfigAuto,
   const checks: Check[] = [];
   const add = (id: string, rotulo: string, ok: boolean, detalhe: string, falha?: 'espera' | 'pulado') => { checks.push({ id, rotulo, ok, detalhe, ...(ok ? {} : { falha: falha ?? 'pulado' }) }); return ok; };
   const hoje = hojeDe(agora), t = horaDe(agora);
-  const sai = (extra: Partial<{ passo: PassoDef; modelo: string; parametros: string[]; msg: number; aplicavel: boolean }> = {}) => ({ checks, aplicavel: true, ...extra });
+  const sai = (extra: Partial<{ passo: PassoDef; modelo: string; parametros: string[]; msg: number; aplicavel: boolean; antigo: boolean }> = {}) => ({ checks, aplicavel: true, ...extra });
   if (l.demo) { add('lead', 'Lead real', false, 'Lead de exemplo: a IA nunca envia'); return { checks, aplicavel: false as const }; }
   // contato que veio do popup do WhatsApp do site: a pessoa já está indo para o WhatsApp; o primeiro contato é da equipe, nunca da IA de disparo
   if (l.fonte === 'site') { add('lead', 'Lead real', false, 'Lead do site (popup do WhatsApp): a equipe faz o primeiro contato, a IA não envia'); return { checks, aplicavel: false as const }; }
@@ -210,7 +224,12 @@ export function checagens(estado: Estado, l: Lead, agora: Date, cfg: ConfigAuto,
   add('optout', 'Aceita receber mensagens', !l.semDisparoAuto, l.semDisparoAuto ? 'Pediu para não receber mensagens' : 'Não pediu para parar');
   add('gatilho', 'Gatilho ligado', g.ativo, g.ativo ? `${passo.rotulo} está ligado` : `${passo.rotulo} está desligado no IA Manager`);
   if (px.situacao === 'futura') { add('vence', 'Passo vence hoje', false, `Só vence em ${px.vence}`, 'espera'); return { checks, aplicavel: false as const, passo, modelo: modelo.id, msg }; }
-  add('vence', 'Passo vence hoje', px.situacao === 'hoje', px.situacao === 'hoje' ? 'Vence hoje' : 'Passo atrasado: só uma pessoa decide');
+  const atrasadoAberto = px.situacao === 'atrasada' && passo.id === 'primeiro' && cfg.antigos.ativo;
+  const foraDaBase = atrasadoAberto ? motivoForaDaBase(estado, l, hoje, cfg.antigos) : null;
+  const antigo = atrasadoAberto && !foraDaBase;
+  if (passo.id !== 'noshow' && recebeuPelaBaseAntiga(l)) add('vence', 'Passo vence hoje', false, 'Base antiga: a IA manda só a primeira mensagem, a equipe acompanha');
+  else if (antigo) add('vence', 'Passo vence hoje (ou base antiga)', true, `Base antiga: orçamento de ${diffDias(l.d0, hoje)} dias atrás`);
+  else add('vence', 'Passo vence hoje', px.situacao === 'hoje', px.situacao === 'hoje' ? 'Vence hoje' : foraDaBase ?? 'Passo atrasado: só uma pessoa decide');
   const jaEnviado = l.eventos.some((e) => e.tipo === 'contato' && e.passo === passo.id && e.fase === l.faseId && e.canal === 'whatsapp');
   add('whatsapp', 'WhatsApp deste passo ainda não enviado', !jaEnviado, jaEnviado ? 'WhatsApp deste passo já foi enviado' : 'Ainda não enviado');
   const dow = diaDaSemana(hoje);
@@ -218,7 +237,11 @@ export function checagens(estado: Estado, l: Lead, agora: Date, cfg: ConfigAuto,
   const pausa = cfg.pausas.find((x) => hoje >= x.de && hoje <= x.ate);
   add('pausa', 'Sem pausa programada', !pausa, pausa ? `Em pausa${pausa.motivo ? `: ${pausa.motivo}` : ''}` : 'Nenhuma pausa hoje');
   const hh = g.hora, chegou = t.h * 60 + t.m >= minutos(hh);
-  add('hora', 'Chegou o horário do gatilho', chegou, chegou ? `Depois das ${hh}` : `Aguardando o horário do passo (${hh})`, 'espera');
+  if (antigo) {
+    const a = cfg.antigos, noHorario = dow >= 1 && dow <= 5 && t.h >= a.inicio && t.h < a.fim, cota = enviadosAntigosHoje(estado, hoje) < a.porDia;
+    add('hora', 'Horário da base antiga', noHorario, noHorario ? `Segunda a sexta, ${a.inicio}h às ${a.fim}h` : `Base antiga: só de segunda a sexta, das ${a.inicio}h às ${a.fim}h`, 'espera');
+    add('cota', 'Cota do dia da base antiga', cota, cota ? `Até ${a.porDia} por dia` : `Base antiga: os ${a.porDia} de hoje já saíram`, 'espera');
+  } else add('hora', 'Chegou o horário do gatilho', chegou, chegou ? `Depois das ${hh}` : `Aguardando o horário do passo (${hh})`, 'espera');
   const dentro = t.h >= cfg.janela.inicio && t.h < cfg.janela.fim;
   add('janela', 'Dentro da janela da IA', dentro, dentro ? `Agora está entre ${cfg.janela.inicio}h e ${cfg.janela.fim}h` : `Fora da janela da IA (${cfg.janela.inicio}h–${cfg.janela.fim}h)`, 'espera');
   const vOk = (g.valorMin === undefined || l.valor >= g.valorMin) && (g.valorMax === undefined || l.valor <= g.valorMax);
@@ -241,7 +264,7 @@ export function checagens(estado: Estado, l: Lead, agora: Date, cfg: ConfigAuto,
   add('dados', 'Dados da mensagem completos', !faltam.length, faltam.length ? `Faltam dados: ${faltam.join(', ')}` : 'Todas as variáveis preenchidas');
   const bloqueio = checarEnvio(estado, l, modelo.id, agora, { ignorarLista: opcoes.ignorarLista });
   add('travas', 'Travas do envio (guia e limites)', !bloqueio, bloqueio ? bloqueio.message : 'Passa nas travas do guia');
-  return sai({ passo, modelo: modelo.id, parametros, msg });
+  return sai({ passo, modelo: modelo.id, parametros, msg, antigo });
 }
 
 /** O que fazer com este lead agora. null = não tem passo automático (nada a dizer sobre ele). */
@@ -249,8 +272,9 @@ export function avaliarLead(estado: Estado, l: Lead, agora: Date, opcoes: { igno
   const r = checagens(estado, l, agora, cfg, opcoes);
   if (!r.aplicavel || !('passo' in r) || !r.passo) return null;
   const falhou = r.checks.find((c) => !c.ok);
-  if (falhou) return { tipo: falhou.falha === 'espera' ? 'espera' : 'pulado', motivo: falhou.detalhe, passo: r.passo };
-  return { tipo: 'pronto', passo: r.passo, modelo: r.modelo!, parametros: r.parametros!, msg: r.msg! };
+  const antigo = 'antigo' in r && r.antigo === true ? true : undefined;
+  if (falhou) return { tipo: falhou.falha === 'espera' ? 'espera' : 'pulado', motivo: falhou.detalhe, passo: r.passo, antigo };
+  return { tipo: 'pronto', passo: r.passo, modelo: r.modelo!, parametros: r.parametros!, msg: r.msg!, antigo };
 }
 
 /** Quem a IA enviaria agora, na ordem do guia (no show primeiro, depois leads novos, depois o maior valor), mais quem ficou de fora e por quê. */
@@ -259,9 +283,9 @@ export function fila(estado: Estado, agora: Date, opcoes: { ignorarLista?: boole
   const itens: { lead: Lead; av: Avaliacao; prioridade: number }[] = [];
   for (const l of estado.leads) {
     const av = avaliarLead(estado, l, agora, opcoes, cfg);
-    if (av) itens.push({ lead: l, av, prioridade: proximoPasso(l, hoje)?.prioridade ?? 3 });
+    if (av) itens.push({ lead: l, av, prioridade: av.antigo ? 4 : proximoPasso(l, hoje)?.prioridade ?? 3 });
   }
-  itens.sort((a, b) => a.prioridade - b.prioridade || b.lead.valor - a.lead.valor);
+  itens.sort((a, b) => a.prioridade - b.prioridade || (a.prioridade === 4 ? b.lead.d0.localeCompare(a.lead.d0) : 0) || b.lead.valor - a.lead.valor);
   return itens;
 }
 
@@ -275,6 +299,8 @@ export type OpcoesRodada = {
   max?: number;
   /** chamado depois de cada envio: o chamador grava no banco antes do próximo (outra instância não pode ver o lead sem o envio) */
   gravar?: () => Promise<void>;
+  /** base antiga: diz por que NÃO enviar a este lead (conferência no Clinilink). Sem ele, nada da base antiga é enviado de verdade. */
+  conferirAntigo?: Conferidor;
 };
 
 /** Quantos envios a IA já fez hoje (todos os gatilhos). */
@@ -296,24 +322,31 @@ export async function rodarDisparoAuto(estado: Estado, agora: Date, opcoes: Opco
   const hoje = hojeDe(agora), max = opcoes.max ?? cfg.limites.porRodada;
   const jaHoje = enviadosPelaIAHoje(estado, agora);
   const itens = fila(estado, agora, { ignorarLista: modo === 'sombra' }, cfg);
-  let feitos = 0, errosSeguidos = 0;
+  let feitos = 0, errosSeguidos = 0, antigosNaRodada = 0;
+  const antigosHoje = enviadosAntigosHoje(estado, hoje);
   for (const { lead, av } of itens) {
     r.avaliados++;
     const base = { leadId: lead.id, nome: lead.nome, passo: av.passo.rotulo, msg: av.passo.msg };
     if (av.tipo !== 'pronto') { conta(av.motivo); if (r.detalhes.length < 60) r.detalhes.push({ ...base, resultado: 'pulado', motivo: av.motivo }); continue; }
     if (feitos >= max) { conta(`Fica para a próxima rodada (máximo de ${max} por rodada)`); continue; }
     if (modo === 'ligado' && jaHoje + r.enviados >= cfg.limites.porDia) { conta(`Limite diário da IA atingido (${cfg.limites.porDia})`); continue; }
+    if (av.antigo) {
+      if (antigosNaRodada >= ANTIGOS_POR_RODADA) { conta(`Base antiga: fica para a próxima rodada (${ANTIGOS_POR_RODADA} por vez)`); continue; }
+      if (antigosHoje + antigosNaRodada >= cfg.antigos.porDia) { conta(`Base antiga: os ${cfg.antigos.porDia} de hoje já saíram`); continue; }
+      const motivo = modo !== 'ligado' ? null : opcoes.conferirAntigo ? opcoes.conferirAntigo(lead) : 'Base antiga: não foi possível conferir no Clinilink, nada enviado';
+      if (motivo) { conta(motivo); if (r.detalhes.length < 60) r.detalhes.push({ ...base, resultado: 'pulado', motivo }); continue; }
+    }
     const det: DetalheRodada = { ...base, modelo: av.modelo, variaveis: av.parametros, resultado: 'sombra' };
     if (modo === 'sombra') {
       const sinal = `IA (sombra): enviaria a Msg ${av.msg} `;
       const jaAnotou = lead.eventos.some((e) => e.tipo === 'nota' && e.texto.startsWith(sinal) && diaDoInstante(e.quando) === hoje);
       if (!jaAnotou) aplicar(lead, { tipo: 'nota', texto: `${sinal}(${av.passo.rotulo}, modelo ${av.modelo}) agora, sem enviar. Variáveis: ${av.parametros.join(' | ')}`, atendente: 'IA' }, agora);
-      r.sombra++; feitos++; r.detalhes.length < 60 && r.detalhes.push(det);
+      r.sombra++; feitos++; if (av.antigo) antigosNaRodada++; r.detalhes.length < 60 && r.detalhes.push(det);
       continue;
     }
     try {
       await enviarModelo(estado, lead, { modelo: av.modelo, parametros: av.parametros, passo: av.passo.id, msg: av.msg, atendente: 'IA', auto: true }, agora);
-      r.enviados++; feitos++; errosSeguidos = 0; det.resultado = 'enviado';
+      r.enviados++; feitos++; errosSeguidos = 0; det.resultado = 'enviado'; if (av.antigo) antigosNaRodada++;
       if (opcoes.gravar) await opcoes.gravar(); // o envio vai para o banco antes do próximo
     } catch (e) {
       const cod = e instanceof DisparoError ? e.codigo : 'erro';

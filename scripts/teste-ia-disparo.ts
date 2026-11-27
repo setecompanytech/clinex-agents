@@ -408,5 +408,72 @@ void hojeDe;
   });
 }
 
+console.log('Base antiga');
+const { montarConferidor } = await import('../src/crm/base-antiga.js');
+const LIVRE = () => null;
+const ligarBase = (e: Estado, extra: Record<string, unknown> = {}) => { definirModoDisparoAuto(e, 'ligado', 'Ana', MANHA); salvarConfigAuto(e, validarConfigAuto({ antigos: { ativo: true, ...extra } }, configAuto(e)), 'Ana', MANHA); };
+const antigo = (e: Estado, nome: string, tel: string, dias: number, extra: Record<string, unknown> = {}) => lead(e, nome, tel, extra, somaDias(HOJE, -dias));
+await teste('base antiga nasce desligada: orçamento atrasado continua só com a equipe', async () => {
+  pedidos.length = 0; const e = novo(); antigo(e, 'ANTIGO', '91988880001', 5); definirModoDisparoAuto(e, 'ligado', 'Ana', MANHA);
+  assert.deepEqual(configAuto(e).antigos, { ativo: false, porDia: 30, dias: 30, inicio: 9, fim: 16 });
+  const r = await rodarDisparoAuto(e, MANHA, { conferirAntigo: LIVRE });
+  assert.equal(r.enviados, 0); assert.equal(envios().length, 0);
+});
+await teste('base antiga ligada: novos primeiro, depois os antigos do mais recente ao mais velho, só até o limite de dias', async () => {
+  pedidos.length = 0; const e = novo(); ligarBase(e, { porDia: 3 });
+  antigo(e, 'VELHO DEMAIS', '91988880002', 31); antigo(e, 'DEZ', '91988880003', 10); antigo(e, 'TRES', '91988880004', 3); antigo(e, 'VINTE', '91988880005', 20); antigo(e, 'TRINTA', '91988880006', 30); lead(e, 'NOVO', '91988880007');
+  const r = await rodarDisparoAuto(e, MANHA, { conferirAntigo: LIVRE });
+  assert.equal(r.enviados, 4, '1 novo + 3 antigos (cota)');
+  assert.deepEqual(envios().map((p) => p.corpo.template.components[0].parameters[0].text), ['Novo', 'Tres', 'Dez', 'Vinte']);
+  const r2 = await rodarDisparoAuto(e, TARDE.getUTCHours() - 3 < 16 ? TARDE : em(HOJE, '15:00'), { conferirAntigo: LIVRE });
+  assert.equal(r2.enviados, 0, 'cota do dia já usada');
+});
+await teste('base antiga: no máximo 5 por rodada', async () => {
+  pedidos.length = 0; const e = novo(); ligarBase(e);
+  for (let i = 0; i < 8; i++) antigo(e, 'PACIENTE ' + i, '9198877000' + i, 4);
+  assert.equal((await rodarDisparoAuto(e, MANHA, { conferirAntigo: LIVRE })).enviados, 5);
+  assert.equal((await rodarDisparoAuto(e, em(HOJE, '09:10'), { conferirAntigo: LIVRE })).enviados, 3);
+});
+await teste('base antiga: sem conferência no Clinilink não envia; quem já resolveu é pulado', async () => {
+  pedidos.length = 0; const e = novo(); ligarBase(e); antigo(e, 'ANA', '91988880010', 4); antigo(e, 'BIA', '91988880011', 5);
+  const r = await rodarDisparoAuto(e, MANHA);
+  assert.equal(r.enviados, 0); assert.ok(Object.keys(r.pulados).some((m) => /conferir no Clinilink/.test(m)));
+  const r2 = await rodarDisparoAuto(e, MANHA, { conferirAntigo: (l) => (l.nome === 'ANA' ? 'Base antiga: o paciente já tem agendamento no Clinilink' : null) });
+  assert.equal(r2.enviados, 1); assert.equal(envios()[0].corpo.template.components[0].parameters[0].text, 'Bia');
+});
+await teste('base antiga: só segunda a sexta e no horário escolhido', async () => {
+  pedidos.length = 0; const e = novo(); ligarBase(e); antigo(e, 'ANA', '91988880012', 4);
+  for (const q of [em(HOJE, '08:45'), em(HOJE, '16:00'), em('2026-11-14', '10:00')]) assert.equal((await rodarDisparoAuto(e, q, { conferirAntigo: LIVRE })).enviados, 0);
+  assert.equal(envios().length, 0);
+});
+await teste('base antiga: quem já teve contato, respondeu ou está agendado em outro registro fica de fora', async () => {
+  pedidos.length = 0; const e = novo(); ligarBase(e);
+  const a = antigo(e, 'COM LIGACAO', '91988880013', 6); aplicar(a, { tipo: 'contato', canal: 'ligacao', naoFoiRecepcao: true, atendente: 'Carla' }, em(somaDias(HOJE, -4), '10:00'));
+  const b = antigo(e, 'DOIS REGISTROS', '91988880014', 6); const c = antigo(e, 'DOIS REGISTROS', '91988880014', 9); aplicar(c, { tipo: 'agendou', data: somaDias(HOJE, 2), atendente: 'Carla' }, em(somaDias(HOJE, -4), '10:00'));
+  assert.equal(b.status, 'aberto');
+  assert.equal((await rodarDisparoAuto(e, MANHA, { conferirAntigo: LIVRE })).enviados, 0);
+});
+await teste('base antiga: depois da primeira mensagem a IA não manda nova tentativa nem desconto', async () => {
+  pedidos.length = 0; const e = novo(); ligarBase(e); const l = antigo(e, 'ANA', '91988880015', 12);
+  assert.equal((await rodarDisparoAuto(e, MANHA, { conferirAntigo: LIVRE })).enviados, 1);
+  const { automatizar } = await import('../src/crm/motor.js');
+  for (let d = 1; d <= 8; d++) {
+    const dia = somaDias(HOJE, d); automatizar(l, em(dia, '09:00'));
+    for (const h of ['09:00', '12:00', '17:00']) assert.equal((await rodarDisparoAuto(e, em(dia, h), { conferirAntigo: LIVRE })).enviados, 0, 'dia +' + d);
+  }
+  assert.equal(envios().length, 1); assert.notEqual(l.status, 'descarte');
+});
+await teste('base antiga: a tela só aceita valores dentro das regras', () => {
+  const e = novo(); const erro = (a: Record<string, unknown>) => { try { validarConfigAuto({ antigos: a }, configAuto(e)); return ''; } catch (x) { return (x as Error).message; } };
+  assert.match(erro({ porDia: 500 }), /1 a 200/); assert.match(erro({ dias: 90 }), /2 a 60/); assert.match(erro({ inicio: 7 }), /entre 8h e 19h/); assert.match(erro({ inicio: 12, fim: 11 }), /início antes do fim/);
+});
+await teste('conferência no Clinilink: orçamento fechado ou paciente com agendamento depois do orçamento não recebe', () => {
+  const e = novo(); const l = antigo(e, 'ANA', '91988880016', 10); l.fonte = 'clinilink'; l.cardId = 'orc1';
+  assert.equal(montarConferidor(['orc1'], [])(l), null);
+  assert.match(montarConferidor(['outro'], [])(l)!, /não está mais em aberto/);
+  assert.match(montarConferidor(['orc1'], [{ telefone: '(91) 98888-0016', quando: somaDias(HOJE, -2) + 'T10:00:00-03:00' }])(l)!, /já tem agendamento/);
+  assert.equal(montarConferidor(['orc1'], [{ telefone: '91988880016', quando: somaDias(HOJE, -40) + 'T10:00:00-03:00' }])(l), null, 'agendamento anterior ao orçamento não conta');
+});
+
 console.log(`\n${ok} testes passaram${process.exitCode ? ', COM FALHAS' : ''}.`);
 servidor.close(); process.exit(process.exitCode ?? 0);
