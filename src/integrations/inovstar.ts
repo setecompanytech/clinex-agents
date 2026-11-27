@@ -39,6 +39,8 @@ export type MessageReceivedEvent = {
   contactName?: string;
   /** id do contato na Inovstar (etiquetas do funil de aquisição) */
   contactId?: string;
+  /** a conversa veio de ANÚNCIO (Click-to-WhatsApp): origem, id do anúncio, título e texto, como a Inovstar entrega na 1ª mensagem */
+  adReferral?: { source?: string; sourceType?: string; sourceId?: string; sourceUrl?: string; headline?: string; body?: string; ctwaClid?: string };
   /** reprocessamento manual (só com a chave do webhook): a Amanda responde mesmo depois da própria mensagem de falha (ex.: falta de crédito da OpenAI) */
   recuperar?: boolean;
 };
@@ -75,6 +77,7 @@ export function parseMessageReceived(body: any): MessageReceivedEvent | null {
     isGroup: Boolean(d.author),
     contactName: d.contact?.name,
     contactId: d.contact?.id ? String(d.contact.id) : d.contact?._id ? String(d.contact._id) : undefined,
+    adReferral: d.adReferral && typeof d.adReferral === 'object' ? d.adReferral : undefined,
     recuperar: body?.recuperar === true,
   };
 }
