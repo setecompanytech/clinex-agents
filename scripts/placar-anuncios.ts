@@ -101,6 +101,12 @@ const porEtq = new Map<string, { n: number; ag: number }>();
 for (const l of linhas) { const v = porEtq.get(l.esperada) ?? { n: 0, ag: 0 }; v.n++; if (agendaram.includes(l)) v.ag++; porEtq.set(l.esperada, v); }
 console.log('  etiqueta            pessoas  agendaram (confirmação no WhatsApp ou agendamento no Clinilink)');
 for (const [e, v] of [...porEtq.entries()].sort((a, b) => b[1].n - a[1].n)) console.log(`  ${e.padEnd(18)}  ${String(v.n).padStart(7)}  ${String(v.ag).padStart(9)}`);
+// resumo por anúncio (título): quantos mandaram mensagem e quantos agendaram; também em JSON para relatórios
+const porAnuncio = new Map<string, { etiqueta: string; pessoas: number; agendaram: number }>();
+for (const l of linhas) { const v = porAnuncio.get(l.titulo) ?? { etiqueta: l.esperada, pessoas: 0, agendaram: 0 }; v.pessoas++; if (agendaram.includes(l)) v.agendaram++; porAnuncio.set(l.titulo, v); }
+console.log('\n  anúncio                              pessoas  agendaram');
+for (const [t, v] of [...porAnuncio.entries()].sort((a, b) => b[1].pessoas - a[1].pessoas)) console.log(`  ${t.slice(0, 36).padEnd(36)} ${String(v.pessoas).padStart(7)}  ${String(v.agendaram).padStart(9)}`);
+if (process.env.PLACAR_JSON) (await import('node:fs')).writeFileSync(process.env.PLACAR_JSON, JSON.stringify({ desde: new Date(desde).toISOString(), geradoEm: new Date().toISOString(), total: linhas.length, agendaram: agendaram.length, porAnuncio: [...porAnuncio.entries()].map(([titulo, v]) => ({ titulo, ...v })) }, null, 1));
 const comEtiqueta = linhas.filter((l) => l.aplicada.length).length;
 console.log(`\n  com etiqueta AD: ${comEtiqueta} de ${linhas.length} · agendaram: ${agendaram.length} de ${linhas.length} (com confirmação no WhatsApp: ${linhas.filter((l) => l.conf).length} · achados no Clinilink pelo telefone: ${linhas.filter(noClini).length} · só no Clinilink: ${linhas.filter((l) => noClini(l) && !l.conf).length} · só confirmação: ${linhas.filter((l) => l.conf && !noClini(l)).length})${erroCl ? ` · ATENÇÃO Clinilink: ${erroCl}` : ''}\n`);
 const etq = (l: Linha) => (l.semContato ? '? contato' : l.aplicada.length ? (l.aplicada.includes(l.esperada) ? '✔ ' : '≠ ') + l.aplicada.join(', ') : '✘ sem etiqueta');
