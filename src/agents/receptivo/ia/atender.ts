@@ -185,6 +185,8 @@ export async function atenderComIA(p: {
   const temCombo = () => Object.values(mem.servicos).some((x) => x.pacote || x.combo) || Boolean(mem.combosOferecidos?.length) || Boolean(Object.keys(mem.etapas ?? {}).length) || Boolean(mem.ultimasOpcoes?.some((o) => o.id.startsWith('combo'))) || (c.saida.dados ?? []).some((d) => /combo/i.test(d)) || /\bcombos?\b/i.test(doPaciente);
   const comboEscolhido = Object.keys(mem.etapas ?? {}).length > 0;
   const regrasDeServico = (t: string) => [
+    // REGRA DA CLÍNICA (27/11/2026): nunca dizer até que horas ainda tem vaga (atendimento por ordem de chegada)
+    ...(/vagas? at[eé]|tem vaga at[eé]|h[aá] vaga at[eé]|vaga ainda at[eé]/i.test(t) ? ['disse até que horas tem vaga: tire isso. Diga só o dia e "a partir das Xh, por ordem de chegada"'] : []),
     // "vou cadastrar" sem ter procurado o cadastro (caso real 24/11: a data veio "08071999", a busca falhou e ela já ia cadastrar o Renato, que existe)
     ...(/\bvou cadastrar\b|\bcadastrar (voc[eê]|como|o paciente|a paciente)\b|\bfazer (o|seu) cadastro\b/i.test(t) && !mem.buscouSemAchar && !mem.paciente?.id ? ['falou em cadastrar sem antes procurar o cadastro: chame buscar_paciente com o nome completo e a data de nascimento (DD/MM/AAAA) e só fale em cadastro novo se ele NÃO for encontrado'] : []),
     ...(!comboEscolhido && /(feit[oa]s?|faz|fazer|realizad[oa]s?)\s+(durante|junto|juntos|na mesma|no mesmo)[^.]{0,40}(consulta|atendimento)|consulta[^.]{0,50}(inclui|incluso|inclusa|j[aá] faz)[^.]{0,30}(ultrass|usg|exame|preventivo)/i.test(t) ? ['disse que o exame é feito junto/durante a consulta ou que a consulta inclui exame (cada serviço é à parte; só no COMBO escolhido)'] : []),

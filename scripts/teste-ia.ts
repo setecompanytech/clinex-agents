@@ -76,6 +76,7 @@ const CASOS: Record<string, string[]> = {
   somenteRx: ['bom dia', 'guamá', 'raio x', 'somente raio x'],
   plaquetas: ['quanto custa o exame de sangue que informa as plaquetas?', 'guamá'],
   exameSangue: ['quanto custa exame de sangue?', 'guamá'],
+  semVagaAte: ['quero consulta com cardiologista hoje', 'é nova', 'guamá', 'qualquer uma, o mais cedo possível'],
   unidadeOi: ['oi'],
   unidadeDireto: ['quero marcar consulta com cardiologista', 'é nova', 'primeira opção'],
   setores: ['bom dia, que horas vocês funcionam?', 'telégrafo', 'qual o horário da coleta de sangue?', 'e eletrocardiograma, dá pra fazer à tarde?'],
