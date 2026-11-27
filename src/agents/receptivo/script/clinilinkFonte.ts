@@ -180,7 +180,7 @@ async function servicoDaProfissional(p: ProfMerged): Promise<Descoberta> {
     if (!termos.length) termos = ['consulta'];
   }
   const cands = new Map<string, Procedimento>();
-  for (const c of p.clinicas) for (const termo of termos) for (const pr of await listProcedimentos(c.id, termo).catch(() => [])) cands.set(pr.id, pr);
+  for (const c of p.clinicas) for (const termo of termos) for (const pr of await listProcedimentos(c.id, termo).catch(() => [])) if (!soDeCombo(pr)) cands.set(pr.id, pr);
   const ordenados = [...cands.values()].sort((a, b) => pontuar(b) - pontuar(a)).slice(0, esp ? 4 : 12);
   for (const proc of ordenados) {
     // só conta o procedimento se a pessoa realmente atende ele em alguma unidade
@@ -251,11 +251,19 @@ function simPalavra(q: string, n: string): number {
 
 type ItemCatalogo = { cand: Cand; palavras: string[] };
 /** Catálogo inteiro que o chatbot pode agendar (todas as unidades). Fica em memória por 10 min (vazio, 20 s). */
+/** Procedimento que só existe para compor combo ("RAIO-X (COMBO)", "ULTRASSONOGRAFIA (COMBO)"...): nunca é oferecido nem agendado como
+ * serviço avulso. Caso real 25/11/2026: o paciente disse "somente raio x" e a Amanda agendou o RAIO-X (COMBO). Os combos usam os itens
+ * deles pela lista de combos, não por esta busca. */
+const soDeCombo = (p: { nome: string }) => /\(\s*combo\s*\)/i.test(p.nome);
+/** Exame que só vale quando o paciente cita o nome dele: "sangue" sozinho não é SANGUE OCULTO (é de fezes), plaqueta não é AGREGAÇÃO PLAQUETÁRIA. */
+const pedeEspecifico = (p: { nome: string }, t: string) => (/sangue oculto/i.test(p.nome) && !/oculto|fezes/.test(t)) || (/agrega/i.test(p.nome) && !/agrega/.test(t));
+
 async function catalogo(): Promise<ItemCatalogo[]> {
   const clinicas = await listClinicas();
   const mapa = new Map<string, Cand>();
   await Promise.all(clinicas.map(async (c) => {
     for (const p of await listProcedimentos(c.id, '').catch(() => [])) {
+      if (soDeCombo(p)) continue;
       const k = mapa.get(p.id) ?? { proc: p, clinicas: [] };
       k.clinicas.push(c); mapa.set(p.id, k);
     }
@@ -366,7 +374,7 @@ async function decidir(pont: ReturnType<typeof ranquear>, viaSintoma: boolean, p
  */
 async function buscarSimilares(t: string, palavras: string[], viaSintoma: boolean, forte: boolean): Promise<Descoberta> {
   const itens = await catalogo();
-  const pont = ranquear(itens.map((x) => x.cand), palavras, t).filter((x) => x.hits > 0 && (!forte || x.forte >= 2.5));
+  const pont = ranquear(itens.map((x) => x.cand).filter((cd) => !pedeEspecifico(cd.proc, t)), palavras, t).filter((x) => x.hits > 0 && (!forte || x.forte >= 2.5));
   return pont.length ? decidir(pont, viaSintoma, t) : undefined;
 }
 
@@ -868,7 +876,7 @@ async function examesDoCatalogo(): Promise<ExameCat[]> {
   const mapa = new Map<string, ExameCat>();
   for (const c of await listClinicas()) {
     for (const p of await listProcedimentos(c.id, '').catch(() => [] as Procedimento[])) {
-      if (!ehExameDoCatalogo(p)) continue;
+      if (!ehExameDoCatalogo(p) || soDeCombo(p)) continue;
       const x = mapa.get(p.id) ?? { id: p.id, nome: p.nome.replace(/\s+/g, ' ').trim(), categoria: p.categoria, precos: {} };
       const v = precoDe(p);
       if (v !== undefined) x.precos[nomeUnidade(c)] = v;
@@ -1018,6 +1026,9 @@ export const fonteClinilink: Fonte = {
   async nomesUnidades() { return (await listClinicas()).map(nomeUnidade); },
 
   async descobrir(t, buscando, forte = false) {
+    // nome leigo de exame de sangue (caso real 26/11: "o exame de sangue que informa as plaquetas" virou SANGUE OCULTO R$ 20 e AGREGAÇÃO
+    // PLAQUETÁRIA R$ 50; o certo é o HEMOGRAMA COMPLETO): plaquetas, hemácias, leucócitos e glóbulos são contados no hemograma
+    if (/plaquet|hemacia|leucocit|globulos? (vermelh|branc)|serie (vermelha|branca)/.test(t) && !/agrega|hemograma/.test(t)) t = 'hemograma completo';
     // combo ("tem combo feminino?"): lista os combos, mostra o que inclui e o preço; escolhido, segue o fluxo normal de unidade, dia e pagamento
     if (buscando && !forte) { const combo = await descobrirCombo(t); if (combo !== undefined) return combo; }
     // "ultrassom ginecológica/ginecológico" não é nome de serviço: são o USG transvaginal e o USG pélvico (caso real 20/11: virava CONSULTA
@@ -1025,6 +1036,15 @@ export const fonteClinilink: Fonte = {
     if (buscando && !forte && /\b(ultra\w*|usg|ecograf\w*)\b/.test(t) && /gineco/.test(t) && !/transvaginal|pelvic/.test(t)) {
       const itens = (await catalogo()).filter((i) => /^usg (transvaginal|pelvica)$/.test(norm(i.cand.proc.nome).replace(/\s+/g, ' ').trim()));
       if (itens.length) { for (const i of itens) conhecidos.set(i.cand.proc.id, i.cand); return { opcoes: itens.map((i) => ({ id: i.cand.proc.id, nome: titulo(i.cand.proc.nome) })), intro: 'O ultrassom ginecológico é um exame à parte (não é feito na consulta). Temos estas opções:', pergunta: 'Qual delas o pedido médico indica?' }; }
+    }
+    // "raio x" sem dizer de quê (caso real 25/11: virou RAIO-X (COMBO); depois, RX de tórax por conta própria): são 70+ tipos, o paciente diz qual
+    if (buscando && !forte && /\b(raio ?-?x|rx|radiograf\w*)\b/.test(t)) {
+      const resto = t.replace(/\b(raio ?-?x|rx|radiograf\w*|somente|so|apenas|um|uma|o|a|os|as|de|do|da|quero|queria|gostaria|fazer|agendar|marcar|exame|exames|preciso|vcs|voces|tem|fazem|faz|e|pra|para|valor|quanto|custa|bom|dia|tarde|noite|oi|ola)\b/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
+      if (!resto) {
+        const dem = await demandaPorProcedimento();
+        const rxs = (await catalogo()).filter((i) => /^(rx|raio)/.test(norm(i.cand.proc.nome))).sort((a, b) => (dem.get(b.cand.proc.id) ?? 0) - (dem.get(a.cand.proc.id) ?? 0)).slice(0, 5);
+        if (rxs.length) { for (const i of rxs) conhecidos.set(i.cand.proc.id, i.cand); return { opcoes: rxs.map((i) => ({ id: i.cand.proc.id, nome: titulo(i.cand.proc.nome) })), intro: 'Temos vários tipos de raio-X (cada parte do corpo é um exame). Os mais pedidos:', pergunta: 'De qual parte do corpo é o raio-X (ex.: tórax, coluna, mão, joelho)? Se tiver o pedido médico, pode mandar a foto.' }; }
+      }
     }
     // "tenho um pedido médico com exames": é o pedido de exames (antes de procurar uma pessoa pelo "com ...")
     if (buscando && !forte && /\b(pedido (medico|de exames?)|requisicao de exames?|solicitacao de exames?|orcamento de exames?|orcar (os )?exames?)\b/.test(t)) return { pedirPedido: true };
@@ -1078,6 +1098,7 @@ export const fonteClinilink: Fonte = {
       const listas = await Promise.all(clinicas.map(async (c) => ({ c, procs: await listProcedimentos(c.id, termo) })));
       const mapa = new Map<string, Cand>();
       for (const { c, procs } of listas) for (const p of procs) {
+        if (soDeCombo(p) || pedeEspecifico(p, t)) continue;
         const k = mapa.get(p.id) ?? { proc: p, clinicas: [] };
         k.clinicas.push(c); mapa.set(p.id, k);
       }

@@ -39,6 +39,8 @@ export type MessageReceivedEvent = {
   contactName?: string;
   /** id do contato na Inovstar (etiquetas do funil de aquisição) */
   contactId?: string;
+  /** a conversa veio de ANÚNCIO (Click-to-WhatsApp): origem, id do anúncio, título e texto, como a Inovstar entrega na 1ª mensagem */
+  adReferral?: { source?: string; sourceType?: string; sourceId?: string; sourceUrl?: string; headline?: string; body?: string; ctwaClid?: string };
   /** reprocessamento manual (só com a chave do webhook): a Amanda responde mesmo depois da própria mensagem de falha (ex.: falta de crédito da OpenAI) */
   recuperar?: boolean;
 };
@@ -75,6 +77,7 @@ export function parseMessageReceived(body: any): MessageReceivedEvent | null {
     isGroup: Boolean(d.author),
     contactName: d.contact?.name,
     contactId: d.contact?.id ? String(d.contact.id) : d.contact?._id ? String(d.contact._id) : undefined,
+    adReferral: d.adReferral && typeof d.adReferral === 'object' ? d.adReferral : undefined,
     recuperar: body?.recuperar === true,
   };
 }
@@ -96,7 +99,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
  * A resposta real difere da doc: `id` (não `_id`), `timestamp` (não `createdAt`) e `text` pode vir como `{ text }`. */
 export async function getHistory(attendanceId: string, limit = 30) {
   const q = new URLSearchParams({ limit: String(limit), lightweight: 'true' });
-  const r = await request<{ data: { messages: any[] } }>('GET', `/attendance/${attendanceId}/history?${q}`);
+  const r = await request<{ data: { messages: any[]; attendance?: { status?: string } } }>('GET', `/attendance/${attendanceId}/history?${q}`);
   const messages: InovstarMessage[] = r.data.messages.map((m) => ({
     ...m,
     _id: String(m.id ?? m._id),
@@ -106,7 +109,8 @@ export async function getHistory(attendanceId: string, limit = 30) {
     isWhisper: m.isWhisper ?? m.isPrivate,
   }));
   messages.sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt));
-  return { messages };
+  // status do atendimento: 'pending' = na fila (sem dono; é assim que a Amanda atende), 'open' = alguém da equipe assumiu, 'closed'/'survey' = finalizado
+  return { messages, status: r.data.attendance?.status as string | undefined };
 }
 
 /** Texto livre; clientMessageId garante idempotência do lado da Inovstar. */

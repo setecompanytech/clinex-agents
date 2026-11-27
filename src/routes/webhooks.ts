@@ -6,6 +6,7 @@ import { handleIncoming } from '../agents/receptivo/agent.js';
 import { rodarLembretes } from '../agents/receptivo/lembretes.js';
 import { registrarRespostaWhatsApp } from '../crm/disparo-auto-servico.js';
 import { registrarLeadDeAnuncio } from '../aquisicao/campanhas.js';
+import { etiquetarSeVeioDeAnuncio } from '../aquisicao/anuncios.js';
 
 const router = Router();
 
@@ -32,6 +33,8 @@ router.post('/inovstar', (req: Request & { rawBody?: Buffer }, res) => {
   if (!ev.isGroup) waitUntil(registrarRespostaWhatsApp({ telefone: ev.to, texto: ev.text, tipo: ev.type, messageId: ev.messageId, contato: ev.contactName }).catch((e) => console.error('rastreio de resposta falhou', e)));
   // funil de aquisição: mensagem com o código de uma campanha de anúncio vira lead e ganha a etiqueta "ADS - CAMPANHA" (só registra)
   if (!ev.isGroup && ev.text) waitUntil(registrarLeadDeAnuncio(ev).catch((e) => console.error('funil de aquisição falhou', e)));
+  // conversa que veio de ANÚNCIO do Facebook/Instagram: etiqueta "AD - ..." no contato (uma vez por atendimento; só registra)
+  if (!ev.isGroup) waitUntil(etiquetarSeVeioDeAnuncio(ev).catch((e) => console.error('etiqueta de anúncio falhou', e)));
   // de carona: envia os lembretes de inatividade que já venceram (uma execução por vez, trava no Redis)
   waitUntil(rodarLembretes().catch((e) => console.error('lembretes falharam', e)));
   res.json({ ok: true });

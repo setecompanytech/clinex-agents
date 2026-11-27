@@ -94,6 +94,32 @@ export function isoNascimento(v: unknown): string | undefined {
   return `${a}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 }
 
+/**
+ * REGRA DA CLÍNICA (24/11/2026, horários por setor; trava em código desde 26/11 porque só o prompt não segurou: a Amanda ofereceu coleta
+ * do Check Up 10 às 14h no Guamá). Devolve a hora-limite da MANHÃ em que o serviço pode começar nesta unidade, ou null (sem restrição):
+ *   coleta no Telégrafo: só de manhã, até 10h30 (PCCU e secreção podem à tarde)
+ *   coleta no Guamá com exame de jejum: só de manhã, até 11h
+ *   eletrocardiograma e raio-X no Guamá: só de manhã, até 11h30 (sábado até 10h30)
+ */
+const SECRECAO = /papanic|pccu|preventiv|secrec|gram\b|citolog|cultura de secrec/;
+const JEJUM = /jejum|glic|colesterol|triglicer|lipid|insulin|ferro|ferritin|vitamina|ureia|creatinin|acido urico|tgo|tgp|gama|check ?up/;
+export function limiteDoSetor(sv: Servico, unidade: string, ymd: string): string | null {
+  const itens = (sv.combo?.itens ?? []).map((i) => ({ nome: norm(i.nome), lab: Boolean(i.lab) }));
+  const nomes = [sv.nome, sv.nomeBruto ?? '', sv.frase, ...itens.map((i) => i.nome)].map(norm).join(' | ');
+  const u = norm(unidade);
+  const guama = /guama/.test(u), telegrafo = /telegraf/.test(u);
+  const lab = /labor/.test(norm(sv.categoria ?? '')) || itens.some((i) => i.lab) || /\bcoleta\b|hemograma|glicemia|colesterol|triglicer|urina|fezes|parasitol|\btsh\b|\bpsa\b|vitamina|ferritin|insulin/.test(nomes);
+  const soSecrecao = lab && (itens.length ? itens.filter((i) => i.lab || !itens.some((x) => x.lab)).every((i) => SECRECAO.test(i.nome)) : SECRECAO.test(nomes) && !JEJUM.test(nomes));
+  const sabado = new Date(`${ymd}T12:00:00Z`).getUTCDay() === 6;
+  const limites: string[] = [];
+  if (lab && !soSecrecao && telegrafo) limites.push('10:30');
+  if (lab && !soSecrecao && guama && (JEJUM.test(nomes) || /jejum/.test(norm(sv.preparo ?? '')))) limites.push('11:00');
+  if (guama && /eletrocardio|\becg\b|raio|\brx\b|radiograf/.test(nomes)) limites.push(sabado ? '10:30' : '11:30');
+  return limites.length ? limites.sort()[0] : null;
+}
+/** O horário respeita a regra do setor? (manhã, e a agenda/vaga começa até a hora-limite) */
+const respeitaSetor = (sv: Servico, unidade: string, sl: Slot) => { const lim = limiteDoSetor(sv, unidade, sl.ymd); return !lim || (sl.turno === 'manhã' && sl.inicio <= lim && (!sl.livre || sl.livre <= lim)); };
+
 /** Horário que já passou (ou cujo período já está no fim) nunca é oferecido nem agendado. */
 function jaPassou(sl: Slot, agora: Date): boolean {
   const hoje = ymdDe(agora);
@@ -301,6 +327,13 @@ const DIAS_RETORNO = 30;
 
 /** O paciente diz que já pagou (não o pix desta conversa, que é conferido pelo comprovante). Texto sem acento. */
 const JA_PAGOU = /\b(ja paguei|eu paguei|havia pago|tinha pago|ja (esta|ta|foi|estava) pag[oa]|ja (esta|ta) quitad[oa]|paguei (o|um|a|pelo|meu) (combo|exame|consulta|pacote))\b/;
+/** A última fala do paciente sobre o assunto é "só/somente/apenas o serviço" ou "sem combo" (caso real 25/11: "Somente raio x" e a Amanda agendou como combo). */
+function naoQuerCombo(c: Contexto): boolean {
+  const SO = /\b(somente|apenas|so)\s+(a |o |um |uma |de |do |da )?(consulta|exame|raio|rx|usg|ultra\w*|hemograma|coleta|sangue|isso|ele|ela|esse|essa|avulso)\b|\bsem (o )?combo\b|\bnao (quero|vou querer)( o)? combo\b/;
+  const falas = (c.textoPaciente ?? '').split('\n').reverse();
+  const f = falas.find((x) => SO.test(x) || /\bcombo\b/.test(x));
+  return Boolean(f && SO.test(f) && !/\b(quero|prefiro|pode ser|vou de|fico com)( o)? combo\b/.test(f));
+}
 /** A última fala do paciente sobre combo é "quero o combo" (e não "só a consulta", "sem combo"). */
 function querCombo(c: Contexto): boolean {
   const falas = (c.textoPaciente ?? '').split('\n').reverse();
@@ -394,6 +427,12 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
         const ate = args.data ? String(args.data) : somaDias(de, 21);
         let lista = f.horariosPorProfissional ? await f.horariosPorProfissional(sv, un, de, ate) : await f.proximas(sv, un, de, 12);
         lista = lista.filter((s) => !jaPassou(s, c.agora) && !feriadoEm(s.ymd) && !ehTeste(s.profissionalBruto) && !ehTeste(s.profissional));
+        // REGRA DA CLÍNICA: coleta / ECG / raio-X só de manhã em certas unidades (limiteDoSetor)
+        const limSetor = limiteDoSetor(sv, un.nome, de);
+        const antesSetor = lista.length;
+        lista = lista.filter((s) => respeitaSetor(sv, un.nome, s));
+        const cortouTarde = antesSetor > lista.length;
+        if (args.turno === 'tarde' && limSetor) return { horarios: [], regra_do_setor: `${sv.frase} no ${un.nome} é SÓ DE MANHÃ (começa até ${horaFalada(limSetor)}), regra da clínica.`, orientacao: 'NÃO diga "sem vaga": diga que esse serviço nessa unidade é feito só de manhã e ofereça os horários da manhã (chame ver_horarios sem turno).' };
         if (args.turno) lista = lista.filter((s) => s.turno === args.turno);
         const soCom = c.mem.etapas?.[String(args.servico_id)]?.medicos;
         if (soCom?.length) { const ok = new Set(soCom.map((x) => norm(x))); const filtrada = lista.filter((s) => s.profissional && ok.has(norm(s.profissional))); if (filtrada.length) lista = filtrada; }
@@ -410,10 +449,11 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
           horarios: lista.map((s) => {
             const id = `H${c.mem.proxSlot++}`;
             c.mem.slots[id] = { servicoId: String(args.servico_id), unidade: un.nome, slot: s };
-            return { horario_id: id, dia: dataFalada(s.ymd, hoje), data: s.ymd, periodo: s.turno, a_partir_das: horaFalada(s.inicio), ...(s.ymd === hoje ? { hoje_ainda_tem_vaga_ate: horaFalada(s.ultima ?? s.livre ?? s.inicio) } : {}), profissional: s.profissional ? exibir(s.profissional) : undefined };
+            return { horario_id: id, dia: dataFalada(s.ymd, hoje), data: s.ymd, periodo: s.turno, a_partir_das: horaFalada(s.inicio), ...(s.ymd === hoje ? { hoje_ainda_tem_vaga_ate: horaFalada([s.ultima ?? s.livre ?? s.inicio, limiteDoSetor(sv, un.nome, s.ymd) ?? '23:59'].sort()[0]) } : {}), profissional: s.profissional ? exibir(s.profissional) : undefined };
           }),
           ...(sv.preparo ? { preparo_cadastrado: sv.preparo, orientacao_preparo: 'Este serviço tem preparo cadastrado: informe o preparo ao paciente (resumido, em linhas curtas) junto com os horários. Ele também vai completo na confirmação.' } : {}),
           ...(lista.some((s) => s.ymd === hoje) ? { hoje: 'Horário de HOJE: o atendimento começou no horário da agenda e é por ordem de chegada; ainda há vaga até o horário em hoje_ainda_tem_vaga_ate. Diga: "hoje ele(a) atende a partir das Xh, por ordem de chegada, e ainda tem vaga até umas Yh".' } : {}),
+          ...(limSetor || cortouTarde ? { regra_do_setor: `Este serviço nesta unidade é SÓ DE MANHÃ (começa até ${horaFalada(limSetor ?? '11:00')}): regra da clínica. Se o paciente pedir tarde, explique isso e ofereça a manhã. Nunca ofereça tarde.` } : {}),
           lembrete: 'Mostre só estes horários (no máximo 3). Atendimento por ordem de chegada: diga "a partir das Xh". Não invente horários fora desta lista. Se o paciente pedir outras datas ou outro dia, chame ver_horarios de novo com a_partir_de (ou data, se ele disser o dia).',
         };
       }
@@ -464,10 +504,13 @@ export async function executar(nome: string, args: any, c: Contexto): Promise<un
         const un = sv && acharUnidade(sv, g.unidade);
         if (!sv || !un) return { erro: 'serviço ou unidade não encontrados: busque de novo' };
         if (jaPassou(g.slot, c.agora)) return { erro: 'esse horário já passou: ofereça outro' };
+        if (!respeitaSetor(sv, un.nome, g.slot)) return { erro: `regra da clínica: ${sv.frase} no ${un.nome} é só de manhã (começa até ${horaFalada(limiteDoSetor(sv, un.nome, g.slot.ymd) ?? '11:00')}). NÃO agende este horário; ofereça um horário da manhã (ver_horarios com turno manhã).` };
         if (feriadoEm(g.slot.ymd)) return { erro: `${dataFalada(g.slot.ymd, hoje)} é feriado nacional (${feriadoEm(g.slot.ymd)}): a clínica não funciona. NÃO agende; ofereça outro dia (ver_horarios).` };
         // JÁ PAGOU (combo, exame...): conferir o pagamento e o que já está agendado é com a equipe (caso real 18/11: "eu havia pago um combo de gastro",
         // a Amanda prometeu manter o valor e criou agendamentos novos). Pix conferido nesta conversa segue normal.
         if (JA_PAGOU.test(c.textoPaciente ?? '') && !c.mem.pix) return { erro: 'o paciente disse que JÁ PAGOU: NÃO agende e NÃO prometa valor nem condição. Avise numa frase que a equipe vai conferir o pagamento e cuidar do agendamento, e chame transferir_para_humano com o resumo (o que ele pagou, quando, e o que quer agendar).' };
+        // o contrário: o paciente disse que quer SÓ o serviço (sem combo) e o horário é de etapa de combo
+        if ((c.mem.etapas?.[g.servicoId] || (sv.combo && !sv.combo.semCombo) || sv.pacote) && naoQuerCombo(c)) return { erro: 'o paciente disse que quer SÓ o serviço avulso, SEM combo: NÃO agende etapa de combo. Ache o serviço avulso que ele pediu (buscar_servico / abrir_servico) e ofereça os horários dele. Se não tiver certeza, pergunte: "Então fica só o [serviço], sem o combo, certo?"' };
         // COMBO escolhido e horário de serviço AVULSO (caso real 18/11: "quero o combo", ela reaproveitou o horário da consulta avulsa e gravou só a consulta, sem o combo)
         const etapasVistas = Object.values(c.mem.etapas ?? {});
         const comboFechado = etapasVistas.length > 0 && etapasVistas.every((e) => e.feita); // combo todo agendado: agora pode querer outro serviço avulso
