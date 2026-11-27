@@ -60,7 +60,7 @@ export async function sincronizarConfirmacoes(max = 25): Promise<number> {
   let achou = 0;
   for (const l of leads) {
     try {
-      const { messages } = await getHistory(l.atendimento!, 50);
+      const { messages } = await getHistory(l.atendimento!, 50, true);
       const conf = confirmacaoNasMensagens(messages, l.t);
       if (conf) achou++;
       await sbAtualizar(T_EVENTOS, { id: `eq.${l.id}` }, { dados: { ...l.dados, conferidoEm: new Date().toISOString(), ...(conf ? { confirmacao: conf } : {}) } });
@@ -78,7 +78,7 @@ export async function importarConversasDeAnuncio(ids: string[]): Promise<{ grava
   const r = { gravadas: 0, jaExistiam: 0, semAnuncio: 0, falhas: 0 };
   for (const id of ids) {
     try {
-      const { messages } = await getHistory(id, 50);
+      const { messages } = await getHistory(id, 50, true);
       const m = messages.find((x) => x.direction === 'in' && (x as { adReferral?: AdReferral }).adReferral) as (InovstarMessage & { adReferral: AdReferral; contact?: { waId?: string; name?: string } }) | undefined;
       if (!m) { r.semAnuncio++; continue; }
       const tel = chaveTel(String(m.contact?.waId ?? '').split('@')[0]);

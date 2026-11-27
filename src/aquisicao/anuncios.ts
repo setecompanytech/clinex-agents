@@ -54,7 +54,7 @@ export async function etiquetarSeVeioDeAnuncio(ev: MessageReceivedEvent): Promis
   let ad = ev.adReferral as AdReferral | undefined;
   let contactId = ev.contactId;
   if (!ad) {
-    const { messages } = await getHistory(ev.attendanceId, 10);
+    const { messages } = await getHistory(ev.attendanceId, 10, true);
     const m = messages.find((x) => x.direction === 'in' && (x as { adReferral?: AdReferral }).adReferral);
     ad = (m as { adReferral?: AdReferral } | undefined)?.adReferral;
   } else if (!(await travaCurta(`anuncio:${ev.attendanceId}`, 3 * 86_400_000))) return; // já etiquetado por outra mensagem deste atendimento

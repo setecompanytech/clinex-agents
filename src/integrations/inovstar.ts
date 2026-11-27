@@ -97,8 +97,9 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 /** Últimas mensagens do atendimento, em ordem cronológica.
  * A resposta real difere da doc: `id` (não `_id`), `timestamp` (não `createdAt`) e `text` pode vir como `{ text }`. */
-export async function getHistory(attendanceId: string, limit = 30) {
-  const q = new URLSearchParams({ limit: String(limit), lightweight: 'true' });
+export async function getHistory(attendanceId: string, limit = 30, completo = false) {
+  // completo: a versão resumida (lightweight) NÃO traz o adReferral (anúncio) nem o contato das mensagens
+  const q = new URLSearchParams({ limit: String(limit), ...(completo ? {} : { lightweight: 'true' }) });
   const r = await request<{ data: { messages: any[]; attendance?: { status?: string } } }>('GET', `/attendance/${attendanceId}/history?${q}`);
   const messages: InovstarMessage[] = r.data.messages.map((m) => ({
     ...m,
