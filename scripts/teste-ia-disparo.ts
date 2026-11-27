@@ -278,7 +278,7 @@ await teste('simulador: lista todas as checagens, na ordem, com o motivo de cada
   const e = ligada(); const l = lead(e, 'MARIA SILVA', '91988887777'); const r = checagens(e, l, CEDO, configAuto(e));
   assert.ok(r.aplicavel); const ids = r.checks.map((c) => c.id);
   assert.deepEqual(ids, ['lead', 'passo', 'optout', 'gatilho', 'vence', 'whatsapp', 'dia', 'pausa', 'hora', 'janela', 'valor', 'unidade', 'telefone', 'dados', 'travas']);
-  const falhas = r.checks.filter((c) => !c.ok).map((c) => c.id); assert.deepEqual(falhas.sort(), ['hora', 'janela', 'travas'].sort());
+  const falhas = r.checks.filter((c) => !c.ok).map((c) => c.id); assert.deepEqual(falhas.sort(), ['hora', 'janela'].sort());
   const demo = lead(e, 'DEMO', '91988880000'); demo.demo = true; assert.equal(checagens(e, demo, MANHA, configAuto(e)).aplicavel, false);
 });
 

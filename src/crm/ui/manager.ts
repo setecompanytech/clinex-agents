@@ -293,7 +293,7 @@ function mgGlobais(D) {
   ]);
   var fixas = h('article', { class: 'mg-cx mg-cx-l mg-sec mg-fixas', style: '--i:10' }, [
     h('h4', { text: 'Regras do guia (fixas)' }), h('p', { class: 'mut peq', text: 'O IA Manager não consegue ampliar nem desligar estas regras: elas valem para todo envio, da IA e da equipe.' }),
-    h('div', { class: 'mg-chips' }, ['Contato só entre 8h e 19h', 'No máximo 2 contatos por dia por lead', 'Antes de cada contato: o paciente já foi à recepção?', 'O mesmo modelo não volta ao mesmo lead em 24 h', 'Orçamento acima de R$ 500: o 1º contato exige também a ligação', 'Passo atrasado: só uma pessoa decide'].map(function (t) { return h('span', { class: 'mg-regra' }, [ico('lock', 12), t]); }))
+    h('div', { class: 'mg-chips' }, ['A IA só envia entre 8h e 19h', 'No máximo 2 contatos por dia por lead', 'Antes de cada contato: o paciente já foi à recepção?', 'O mesmo modelo não volta ao mesmo lead em 24 h', 'Orçamento acima de R$ 500: o 1º contato exige também a ligação', 'Passo atrasado: só uma pessoa decide'].map(function (t) { return h('span', { class: 'mg-regra' }, [ico('lock', 12), t]); }))
   ]);
   return h('section', { class: 'mg-bloco' }, [
     h('header', { class: 'mg-sh mg-sec', style: '--i:6' }, [h('div', null, [h('h3', { text: 'Ajustes gerais' }), h('p', { text: 'Janela de envio, dias da semana, limites, pausas e o disjuntor de segurança.' })])]),

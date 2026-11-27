@@ -196,7 +196,7 @@ const FERRAMENTAS: Ferramenta[] = [
       else throw new ErroAgente('dados', 'Ação inválida.');
       return acaoNoLead(c, a, ac, 'Lead atualizado.');
     } },
-  { nome: 'enviar_whatsapp', tipo: 'acao', perm: 'enviar_whatsapp', descricao: 'ENVIA de verdade um modelo de WhatsApp aprovado a um lead (passa por todas as travas do guia: janela 8h–19h, 2 contatos por dia, já foi à recepção...). Modelos: ' + MODELOS.map((m) => `${m.id} (Msg ${m.msg})`).join(', ') + '. As variáveis são preenchidas com os dados do lead.', schema: obj({ lead_id: { type: 'string' }, modelo: { type: 'string', enum: MODELOS.map((m) => m.id) } }, ['lead_id', 'modelo']),
+  { nome: 'enviar_whatsapp', tipo: 'acao', perm: 'enviar_whatsapp', descricao: 'ENVIA de verdade um modelo de WhatsApp aprovado a um lead (passa por todas as travas do guia: 2 contatos por dia, já foi à recepção...). Modelos: ' + MODELOS.map((m) => `${m.id} (Msg ${m.msg})`).join(', ') + '. As variáveis são preenchidas com os dados do lead.', schema: obj({ lead_id: { type: 'string' }, modelo: { type: 'string', enum: MODELOS.map((m) => m.id) } }, ['lead_id', 'modelo']),
     cartao: (c, a) => { const l = achar(c, a.lead_id), m = modelosParaLead(c.estado, l).find((x) => x.id === a.modelo); if (!m) throw new ErroAgente('dados', 'Modelo desconhecido.'); return { titulo: 'Enviar WhatsApp', risco: 'alto', resumo: [`Para: ${l.nome} (${fone(l.telefone)})`, `Modelo: ${m.titulo} · Msg ${m.msg}`, ...m.variaveis.map((v) => `${v.rotulo}: ${v.valor || '(vazio)'}`), 'A mensagem sai de verdade para o paciente.'] }; },
     exec: async (c, a, s) => {
       const l = achar(c, a.lead_id), m = modelosParaLead(c.estado, l).find((x) => x.id === a.modelo); if (!m) throw new ErroAgente('dados', 'Modelo desconhecido.');

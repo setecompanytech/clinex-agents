@@ -152,11 +152,11 @@ await teste('lead encerrado ou sem telefone válido não recebe', async () => {
   assert.equal(pedidos.length, 0);
 });
 
-await teste('respeita as regras de contato do guia (fora do horário, não envia)', async () => {
+await teste('a equipe envia fora de 8h-19h (a janela vale só para a IA automática)', async () => {
   pedidos.length = 0;
   const e = novo(); const l = lead(e, 'MARIA SILVA', '91988887777');
-  await rejeita(() => enviarModelo(e, l, { modelo: 'follow_up', parametros: ['M', 'x'] }, new Date('2026-11-09T04:00:00Z')), 'regra'); // 1h em Belém
-  assert.equal(pedidos.length, 0);
+  await enviarModelo(e, l, { modelo: 'follow_up', parametros: ['M', 'x'] }, new Date('2026-11-09T10:00:00Z')); // 7h em Belém
+  assert.equal(pedidos.length, 1);
 });
 
 await teste('modelos do guia: nomes e idiomas do WhatsApp Manager, variáveis padrão e o modelo do passo', () => {

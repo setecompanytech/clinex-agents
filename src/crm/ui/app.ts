@@ -8,7 +8,7 @@ var ABAS = [
 var raiz = document.getElementById('main');
 var navEl = document.getElementById('nav');
 var topoDir = document.getElementById('topo-dir');
-var janelaEl = null, euEl = null;
+var euEl = null;
 
 function telaAtual() {
   switch (S.aba) {
@@ -60,13 +60,6 @@ function ir(aba) {
 }
 
 function atualizarTopo() {
-  if (janelaEl) {
-    var ab = janelaAberta(), t = horaBelem();
-    janelaEl.className = 'janela ' + (ab ? 'on' : 'off');
-    janelaEl.title = 'Contatos só entre ' + M.LIMITES.janelaInicioH + 'h e ' + M.LIMITES.janelaFimH + 'h (horário de Belém)';
-    limpar(janelaEl);
-    kids(janelaEl, [h('i', { 'aria-hidden': 'true' }), (ab ? 'Contato liberado' : 'Fora do horário') + ' · ' + String(t.h).padStart(2, '0') + ':' + String(t.m).padStart(2, '0')]);
-  }
   if (euEl && S.euInfo) {
     var pode = S.euInfo.master || S.euInfo.perfil === 'admin' || S.euInfo.perfil === 'gestor';
     limpar(euEl);
@@ -91,11 +84,10 @@ function construirChrome() {
       fetch('/painel/sair', { method: 'POST', credentials: 'same-origin' }).then(ir, ir);
     } }, [ico('back', 17), h('span', { text: 'Sair' })]));
   }
-  janelaEl = h('span', { class: 'janela' });
   euEl = h('div', { class: 'eu-chip', 'aria-label': 'Usuário logado' });
   kids(topoDir, [
     h('button', { class: 'busca-b', type: 'button', onclick: paleta, 'aria-label': 'Buscar (Ctrl+K)' }, [ico('search', 16), h('span', { text: 'Buscar…' }), h('kbd', { text: 'Ctrl K' })]),
-    janelaEl, euEl,
+    euEl,
     h('button', { class: 'btn pri', type: 'button', onclick: function () { dialogoNovoLead(); } }, [ico('plus', 16), 'Novo lead']),
     h('button', { class: 'ic-btn', type: 'button', 'aria-label': 'Alternar tema claro e escuro', onclick: function () {
       var atual = document.documentElement.getAttribute('data-theme') || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');

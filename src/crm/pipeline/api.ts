@@ -247,7 +247,7 @@ pipelines.post('/followups/:cardId', (req, res) => {
 });
 pipelines.delete('/followups/:id', (req, res) => { P().followups = P().followups.filter((x) => x.id !== req.params.id); salvar(); res.json({ ok: true }); });
 
-/** Registro de contato. As regras de ouro do guia valem aqui: confirmar a recepção, 8h-19h e no máximo 2 tentativas por dia. */
+/** Registro de contato. As regras de ouro do guia valem aqui: confirmar a recepção e no máximo 2 tentativas por dia (sem trava de horário para a equipe). */
 const TIPOS_CONTATO = ['Mandou WhatsApp', 'Ligou', 'Respondeu', 'Outro'];
 pipelines.post('/contatos/:cardId', (req, res) => {
   const b = req.body ?? {}; const cardId = req.params.cardId; const agora = new Date();
@@ -255,8 +255,6 @@ pipelines.post('/contatos/:cardId', (req, res) => {
   const tipo = TIPOS_CONTATO.includes(b.tipo) ? b.tipo : null; if (!tipo) throw new FunilError('dados', 'Escolha o tipo de contato.');
   if (tipo === 'Mandou WhatsApp' || tipo === 'Ligou') {
     if (b.naoFoiRecepcao !== true) throw new FunilError('recepcao', 'Antes de cada contato: confirme se o paciente já foi à recepção. Se foi, não entre em contato.');
-    const hora = new Date(agora.getTime() - 3 * 3_600_000).getUTCHours();
-    if (hora < 8 || hora >= 19) throw new FunilError('janela', 'Contatos só entre 8h e 19h (horário de Belém). Sem exceção.');
     const hoje = diaBRT(agora);
     const feitos = P().contatos.filter((c) => c.cardId === cardId && (c.tipo === 'Mandou WhatsApp' || c.tipo === 'Ligou') && diaBRT(c.data) === hoje).length;
     if (feitos >= 2) throw new FunilError('tentativas', 'Máximo de 2 tentativas por dia já atingido para este paciente.');

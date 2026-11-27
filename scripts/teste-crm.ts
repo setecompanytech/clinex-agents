@@ -44,12 +44,9 @@ teste('"já foi à recepção" vira Convertido orgânico e bloqueia contato', ()
   assert.equal(l.status, 'convertido_organico');
   falha(() => contato(l, dia(1)), 'regra');
 });
-teste('só contata entre 8h e 19h (regra de ouro 2)', () => {
+teste('a equipe contata a qualquer hora (sem trava de horário)', () => {
   const l = novo();
-  falha(() => contato(l, dia(1), 'primeiro', 'whatsapp', '07:59'), 'regra');
-  falha(() => contato(l, dia(1), 'primeiro', 'whatsapp', '19:00'), 'regra');
-  falha(() => contato(l, dia(1), 'primeiro', 'whatsapp', '23:30'), 'regra');
-  contato(l, dia(1), 'primeiro', 'whatsapp', '08:00');
+  contato(l, dia(1), 'primeiro', 'whatsapp', '07:59');
 });
 teste('máximo de 2 tentativas por dia (regra de ouro 2)', () => {
   const l = novo();

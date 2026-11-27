@@ -207,8 +207,6 @@ export function tentativasHoje(lead: Lead, hoje: string) {
 export function podeContatar(lead: Lead, agora: Date): { ok: boolean; motivo?: string } {
   if (ehTerminal(lead.status)) return { ok: false, motivo: 'Este lead já converteu: não entre em contato.' };
   const hoje = hojeDe(agora);
-  const { h } = horaDe(agora);
-  if (h < LIMITES.janelaInicioH || h >= LIMITES.janelaFimH) return { ok: false, motivo: `Contatos só entre ${LIMITES.janelaInicioH}h e ${LIMITES.janelaFimH}h. Sem exceção.` };
   if (tentativasHoje(lead, hoje) >= LIMITES.tentativasPorDia) return { ok: false, motivo: `Máximo de ${LIMITES.tentativasPorDia} tentativas por dia já atingido para este lead.` };
   if (lead.status === 'descarte') {
     const p = proximoPasso(lead, hoje);

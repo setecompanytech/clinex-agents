@@ -58,7 +58,6 @@ export function alertasDoAgente(todos: Lead[], agora: Date, eu: string): AlertaA
   if (excedidos.length) out.push({ id: `limite:${c.hoje}:${excedidos.length}`, nivel: 'atencao', titulo: `${plural(excedidos.length, 'lead passou do prazo da etapa', 'leads passaram do prazo da etapa')}`, texto: 'O guia manda descartar com motivo (ou o sistema descarta sozinho) quando o prazo estoura.', leadIds: excedidos.map((l) => l.id), aba: 'funil' });
   if (agHoje.length) out.push({ id: `agenda:${c.hoje}:${agHoje.length}`, nivel: 'info', titulo: `${plural(agHoje.length, 'agendamento hoje', 'agendamentos hoje')}`, texto: 'Depois do horário, registre se compareceu ou deu no show.', leadIds: agHoje.map((l) => l.id), aba: 'calendario' });
   if (reativ.length) out.push({ id: `reativ:${c.hoje}:${reativ.length}`, nivel: 'info', titulo: `${plural(reativ.length, 'descartado na janela de reativação', 'descartados na janela de reativação')}`, texto: `Entre ${LIMITES.reativacaoMinDias} e ${LIMITES.reativacaoMaxDias} dias após o descarte vale uma última tentativa.`, leadIds: reativ.map((l) => l.id), aba: 'funil' });
-  if (h < LIMITES.janelaInicioH || h >= LIMITES.janelaFimH) out.push({ id: `janela:${c.hoje}:${h < LIMITES.janelaInicioH ? 'antes' : 'depois'}`, nivel: 'info', titulo: 'Fora da janela de contato', texto: `Contatos só entre ${LIMITES.janelaInicioH}h e ${LIMITES.janelaFimH}h. O sistema bloqueia registros fora disso.`, leadIds: [] });
 
   // alertas executivos de dinheiro (orçamentos esfriando etc.)
   try {
@@ -128,8 +127,7 @@ function responderPorRegras(c: Ctx, perguntaOriginal: string): Resposta {
 
   if (tem(/regras? de ouro|regras/) && !tem(/descarte|janela|tentativa|horario/)) return r(`As ${REGRAS_OURO.length} regras de ouro que o sistema impõe:\n${REGRAS_OURO.map((g) => `${g.n}. **${g.titulo}**: ${g.texto}`).join('\n')}`, undefined, ['Qual o limite de tentativas por dia?', 'Quais os motivos de descarte?']);
   if (tem(/tentativa|janela|horario de contato|que horas|quantas vezes|quantos contatos/)) {
-    const { h, m } = horaDe(c.agora);
-    return r(`No máximo **${LIMITES.tentativasPorDia} tentativas por dia** por lead, sempre entre **${LIMITES.janelaInicioH}h e ${LIMITES.janelaFimH}h**. O sistema bloqueia o 3º contato do dia e qualquer registro fora da janela.\n\nAgora são ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')} em Belém: ${h >= LIMITES.janelaInicioH && h < LIMITES.janelaFimH ? 'dentro da janela, pode contatar.' : 'fora da janela, contatos bloqueados.'}`, undefined, ['Quais as regras de ouro?']);
+    return r(`No máximo **${LIMITES.tentativasPorDia} tentativas por dia** por lead. O sistema bloqueia o 3º contato do dia.\n\nA equipe pode contatar a qualquer hora; só o envio automático da IA fica entre **${LIMITES.janelaInicioH}h e ${LIMITES.janelaFimH}h**.`, undefined, ['Quais as regras de ouro?']);
   }
   if (tem(/motivos?|descarte|descartar|perdid|perdemos|por que .*(perd|descart)/) && !tem(/quantos|lista/)) {
     const mot = resumo(c.leads, c.agora).motivos; const tot = Object.values(mot).reduce((s, n) => s + n, 0);
@@ -154,9 +152,7 @@ function responderPorRegras(c: Ctx, perguntaOriginal: string): Resposta {
   }
   if (tem(/o que (eu )?(faco|fazer)|por onde|comecar|prioridade|proxim[oa]|tarefas?|fila|agora|hoje/) && !tem(/conversao|receita|resumo/)) {
     const t = c.tarefas;
-    const { h } = horaDe(c.agora);
-    const fora = h < LIMITES.janelaInicioH || h >= LIMITES.janelaFimH ? `\n\nAtenção: fora da janela de contato (${LIMITES.janelaInicioH}h às ${LIMITES.janelaFimH}h). Deixe para amanhã cedo.` : '';
-    return r(t.length ? `Você tem **${plural(t.length, 'tarefa', 'tarefas')}** na fila${dono}. A ordem do guia é: 1º no show, 2º leads novos em aberto, depois o resto. Comece por:${fora}` : `Fila vazia${dono}. Nenhum contato vencido hoje.${fora}`, t.slice(0, 6).map((x) => itemLead(c, x.leadId, x.prioridade === 1 ? 'no show' : x.prioridade === 2 ? 'novo' : undefined)), ['Quais tarefas estão atrasadas?', 'Quais os leads parados?']);
+    return r(t.length ? `Você tem **${plural(t.length, 'tarefa', 'tarefas')}** na fila${dono}. A ordem do guia é: 1º no show, 2º leads novos em aberto, depois o resto. Comece por:` : `Fila vazia${dono}. Nenhum contato vencido hoje.`, t.slice(0, 6).map((x) => itemLead(c, x.leadId, x.prioridade === 1 ? 'no show' : x.prioridade === 2 ? 'novo' : undefined)), ['Quais tarefas estão atrasadas?', 'Quais os leads parados?']);
   }
   if (tem(/maiores|maior valor|valios|mais caro|ticket|alto valor|dinheiro parado|top/)) {
     const t = top(abertos, 8);

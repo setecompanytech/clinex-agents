@@ -158,7 +158,7 @@ function fvAbaContatos(D, a, etapa, recarregar) {
   var texto = msg ? preencher(msg.corpo, lead, { atendente: S.eu || '' }) : '';
   var hojeDia = fvHoje();
   var hojeN = D.contatos.filter(function (c) { return (c.tipo === 'Mandou WhatsApp' || c.tipo === 'Ligou') && new Date(new Date(c.data).getTime() - 3 * 3600000).toISOString().slice(0, 10) === hojeDia; }).length;
-  var ab = janelaAberta(), tent = M.LIMITES.tentativasPorDia;
+  var tent = M.LIMITES.tentativasPorDia;
   var confirma = h('input', { type: 'checkbox', id: 'fv-rec' });
   var tipo = 'Mandou WhatsApp', obsC = h('input', { class: 'in', maxlength: '500', placeholder: 'Observação (opcional)', 'aria-label': 'Observação do contato' });
   var erro = h('p', { class: 'callout aviso', style: 'display:none' });
@@ -168,7 +168,6 @@ function fvAbaContatos(D, a, etapa, recarregar) {
   var guia = h('section', { class: 'fv-guia' }, [
     h('h4', { class: 'au-h', text: 'Guia de atendimento para esta coluna' }),
     h('div', { class: 'chips' }, [
-      pill(ab ? 'Contato liberado agora' : 'Fora do horário (' + M.LIMITES.janelaInicioH + 'h às ' + M.LIMITES.janelaFimH + 'h)', ab ? 'pl-ok' : 'pl-atrasada'),
       pill('Tentativas hoje: ' + hojeN + '/' + tent, hojeN >= tent ? 'pl-atrasada' : ''),
       etapa.cadenciaDias ? pill('Cadência da coluna: ' + etapa.cadenciaDias + ' dia(s)', a.atrasado ? 'pl-atrasada' : '') : null
     ]),
@@ -185,7 +184,7 @@ function fvAbaContatos(D, a, etapa, recarregar) {
       api('POST', '/pipelines/contatos/' + s.id, { tipo: tipo, observacao: obsC.value, naoFoiRecepcao: confirma.checked }).then(function () { aviso('Contato registrado.', 'ok'); return recarregar(); })
         .catch(function (e) { erro.textContent = e.message; erro.style.display = 'block'; });
     }, 'check'),
-    h('p', { class: 'mut peq', text: 'Regras de ouro: confirmar a recepção, contatos só das 8h às 19h e no máximo 2 tentativas por dia. Mandar a mensagem de fato é feito no WhatsApp; aqui fica o registro.' })
+    h('p', { class: 'mut peq', text: 'Regras de ouro: confirmar a recepção e no máximo 2 tentativas por dia. Mandar a mensagem de fato é feito no WhatsApp; aqui fica o registro.' })
   ]);
   var lista = D.contatos.length ? h('ul', { class: 'fv-lista' }, D.contatos.map(fvContatoItem)) : vazio('Nenhum contato registrado');
   return [h('div', { class: 'fv-dr-grid' }, [h('div', { class: 'fv-col-dr' }, [guia, regis]), h('section', null, [h('h4', { class: 'au-h', text: 'Histórico de contatos' }), lista])])];

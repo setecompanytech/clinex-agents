@@ -9,7 +9,7 @@ const MOTIVOS = ['Preço', 'Outro lugar', 'Desistiu', 'Plano', 'Sem retorno', 'O
 
 export const REGRAS_NOSHOW: { n: number; titulo: string; texto: string; aplicada: string }[] = [
   { n: 1, titulo: 'Já voltou e pagou?', texto: 'Mover para Recuperado. Não entrar em contato.', aplicada: 'Antes de cada contato, confira se o paciente já voltou e pagou. Se sim, o card vai para Recuperado e nenhum contato é feito.' },
-  { n: 2, titulo: 'Máx. 2 tentativas por dia', texto: 'Sempre entre 8h e 19h. Sem exceção.', aplicada: 'No máximo 2 contatos por dia para o mesmo paciente, sempre entre 8h e 19h. Vale para todas as etapas do No-show.' },
+  { n: 2, titulo: 'Máx. 2 tentativas por dia', texto: 'No máximo 2 por dia para cada paciente.', aplicada: 'No máximo 2 contatos por dia para o mesmo paciente, em todas as etapas do No-show. A equipe contata a qualquer hora; o envio automático da IA só acontece das 8h às 19h.' },
   { n: 3, titulo: 'Registre tudo no card', texto: 'Data, canal e resultado de cada tentativa.', aplicada: 'Cada tentativa fica registrada no card, com data, canal e resultado.' },
   { n: 4, titulo: 'Perdido sempre com motivo', texto: 'Preço, outro lugar, desistiu, plano, sem retorno ou outro.', aplicada: 'Nenhum card vai para Perdido sem um dos 6 motivos. No D8 sem resposta, o motivo é "Sem retorno".' },
 ];

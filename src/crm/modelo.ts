@@ -123,7 +123,7 @@ export const DICAS_VENDA: { titulo: string; texto: string }[] = [
 
 export const REGRAS_OURO: { n: number; titulo: string; texto: string; aplicada: string }[] = [
   { n: 1, titulo: 'Já foi à recepção?', texto: 'Se sim: Convertido Orgânico. Não entrar em contato.', aplicada: 'Antes de registrar qualquer contato o sistema pergunta. Se o paciente já foi à recepção, o lead vira Convertido orgânico e nenhum contato é feito.' },
-  { n: 2, titulo: 'Máx. 2 tentativas por dia', texto: 'Sempre entre 8h e 19h. Sem exceção.', aplicada: 'O sistema bloqueia o 3º contato do dia para o mesmo lead e qualquer contato fora das 8h às 19h. Não existe botão para furar a regra.' },
+  { n: 2, titulo: 'Máx. 2 tentativas por dia', texto: 'No máximo 2 por dia para cada paciente.', aplicada: 'O sistema bloqueia o 3º contato do dia para o mesmo lead. A equipe contata a qualquer hora; o envio automático da IA só acontece das 8h às 19h.' },
   { n: 3, titulo: 'Registre tudo no card', texto: 'Data, canal e resultado de cada tentativa.', aplicada: 'Cada tentativa vira uma linha na linha do tempo do lead, com data, hora, canal, mensagem usada e quem fez.' },
   { n: 4, titulo: 'Descarte sempre com motivo', texto: 'Preço, outro lugar, desistiu, plano, sem retorno ou outro.', aplicada: 'Nenhum lead é descartado sem escolher um dos 6 motivos. O descarte automático do D8 em Sem retorno já sai com o motivo "Sem retorno".' },
 ];

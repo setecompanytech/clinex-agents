@@ -57,9 +57,7 @@ function abrirLista(titulo, ids) {
 
 /* ------------------------------------------------------------------ topo */
 function heroHoje(A) {
-  var P = A.progresso, K = A.kpis, tm = horaBelem();
-  var passou = Math.min(1, Math.max(0, (tm.h + tm.m / 60 - M.LIMITES.janelaInicioH) / (M.LIMITES.janelaFimH - M.LIMITES.janelaInicioH)));
-  var restantes = P.horasRestantes;
+  var P = A.progresso, K = A.kpis;
   var frase = [
     b(P.pendentes + ' ' + plural(P.pendentes, 'tarefa', 'tarefas')), ' para hoje', P.atrasadas ? [', ', b(P.atrasadas + ' ' + plural(P.atrasadas, 'atrasada', 'atrasadas'))] : ', todas em dia', '. ',
     b(brlCompacto(K.pipelineValor)), ' em andamento', K.riscoValor ? [', ', b(brlCompacto(K.riscoValor)), ' em risco'] : '', '.'
@@ -70,8 +68,7 @@ function heroHoje(A) {
     h('div', { class: 'hh-corpo' }, [
     h('div', { class: 'hh-t' }, [h('h1', { text: saudacao() + (S.eu ? ', ' + primeiroNome(S.eu) : '') }), h('p', { class: 'hh-frase' }, frase)]),
     h('div', { class: 'hh-aneis' }, [
-      anel({ titulo: 'Progresso do dia', tam: 104, pct: P.pct, centro: P.feitas + '/' + (P.feitas + P.pendentes), sub: 'tarefas', cor: 'var(--g3)', dica: { titulo: 'Progresso do dia', linhas: [{ valor: String(P.feitas), rotulo: 'concluídas hoje' }, { valor: String(P.pendentes), rotulo: 'ainda na fila' }, { valor: String(P.atrasadas), rotulo: 'delas atrasadas' }] } }),
-      anel({ titulo: 'Janela de contato', tam: 104, pct: passou * 100, centro: restantes > 0 ? nf1.format(restantes) + ' h' : 'fechada', sub: restantes > 0 ? 'restantes' : '', cor: 'var(--g1)', dica: { titulo: 'Janela de contato', linhas: [{ valor: M.LIMITES.janelaInicioH + 'h às ' + M.LIMITES.janelaFimH + 'h', rotulo: 'horário permitido' }, { valor: P.ritmoPorHora === null ? '–' : nf1.format(P.ritmoPorHora), rotulo: 'tarefas por hora para zerar a fila' }] } })
+      anel({ titulo: 'Progresso do dia', tam: 104, pct: P.pct, centro: P.feitas + '/' + (P.feitas + P.pendentes), sub: 'tarefas', cor: 'var(--g3)', dica: { titulo: 'Progresso do dia', linhas: [{ valor: String(P.feitas), rotulo: 'concluídas hoje' }, { valor: String(P.pendentes), rotulo: 'ainda na fila' }, { valor: String(P.atrasadas), rotulo: 'delas atrasadas' }] } })
     ])
     ])
   ]);

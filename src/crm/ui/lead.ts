@@ -307,7 +307,7 @@ function dialogoContato(l, px, texto) {
       h('p', { class: 'texto', text: 'Por onde você fez o contato?' }), radios,
       texto ? h('div', { class: 'linha-b' }, [botao('Abrir WhatsApp com a mensagem', '', function () { window.open(linkWA(l.telefone, texto), '_blank', 'noopener'); }, 'message')]) : null,
       campo('Observação', obs), erro,
-      h('p', { class: 'mut peq', text: 'Ficam registrados data, hora, canal, mensagem e quem fez. Regras: máx. ' + M.LIMITES.tentativasPorDia + ' tentativas por dia, só entre ' + M.LIMITES.janelaInicioH + 'h e ' + M.LIMITES.janelaFimH + 'h.' }),
+      h('p', { class: 'mut peq', text: 'Ficam registrados data, hora, canal, mensagem e quem fez. Regras: máx. ' + M.LIMITES.tentativasPorDia + ' tentativas por dia.' }),
       h('div', { class: 'linha-b' }, [botao('Cancelar', '', function () { m.fechar(); }), enviar])
     ]);
     validar();

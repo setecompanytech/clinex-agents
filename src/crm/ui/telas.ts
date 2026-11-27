@@ -17,7 +17,6 @@ function ctxMsg(l) {
   if (l.agendamento) { ctx.data = dBRfull(l.agendamento.data); if (l.agendamento.exame) ctx.exame = l.agendamento.exame; }
   return ctx;
 }
-function janelaAberta() { var t = horaBelem(); return t.h >= M.LIMITES.janelaInicioH && t.h < M.LIMITES.janelaFimH; }
 function filtrarLeads(lista) {
   var q = S.q.trim().toLowerCase();
   return lista.filter(function (l) {
@@ -232,7 +231,7 @@ function telaRegras() {
         h('h3', { class: 'h3', text: 'Prazos e limites' }),
         tabelaSimples(['Regra', 'Valor'], [
           ['Limite em Em aberto', L.aberto + ' dia'], ['Limite em Sem retorno', L.sem_retorno + ' dias'], ['Limite em Em negociação', L.negociacao + ' dias'],
-          ['Tentativas por dia (por lead)', 'máx. ' + L.tentativasPorDia], ['Horário de contato', L.janelaInicioH + 'h às ' + L.janelaFimH + 'h, sem exceção'],
+          ['Tentativas por dia (por lead)', 'máx. ' + L.tentativasPorDia], ['Horário de envio da IA CRM', L.janelaInicioH + 'h às ' + L.janelaFimH + 'h (a equipe contata a qualquer hora)'],
           ['Ligação obrigatória a partir de', 'orçamento acima de ' + brl(L.ligacaoAcimaDe)], ['Janela de reativação', L.reativacaoMinDias + ' a ' + L.reativacaoMaxDias + ' dias após o descarte']
         ]),
         h('h3', { class: 'h3 m', text: 'Motivos de descarte' }), h('div', { class: 'chips' }, M.MOTIVOS_DESCARTE.map(function (m) { return pill(m, 'pl-motivo'); })),
